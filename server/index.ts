@@ -12,6 +12,7 @@ import haloRoutes from './routes/halo';
 import calendarRoutes from './routes/calendar';
 import requestTemplateRoutes from './routes/requestTemplate';
 import { attachTranscribeWebSocket } from './ws/transcribe';
+import wardRoutes from './routes/ward';
 // Conversion scheduler disabled — was running in background for txt→docx→pdf
 // import { startScheduler } from './jobs/scheduler';
 
@@ -69,6 +70,7 @@ app.use('/api/drive', driveRoutes);
 app.use('/api/ai', aiLimiter, aiRoutes);
 app.use('/api/halo', aiLimiter, haloRoutes);
 app.use('/api/calendar', calendarRoutes);
+app.use('/api/ward', wardRoutes);
 app.use('/api/request-template', requestTemplateRoutes);
 
 // Health check
@@ -80,7 +82,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
 if (config.isProduction) {
   const staticPath = path.join(__dirname, '../../client/dist');
   app.use(express.static(staticPath));
-  app.get('*', (_req: Request, res: Response) => {
+  // Express 5 / path-to-regexp v8: bare '*' is invalid; use a named wildcard (see path-to-regexp migration).
+  app.get('/{*path}', (_req: Request, res: Response) => {
     res.sendFile('index.html', { root: staticPath });
   });
 }
