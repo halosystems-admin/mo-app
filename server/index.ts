@@ -18,6 +18,9 @@ import wardRoutes from './routes/ward';
 
 const app = express();
 
+// Heroku (and other reverse proxies) set X-Forwarded-*; required for express-rate-limit and correct req.ip.
+app.set('trust proxy', 1);
+
 // --- Global Rate Limiter ---
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
