@@ -11,7 +11,11 @@
     "build:server": "tsc",
     "build:client": "cd client && npm run build",
     "start": "node dist/server/index.js",
+    "heroku-postbuild": "npm install --include=dev && cd client && npm install --include=dev && cd .. && npm run build",
     "test:calendar": "ts-node server/tests/calendar-normalise.test.ts"
+  },
+  "engines": {
+    "node": "20.x"
   },
   "keywords": [],
   "author": "",
