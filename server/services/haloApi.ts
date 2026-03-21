@@ -38,6 +38,8 @@ export interface HaloNote {
   noteId: string;
   title: string;
   content: string;
+  /** Raw upstream note payload for debug/raw JSON rendering. */
+  raw?: unknown;
   template_id: string;
   lastSavedAt?: string;
   dirty?: boolean;
@@ -93,10 +95,11 @@ function fieldsToContent(fields: NoteField[]): string {
 /** Normalize upstream response to array of HaloNote. Handles various shapes from Halo webhook. */
 function normalizeNotesResponse(data: unknown, templateId: string): HaloNote[] {
   const now = new Date().toISOString();
-  const oneNote = (content: string, title = 'Note 1', fields?: NoteField[]): HaloNote => ({
+  const oneNote = (content: string, title = 'Note 1', fields?: NoteField[], raw?: unknown): HaloNote => ({
     noteId: `note-0-${Date.now()}`,
     title,
     content,
+    ...(raw !== undefined ? { raw } : {}),
     template_id: templateId,
     lastSavedAt: now,
     dirty: false,
@@ -106,22 +109,36 @@ function normalizeNotesResponse(data: unknown, templateId: string): HaloNote[] {
   if (data == null) return [];
 
   if (typeof data === 'string' && data.trim()) {
-    return [oneNote(data.trim())];
+    return [oneNote(data.trim(), 'Note 1', undefined, data)];
   }
 
   if (Array.isArray(data)) {
     return data.map((item: any, i: number) => {
       const fields = extractFieldsFromNoteData(item);
-      const content = typeof item.content === 'string' ? item.content : (item.text ?? item.note ?? item.body ?? '');
-      const finalContent = content || (fields ? fieldsToContent(fields) : String(item));
+      const nestedObject =
+        (item?.result && typeof item.result === 'object' ? item.result : null) ??
+        (item?.generated_note && typeof item.generated_note === 'object' ? item.generated_note : null) ??
+        (item?.output && typeof item.output === 'object' ? item.output : null);
+      const nestedFields = nestedObject ? extractFieldsFromNoteData(nestedObject) : null;
+      const content =
+        (typeof item.content === 'string' ? item.content : '') ||
+        (typeof item.note === 'string' ? item.note : '') ||
+        (typeof item.body === 'string' ? item.body : '') ||
+        (typeof item.generated_note === 'string' ? item.generated_note : '') ||
+        (typeof item.output === 'string' ? item.output : '') ||
+        (typeof item.result === 'string' ? item.result : '') ||
+        // Keep transcript-like text as last fallback only.
+        (typeof item.text === 'string' ? item.text : '');
+      const effectiveFields = fields ?? nestedFields;
       return {
         noteId: item.noteId ?? item.id ?? `note-${i}-${Date.now()}`,
         title: item.title ?? item.name ?? `Note ${i + 1}`,
-        content: finalContent,
+        content: content || (effectiveFields ? fieldsToContent(effectiveFields) : String(item)),
+        raw: item?.raw ?? item,
         template_id: item.template_id ?? item.templateId ?? templateId,
         lastSavedAt: item.lastSavedAt ?? now,
         dirty: false,
-        ...(fields && fields.length > 0 ? { fields } : {}),
+        ...(effectiveFields && effectiveFields.length > 0 ? { fields: effectiveFields } : {}),
       };
     }).filter(n => n.content.length > 0);
   }
@@ -150,7 +167,7 @@ function normalizeNotesResponse(data: unknown, templateId: string): HaloNote[] {
   if (fields && fields.length > 0) {
     const content = fieldsToContent(fields);
     const title = (obj.title as string) ?? (obj.name as string) ?? 'Note 1';
-    return [oneNote(content, title, fields)];
+    return [oneNote(content, title, fields, obj.raw ?? obj)];
   }
 
   const content =
@@ -164,7 +181,7 @@ function normalizeNotesResponse(data: unknown, templateId: string): HaloNote[] {
     obj.note_content ??
     obj.message;
   if (typeof content === 'string' && content.trim()) {
-    return [oneNote(content.trim(), (obj.title as string) ?? (obj.name as string) ?? 'Note 1')];
+    return [oneNote(content.trim(), (obj.title as string) ?? (obj.name as string) ?? 'Note 1', undefined, obj.raw ?? obj)];
   }
 
   // Unrecognized shape: log so we can extend the normalizer for the real HALO response
@@ -249,5 +266,8 @@ export async function generateNote(params: GenerateNoteParams): Promise<HaloNote
   }
 
   const data = (await res.json()) as unknown;
-  return normalizeNotesResponse(data, params.template_id);
+  const notes = normalizeNotesResponse(data, params.template_id);
+  // Always pin raw = the original HALO API response so the client can render
+  // actual clinical fields (not the normalized wrapper keys).
+  return notes.map((n) => ({ ...n, raw: data }));
 }

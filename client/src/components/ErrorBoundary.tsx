@@ -47,7 +47,7 @@ export class ErrorBoundary extends React.Component<
             <div className="flex gap-3 justify-center">
               <button
                 onClick={this.handleReset}
-                className="flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-semibold transition shadow-md"
+                className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold transition shadow-md"
               >
                 <RotateCcw size={16} /> Try Again
               </button>

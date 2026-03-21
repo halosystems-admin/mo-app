@@ -3,15 +3,122 @@ import nodemailer from 'nodemailer';
 import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
 import { getTemplates, generateNote } from '../services/haloApi';
-import { getOrCreatePatientNotesFolder, uploadToDrive } from '../services/drive';
+import { getStorageAdapter } from '../services/storage';
 
 const router = Router();
 router.use(requireAuth);
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const PDF_MIME = 'application/pdf';
+const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
 
 function isSmtpConfigured(): boolean {
   return Boolean(config.smtpHost && config.smtpUser && config.smtpPass);
+}
+
+async function convertDocxBufferToPdfBuffer(token: string, docxBuffer: Buffer): Promise<Buffer> {
+  const importMetadata = JSON.stringify({
+    name: `halo_preview_${Date.now()}`,
+    mimeType: GOOGLE_DOC_MIME,
+  });
+  const boundary = `halo_preview_${crypto.randomUUID()}`;
+  const importBody = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${importMetadata}\r\n` +
+      `--${boundary}\r\nContent-Type: ${DOCX_MIME}\r\n\r\n`
+    ),
+    docxBuffer,
+    Buffer.from(`\r\n--${boundary}--`),
+  ]);
+
+  const importRes = await fetch(`${config.uploadApi}/files?uploadType=multipart`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body: importBody,
+  });
+  if (!importRes.ok) {
+    const body = await importRes.text().catch(() => '');
+    throw new Error(`Failed to import DOCX for preview (${importRes.status}). ${body}`);
+  }
+
+  const imported = (await importRes.json()) as { id: string };
+  try {
+    const pdfRes = await fetch(
+      `${config.driveApi}/files/${imported.id}/export?mimeType=${encodeURIComponent(PDF_MIME)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!pdfRes.ok) {
+      const body = await pdfRes.text().catch(() => '');
+      throw new Error(`Failed to export PDF preview (${pdfRes.status}). ${body}`);
+    }
+    return Buffer.from(await pdfRes.arrayBuffer());
+  } finally {
+    try {
+      await fetch(`${config.driveApi}/files/${imported.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // Best-effort cleanup for temp file.
+    }
+  }
+}
+
+function getMicrosoftDriveBase(storageMode?: 'onedrive' | 'sharepoint'): string {
+  if (storageMode === 'sharepoint') {
+    if (!config.msSharePointSiteId || !config.msSharePointDriveId) {
+      throw new Error('SharePoint is not configured (MS_SHAREPOINT_SITE_ID/MS_SHAREPOINT_DRIVE_ID).');
+    }
+    return `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(config.msSharePointSiteId)}/drives/${encodeURIComponent(config.msSharePointDriveId)}`;
+  }
+  return 'https://graph.microsoft.com/v1.0/me/drive';
+}
+
+async function convertDocxBufferToPdfBufferMicrosoft(
+  token: string,
+  docxBuffer: Buffer,
+  storageMode?: 'onedrive' | 'sharepoint'
+): Promise<Buffer> {
+  const driveBase = getMicrosoftDriveBase(storageMode);
+  const tempName = `halo_preview_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.docx`;
+  const uploadUrl = `${driveBase}/root:/${encodeURIComponent(tempName)}:/content`;
+
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': DOCX_MIME,
+    },
+    body: docxBuffer,
+  });
+  if (!uploadRes.ok) {
+    const body = await uploadRes.text().catch(() => '');
+    throw new Error(`Failed to upload DOCX for Microsoft preview (${uploadRes.status}). ${body}`);
+  }
+  const uploaded = (await uploadRes.json()) as { id: string };
+
+  try {
+    const pdfRes = await fetch(`${driveBase}/items/${encodeURIComponent(uploaded.id)}/content?format=pdf`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!pdfRes.ok) {
+      const body = await pdfRes.text().catch(() => '');
+      throw new Error(`Failed to convert DOCX to PDF via Microsoft Graph (${pdfRes.status}). ${body}`);
+    }
+    return Buffer.from(await pdfRes.arrayBuffer());
+  } finally {
+    try {
+      await fetch(`${driveBase}/items/${encodeURIComponent(uploaded.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // Best-effort cleanup for temp file.
+    }
+  }
 }
 
 // POST /api/halo/templates
@@ -66,23 +173,79 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     }
 
     const token = req.session.accessToken;
-    const patientNotesFolderId = await getOrCreatePatientNotesFolder(token, patientId);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const patientNotesFolderId = await adapter.getOrCreatePatientNotesFolder({
+      token,
+      patientFolderId: patientId,
+      microsoftStorageMode,
+    });
     const baseName = fileName && fileName.trim() ? fileName.replace(/\.docx$/i, '') : `Clinical_Note_${new Date().toISOString().split('T')[0]}`;
     const finalFileName = baseName.endsWith('.docx') ? baseName : `${baseName}.docx`;
 
-    const fileId = await uploadToDrive(
+    const uploaded = await adapter.uploadFile({
       token,
-      finalFileName,
-      DOCX_MIME,
-      patientNotesFolderId,
-      buffer
-    );
+      parentFolderId: patientNotesFolderId,
+      fileName: finalFileName,
+      fileType: DOCX_MIME,
+      base64Data: buffer.toString('base64'),
+      microsoftStorageMode,
+    });
 
-    res.json({ success: true, fileId, name: finalFileName });
+    res.json({ success: true, fileId: uploaded.id, name: uploaded.name });
   } catch (err) {
     console.error('[Halo] generate-note error:', err);
     const message = err instanceof Error ? err.message : 'Note generation failed.';
     const status = message.includes('502') ? 502 : message.includes('404') ? 404 : message.includes('Invalid') ? 400 : message.includes('too long') ? 504 : 500;
+    res.status(status).json({ error: message });
+  }
+});
+
+// POST /api/halo/generate-preview-pdf
+// Body: { user_id?, template_id?, text, useMobileConfig? }
+// Generates a DOCX with Halo and converts to PDF for in-app preview only (no Drive save).
+router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
+  try {
+    const { user_id, template_id, text, useMobileConfig } = req.body as {
+      user_id?: string;
+      template_id?: string;
+      text: string;
+      useMobileConfig?: boolean;
+    };
+
+    if (typeof text !== 'string' || !text.trim()) {
+      res.status(400).json({ error: 'text is required.' });
+      return;
+    }
+    if (!req.session.accessToken) {
+      res.status(401).json({ error: 'Not authenticated.' });
+      return;
+    }
+    const userId = useMobileConfig ? config.haloMobileUserId : (user_id || config.haloUserId);
+    const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || 'clinical_note');
+
+    const docx = await generateNote({
+      user_id: userId,
+      template_id: templateId,
+      text,
+      return_type: 'docx',
+    });
+    let pdfBuffer: Buffer;
+    if (req.session.provider === 'microsoft') {
+      pdfBuffer = await convertDocxBufferToPdfBufferMicrosoft(
+        req.session.accessToken,
+        docx as Buffer,
+        req.session.microsoftStorageMode
+      );
+    } else {
+      pdfBuffer = await convertDocxBufferToPdfBuffer(req.session.accessToken, docx as Buffer);
+    }
+    res.json({ pdfBase64: pdfBuffer.toString('base64') });
+  } catch (err) {
+    console.error('[Halo] generate-preview-pdf error:', err);
+    const message = err instanceof Error ? err.message : 'Preview generation failed.';
+    const status = message.includes('Invalid') ? 400 : message.includes('404') ? 404 : message.includes('502') ? 502 : 500;
     res.status(status).json({ error: message });
   }
 });
@@ -120,20 +283,28 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
 
     const buffer = result as Buffer;
     const token = req.session.accessToken;
-    const patientNotesFolderId = await getOrCreatePatientNotesFolder(token, patientId);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const patientNotesFolderId = await adapter.getOrCreatePatientNotesFolder({
+      token,
+      patientFolderId: patientId,
+      microsoftStorageMode,
+    });
     const baseName =
       fileName && fileName.trim()
         ? fileName.replace(/\.docx$/i, '')
         : `Report_${new Date().toISOString().split('T')[0]}`;
     const finalFileName = baseName.endsWith('.docx') ? baseName : `${baseName}.docx`;
 
-    const fileId = await uploadToDrive(
+    const uploaded = await adapter.uploadFile({
       token,
-      finalFileName,
-      DOCX_MIME,
-      patientNotesFolderId,
-      buffer
-    );
+      parentFolderId: patientNotesFolderId,
+      fileName: finalFileName,
+      fileType: DOCX_MIME,
+      base64Data: buffer.toString('base64'),
+      microsoftStorageMode,
+    });
 
     let emailSent = false;
     const toEmail = req.session.userEmail;
@@ -160,7 +331,7 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
       }
     }
 
-    res.json({ success: true, fileId, name: finalFileName, emailSent });
+    res.json({ success: true, fileId: uploaded.id, name: finalFileName, emailSent });
   } catch (err) {
     console.error('Halo confirm-and-send error:', err);
     const message = err instanceof Error ? err.message : 'Confirm and send failed.';

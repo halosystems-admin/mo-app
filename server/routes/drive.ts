@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
+import { getStorageAdapter } from '../services/storage';
 import {
   driveRequest,
   getHaloRootFolder,
@@ -47,56 +48,32 @@ function invalidateFilesCacheForFolder(folderId: string): void {
   }
 }
 
+/** Express 5 types dynamic segments as `string | string[]`. */
+function routeParam(value: string | string[] | undefined): string {
+  if (value == null) return '';
+  return Array.isArray(value) ? value[0] ?? '' : value;
+}
+
 // --- Routes ---
 
 // GET /patients?page=<token>&pageSize=<number>
 router.get('/patients', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
-
-    const rootId = await getHaloRootFolder(token);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
 
     const pageSize = Math.min(Number(req.query.pageSize) || DEFAULT_PAGE_SIZE, 100);
     const pageToken = typeof req.query.page === 'string' ? req.query.page : undefined;
 
-    let url = `/files?q=${encodeURIComponent(
-      `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`
-    )}&fields=files(id,name,appProperties,createdTime),nextPageToken&pageSize=${pageSize}`;
+    const { patients, nextPage } = await adapter.listPatients({
+      token,
+      page: pageToken,
+      pageSize,
+      microsoftStorageMode,
+    });
 
-    if (pageToken) {
-      url += `&pageToken=${encodeURIComponent(pageToken)}`;
-    }
-
-    const data = await driveRequest(token, url);
-    const patients = (data.files || []).map(parsePatientFolder);
-
-    // Auto-heal: update appProperties if folder name was changed in Drive
-    for (const f of data.files || []) {
-      if (!f.name.includes('__')) continue;
-      const parsed = parseFolderString(f.name);
-      if (!parsed) continue;
-      const storedName = f.appProperties?.patientName;
-      const storedDob = f.appProperties?.patientDob;
-      const storedSex = f.appProperties?.patientSex;
-      if (parsed.pName !== storedName || parsed.pDob !== storedDob || parsed.pSex !== storedSex) {
-        fetch(`${driveApi}/files/${f.id}`, {
-          method: 'PATCH',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            appProperties: {
-              patientName: parsed.pName,
-              patientDob: parsed.pDob,
-              patientSex: parsed.pSex,
-            },
-          }),
-        }).catch(() => {});
-      }
-    }
-
-    res.json({ patients, nextPage: data.nextPageToken || null });
+    res.json({ patients, nextPage });
   } catch (err) {
     console.error('Fetch patients error:', err);
     res.status(500).json({ error: 'Failed to fetch patients.' });
@@ -161,36 +138,18 @@ router.post('/patients', async (req: Request, res: Response) => {
     }
 
     const token = req.session.accessToken!;
-    const rootId = await getHaloRootFolder(token);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    const createRes = await fetch(`${driveApi}/files`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: `${name}__${dob}__${sex}`,
-        parents: [rootId],
-        mimeType: 'application/vnd.google-apps.folder',
-        appProperties: {
-          type: 'patient_folder',
-          patientName: name,
-          patientDob: dob,
-          patientSex: sex,
-        },
-      }),
-    });
-
-    const folder = (await createRes.json()) as { id: string };
-    res.json({
-      id: folder.id,
+    const patient = await adapter.createPatient({
+      token,
       name,
       dob,
       sex,
-      lastVisit: new Date().toISOString().split('T')[0],
-      alerts: [],
+      microsoftStorageMode,
     });
+
+    res.json(patient);
   } catch (err) {
     console.error('Create patient error:', err);
     res.status(500).json({ error: 'Failed to create patient.' });
@@ -201,7 +160,7 @@ router.post('/patients', async (req: Request, res: Response) => {
 router.patch('/patients/:id', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
 
     const name = req.body.name ? sanitizeString(req.body.name) : undefined;
     const dob = req.body.dob ? sanitizeString(req.body.dob) : undefined;
@@ -220,40 +179,16 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    const current = await driveRequest(token, `/files/${id}?fields=name,appProperties`);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    let currentName = current.appProperties?.patientName;
-    let currentDob = current.appProperties?.patientDob;
-    let currentSex = current.appProperties?.patientSex;
-
-    const needsParsing = !currentName || currentName === 'Unknown' || currentName?.includes('_');
-    if (needsParsing && current.name?.includes('__')) {
-      const parsed = parseFolderString(current.name);
-      if (parsed) {
-        currentName = parsed.pName;
-        currentDob = parsed.pDob;
-        currentSex = parsed.pSex;
-      }
-    }
-
-    const finalName = name || currentName || 'Unknown';
-    const finalDob = dob || currentDob || 'Unknown';
-    const finalSex = sex || currentSex || 'M';
-
-    await fetch(`${driveApi}/files/${id}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: `${finalName}__${finalDob}__${finalSex}`,
-        appProperties: {
-          patientName: finalName,
-          patientDob: finalDob,
-          patientSex: finalSex,
-        },
-      }),
+    await adapter.updatePatient({
+      token,
+      patientId: id,
+      name,
+      dob,
+      sex,
+      microsoftStorageMode,
     });
 
     res.json({ success: true });
@@ -267,13 +202,14 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
 router.delete('/patients/:id', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
-    await fetch(`${driveApi}/files/${req.params.id}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ trashed: true }),
+
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    await adapter.trashPatient({
+      token,
+      patientId: routeParam(req.params.id),
+      microsoftStorageMode,
     });
     res.json({ success: true });
   } catch (err) {
@@ -293,29 +229,17 @@ router.post('/patients/:id/folder', async (req: Request, res: Response) => {
       return;
     }
 
-    const createRes = await fetch(`${driveApi}/files`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name,
-        parents: [req.params.id],
-        mimeType: 'application/vnd.google-apps.folder',
-      }),
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const folder = await adapter.createFolder({
+      token,
+      parentFolderId: Array.isArray(req.params.id) ? req.params.id[0] : req.params.id,
+      name,
+      microsoftStorageMode,
     });
 
-    const folder = (await createRes.json()) as { id: string; name: string; mimeType: string; createdTime?: string };
-    const parentId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    invalidateFilesCacheForFolder(parentId);
-    res.json({
-      id: folder.id,
-      name: folder.name,
-      mimeType: folder.mimeType,
-      url: '',
-      createdTime: folder.createdTime?.split('T')[0] ?? new Date().toISOString().split('T')[0],
-    });
+    res.json(folder);
   } catch (err) {
     console.error('Create folder error:', err);
     res.status(500).json({ error: 'Failed to create folder.' });
@@ -327,57 +251,22 @@ router.get('/patients/:id/files', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
     const folderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
     const pageSize = Math.min(Number(req.query.pageSize) || DEFAULT_PAGE_SIZE, 100);
     const pageToken = typeof req.query.page === 'string' ? req.query.page : undefined;
 
-    // First page only: serve from cache if fresh (avoids hitting Drive on repeat views)
-    if (!pageToken) {
-      const cacheKey = `${folderId}:${pageSize}`;
-      const cached = filesListCache.get(cacheKey);
-      if (cached && Date.now() - cached.cachedAt < FILES_CACHE_TTL_MS) {
-        return res.json({ files: cached.files, nextPage: cached.nextPage });
-      }
-    }
+    const { files, nextPage } = await adapter.listFolderFiles({
+      token,
+      folderId,
+      page: pageToken,
+      pageSize,
+      microsoftStorageMode,
+    });
 
-    // Minimal fields for list: omit thumbnailLink to speed up Drive API response
-    let url = `/files?q=${encodeURIComponent(
-      `'${folderId}' in parents and trashed=false`
-    )}&fields=files(id,name,mimeType,webViewLink,createdTime),nextPageToken&pageSize=${pageSize}`;
-
-    if (pageToken) {
-      url += `&pageToken=${encodeURIComponent(pageToken)}`;
-    }
-
-    const start = Date.now();
-    const data = await driveRequest(token, url);
-    const elapsed = Date.now() - start;
-    if (elapsed > 3000) {
-      console.warn(`[Drive] Slow files list: ${elapsed}ms for folder ${folderId.slice(0, 8)}…`);
-    }
-
-    const files = (data.files || [])
-      .filter((f) => f.name !== SESSIONS_FILE_NAME)
-      .map((f) => ({
-      id: f.id,
-      name: f.name,
-      mimeType: f.mimeType,
-      url: f.webViewLink ?? '',
-      thumbnail: undefined,
-      createdTime: f.createdTime?.split('T')[0] ?? '',
-    }));
-
-    // Cache first page for repeat views
-    if (!pageToken) {
-      const cacheKey = `${folderId}:${pageSize}`;
-      filesListCache.set(cacheKey, { files, nextPage: data.nextPageToken || null, cachedAt: Date.now() });
-      // Keep cache bounded (e.g. last 50 entries)
-      if (filesListCache.size > 50) {
-        const oldest = [...filesListCache.entries()].sort((a, b) => a[1].cachedAt - b[1].cachedAt)[0];
-        if (oldest) filesListCache.delete(oldest[0]);
-      }
-    }
-
-    res.json({ files, nextPage: data.nextPageToken || null });
+    res.json({ files, nextPage });
   } catch (err) {
     console.error('Fetch files error:', err);
     res.status(500).json({ error: 'Failed to fetch files.' });
@@ -394,81 +283,15 @@ router.post('/patients/:id/warm-and-list', async (req: Request, res: Response) =
     const token = req.session.accessToken!;
     const folderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const pageSize = Math.min(Number(req.query.pageSize) || DEFAULT_PAGE_SIZE, 100);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    const listUrl = `/files?q=${encodeURIComponent(
-      `'${folderId}' in parents and trashed=false`
-    )}&fields=files(id,name,mimeType,webViewLink,createdTime),nextPageToken&pageSize=${pageSize}`;
-
-    let tempFileId: string | null = null;
-
-    // Try warm upload first (can help with Drive API cold start)
-    try {
-      const warmFileName = `.halo-warm-${Date.now()}.tmp`;
-      const warmContentBase64 = Buffer.from(' ', 'utf8').toString('base64');
-      const boundary = 'halo_warm_boundary';
-      const metadata = { name: warmFileName, parents: [folderId], mimeType: 'text/plain' };
-      const multipartBody = Buffer.from(
-        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
-        `--${boundary}\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n${warmContentBase64}\r\n` +
-        `--${boundary}--`
-      );
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), WARM_UPLOAD_TIMEOUT_MS);
-
-      const uploadRes = await fetch(`${uploadApi}/files?uploadType=multipart`, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/related; boundary=${boundary}`,
-        },
-        body: multipartBody,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (uploadRes.ok) {
-        const created = (await uploadRes.json()) as { id: string };
-        tempFileId = created.id;
-      }
-    } catch (warmErr) {
-      // Warm upload failed or timed out — fall through to direct list (driveRequest has its own timeout)
-      console.warn('[warm-and-list] Warm upload skipped:', warmErr instanceof Error ? warmErr.message : warmErr);
-    }
-
-    // List files (driveRequest has 25s timeout)
-    const data = await driveRequest(token, listUrl);
-
-    // Best-effort delete of temp file if we created one
-    if (tempFileId) {
-      fetch(`${driveApi}/files/${tempFileId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
-    }
-
-    const rawFiles = (data.files || []).filter(
-      (f) =>
-        (f.name !== SESSIONS_FILE_NAME) &&
-        !(f.name.startsWith('.halo-warm-') && f.name.endsWith('.tmp'))
-    );
-    const files = rawFiles.map((f) => ({
-      id: f.id,
-      name: f.name,
-      mimeType: f.mimeType,
-      url: f.webViewLink ?? '',
-      thumbnail: undefined,
-      createdTime: f.createdTime?.split('T')[0] ?? '',
-    }));
-
-    const nextPage = data.nextPageToken || null;
-    const cacheKey = `${folderId}:${pageSize}`;
-    filesListCache.set(cacheKey, { files, nextPage, cachedAt: Date.now() });
-    if (filesListCache.size > 50) {
-      const oldest = [...filesListCache.entries()].sort((a, b) => a[1].cachedAt - b[1].cachedAt)[0];
-      if (oldest) filesListCache.delete(oldest[0]);
-    }
+    const { files, nextPage } = await adapter.warmAndListFolderFiles({
+      token,
+      folderId,
+      pageSize,
+      microsoftStorageMode,
+    });
 
     res.json({ files, nextPage });
   } catch (err) {
@@ -504,51 +327,21 @@ router.post('/patients/:id/upload', async (req: Request, res: Response) => {
       return;
     }
 
-    const metadata = {
-      name: fileName,
-      parents: [req.params.id],
-      mimeType: fileType,
-    };
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    const boundary = 'halo_upload_boundary';
-    const metaPart = JSON.stringify(metadata);
+    const parentFolderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
-    const multipartBody = Buffer.from(
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaPart}\r\n` +
-      `--${boundary}\r\nContent-Type: ${fileType}\r\nContent-Transfer-Encoding: base64\r\n\r\n` +
-      `${fileData}\r\n` +
-      `--${boundary}--`
-    );
-
-    const uploadRes = await fetch(
-      `${uploadApi}/files?uploadType=multipart`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/related; boundary=${boundary}`,
-        },
-        body: multipartBody,
-      }
-    );
-
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      console.error('Drive upload failed:', uploadRes.status, errText);
-      res.status(500).json({ error: 'Google Drive upload failed.' });
-      return;
-    }
-
-    const data = (await uploadRes.json()) as { id: string; name: string; mimeType: string; webViewLink?: string };
-    const uploadFolderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    invalidateFilesCacheForFolder(uploadFolderId);
-    res.json({
-      id: data.id,
-      name: data.name,
-      mimeType: data.mimeType,
-      url: data.webViewLink ?? '',
-      createdTime: new Date().toISOString().split('T')[0],
+    const uploaded = await adapter.uploadFile({
+      token,
+      parentFolderId,
+      fileName,
+      fileType,
+      base64Data: fileData,
+      microsoftStorageMode,
     });
+
+    res.json(uploaded);
   } catch (err) {
     console.error('Upload error:', err);
     res.status(500).json({ error: 'Failed to upload file.' });
@@ -566,13 +359,13 @@ router.patch('/files/:fileId', async (req: Request, res: Response) => {
       return;
     }
 
-    await fetch(`${driveApi}/files/${req.params.fileId}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ name }),
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+    await adapter.renameFile({
+      token,
+      fileId: routeParam(req.params.fileId),
+      newName: name,
+      microsoftStorageMode,
     });
 
     res.json({ success: true });
@@ -586,13 +379,13 @@ router.patch('/files/:fileId', async (req: Request, res: Response) => {
 router.delete('/files/:fileId', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
-    await fetch(`${driveApi}/files/${req.params.fileId}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ trashed: true }),
+
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+    await adapter.trashFile({
+      token,
+      fileId: routeParam(req.params.fileId),
+      microsoftStorageMode,
     });
     res.json({ success: true });
   } catch (err) {
@@ -605,17 +398,17 @@ router.delete('/files/:fileId', async (req: Request, res: Response) => {
 router.get('/files/:fileId/download', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
-    const data = await driveRequest(
-      token,
-      `/files/${req.params.fileId}?fields=webContentLink,webViewLink,name,mimeType`
-    );
 
-    res.json({
-      downloadUrl: (data as Record<string, unknown>).webContentLink || '',
-      viewUrl: (data as Record<string, unknown>).webViewLink || '',
-      name: data.name ?? '',
-      mimeType: data.mimeType ?? '',
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const info = await adapter.downloadFileInfo({
+      token,
+      fileId: routeParam(req.params.fileId),
+      microsoftStorageMode,
     });
+
+    res.json(info);
   } catch (err) {
     console.error('Download file error:', err);
     res.status(500).json({ error: 'Failed to get download link.' });
@@ -626,51 +419,19 @@ router.get('/files/:fileId/download', async (req: Request, res: Response) => {
 router.get('/files/:fileId/proxy', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
-    const fileId = req.params.fileId;
+    const fileId = routeParam(req.params.fileId);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    // Get file metadata first
-    const meta = await driveRequest(token, `/files/${fileId}?fields=name,mimeType`);
-    const mimeType = meta.mimeType ?? 'application/octet-stream';
-    const name = meta.name ?? 'file';
+    const proxy = await adapter.proxyFile({
+      token,
+      fileId,
+      microsoftStorageMode,
+    });
 
-    let contentResponse: globalThis.Response;
-
-    // Google Workspace files need export, not direct download
-    if (mimeType === 'application/vnd.google-apps.document') {
-      contentResponse = await fetch(
-        `${config.driveApi}/files/${fileId}/export?mimeType=application/pdf`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-    } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-      contentResponse = await fetch(
-        `${config.driveApi}/files/${fileId}/export?mimeType=application/pdf`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-    } else if (mimeType === 'application/vnd.google-apps.presentation') {
-      contentResponse = await fetch(
-        `${config.driveApi}/files/${fileId}/export?mimeType=application/pdf`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-    } else {
-      contentResponse = await fetch(
-        `${config.driveApi}/files/${fileId}?alt=media`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      res.setHeader('Content-Type', mimeType);
-    }
-
-    if (!contentResponse.ok) {
-      res.status(contentResponse.status).json({ error: 'Failed to fetch file content.' });
-      return;
-    }
-
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
-
-    const arrayBuffer = await contentResponse.arrayBuffer();
-    res.send(Buffer.from(arrayBuffer));
+    res.setHeader('Content-Type', proxy.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(proxy.filename)}"`);
+    res.send(proxy.data);
   } catch (err) {
     console.error('File proxy error:', err);
     res.status(500).json({ error: 'Failed to proxy file.' });
@@ -684,25 +445,16 @@ router.get('/patients/:id/sessions', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
     const folderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const fileId = await findSessionsFile(token, folderId);
 
-    if (!fileId) {
-      res.json({ sessions: [] });
-      return;
-    }
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    const dlRes = await fetch(`${driveApi}/files/${fileId}?alt=media`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const { sessions } = await adapter.getPatientSessions({
+      token,
+      patientFolderId: folderId,
+      microsoftStorageMode,
     });
 
-    if (!dlRes.ok) {
-      console.error('Load sessions error: failed to download sessions file', dlRes.status);
-      res.status(500).json({ error: 'Failed to load sessions.' });
-      return;
-    }
-
-    const raw = (await dlRes.json()) as unknown;
-    const sessions = parseSessionsJson(raw);
     res.json({ sessions });
   } catch (err) {
     console.error('Load sessions error:', err);
@@ -742,11 +494,36 @@ router.post('/patients/:id/sessions', async (req: Request, res: Response) => {
     const notes = Array.isArray(notesRaw)
       ? notesRaw.slice(0, 20).map((n: unknown) => {
           const o = n && typeof n === 'object' ? (n as Record<string, unknown>) : {};
+          const fields = Array.isArray(o.fields)
+            ? o.fields
+                .slice(0, 100)
+                .map((f: unknown) => {
+                  const fo = f && typeof f === 'object' ? (f as Record<string, unknown>) : {};
+                  return {
+                    label: String(fo.label ?? '').slice(0, 200),
+                    body: String(fo.body ?? '').slice(0, 20000),
+                  };
+                })
+                .filter((f) => f.label.length > 0)
+            : undefined;
+          let raw: unknown;
+          if (o.raw !== undefined) {
+            try {
+              const s = JSON.stringify(o.raw);
+              if (typeof s === 'string' && s.length <= 200_000) {
+                raw = JSON.parse(s);
+              }
+            } catch {
+              raw = undefined;
+            }
+          }
           return {
             noteId: String(o.noteId ?? ''),
             title: String(o.title ?? ''),
             content: String(o.content ?? '').slice(0, 100000),
             template_id: String(o.template_id ?? ''),
+            ...(raw !== undefined ? { raw } : {}),
+            ...(fields && fields.length > 0 ? { fields } : {}),
           };
         })
       : undefined;
@@ -761,83 +538,23 @@ router.post('/patients/:id/sessions', async (req: Request, res: Response) => {
     const sessionId =
       providedId ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-    const newSession: ScribeSession = {
-      id: sessionId,
-      patientId: folderId,
-      createdAt: nowIso,
-      transcript,
-      context,
-      templates,
-      noteTitles,
-      notes,
-      mainComplaint: mainComplaint || undefined,
-    };
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    const existingFileId = await findSessionsFile(token, folderId);
-    let sessions: ScribeSession[] = [];
-
-    if (existingFileId) {
-      try {
-        const dlRes = await fetch(`${driveApi}/files/${existingFileId}?alt=media`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (dlRes.ok) {
-          const raw = (await dlRes.json()) as unknown;
-          sessions = parseSessionsJson(raw);
-        }
-      } catch (err) {
-        console.warn('Read existing sessions failed, starting fresh:', err);
-      }
-    }
-
-    if (providedId) {
-      const idx = sessions.findIndex((s) => s.id === providedId);
-      if (idx >= 0) {
-        sessions[idx] = newSession;
-      } else {
-        sessions.push(newSession);
-      }
-    } else {
-      sessions.push(newSession);
-    }
-    if (sessions.length > 30) {
-      sessions = sessions.slice(-30);
-    }
-
-    const content = JSON.stringify(sessions);
-
-    if (existingFileId) {
-      await fetch(`${uploadApi}/files/${existingFileId}?uploadType=media`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: content,
-      });
-    } else {
-      const metadata = {
-        name: SESSIONS_FILE_NAME,
-        parents: [folderId],
-        mimeType: 'application/json',
-      };
-      const boundary = 'halo_sessions_boundary';
-      const body = Buffer.from(
-        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(
-          metadata
-        )}\r\n` +
-          `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n` +
-          `--${boundary}--`
-      );
-      await fetch(`${uploadApi}/files?uploadType=multipart`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/related; boundary=${boundary}`,
-        },
-        body,
-      });
-    }
+    const { sessions } = await adapter.savePatientSessions({
+      token,
+      patientFolderId: folderId,
+      payload: {
+        sessionId,
+        transcript,
+        context,
+        templates,
+        noteTitles,
+        notes,
+        mainComplaint: mainComplaint || undefined,
+      },
+      microsoftStorageMode,
+    });
 
     res.json({ sessions });
   } catch (err) {
@@ -885,11 +602,25 @@ function parseSessionsJson(raw: unknown): ScribeSession[] {
           .slice(0, 20)
           .map((n: unknown) => {
             const o = n && typeof n === 'object' ? (n as Record<string, unknown>) : {};
+            const fields = Array.isArray(o.fields)
+              ? o.fields
+                  .slice(0, 100)
+                  .map((f: unknown) => {
+                    const fo = f && typeof f === 'object' ? (f as Record<string, unknown>) : {};
+                    return {
+                      label: String(fo.label ?? ''),
+                      body: String(fo.body ?? ''),
+                    };
+                  })
+                  .filter((f) => f.label.length > 0)
+              : undefined;
             return {
               noteId: String(o.noteId ?? ''),
               title: String(o.title ?? ''),
               content: String(o.content ?? ''),
               template_id: String(o.template_id ?? ''),
+              ...(o.raw !== undefined ? { raw: o.raw } : {}),
+              ...(fields && fields.length > 0 ? { fields } : {}),
             };
           })
         : undefined;
@@ -912,18 +643,10 @@ function parseSessionsJson(raw: unknown): ScribeSession[] {
 router.get('/settings', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
-    const rootId = await getHaloRootFolder(token);
-    const fileId = await findSettingsFile(token, rootId);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    if (!fileId) {
-      res.json({ settings: null });
-      return;
-    }
-
-    const dlRes = await fetch(`${driveApi}/files/${fileId}?alt=media`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const settings = await dlRes.json();
+    const { settings } = await adapter.getUserSettings({ token, microsoftStorageMode });
     res.json({ settings });
   } catch (err) {
     console.error('Load settings error:', err);
@@ -942,42 +665,9 @@ router.put('/settings', async (req: Request, res: Response) => {
       return;
     }
 
-    const rootId = await getHaloRootFolder(token);
-    const existingFileId = await findSettingsFile(token, rootId);
-    const content = JSON.stringify(settings);
-
-    if (existingFileId) {
-      // Update existing file
-      await fetch(`${uploadApi}/files/${existingFileId}?uploadType=media`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: content,
-      });
-    } else {
-      // Create new file
-      const metadata = {
-        name: SETTINGS_FILE_NAME,
-        parents: [rootId],
-        mimeType: 'application/json',
-      };
-      const boundary = 'halo_settings_boundary';
-      const body = Buffer.from(
-        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
-        `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n` +
-        `--${boundary}--`
-      );
-      await fetch(`${uploadApi}/files?uploadType=multipart`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/related; boundary=${boundary}`,
-        },
-        body,
-      });
-    }
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+    await adapter.saveUserSettings({ token, settings, microsoftStorageMode });
 
     res.json({ success: true });
   } catch (err) {

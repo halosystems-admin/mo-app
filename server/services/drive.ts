@@ -317,6 +317,9 @@ export async function extractTextFromFile(
   }
 }
 
+/** Internal app file — never include in AI/search/prep-note folder scans */
+const SCRIBE_SESSIONS_FILE_NAME = 'halo_scribe_sessions.json';
+
 /**
  * Recursively fetch all files in a Drive folder.
  */
@@ -339,6 +342,7 @@ export async function fetchAllFilesInFolder(
   const files = data.files || [];
 
   for (const file of files) {
+    if (file.name === SCRIBE_SESSIONS_FILE_NAME) continue;
     allFiles.push(file);
     if (file.mimeType === 'application/vnd.google-apps.folder') {
       const subFiles = await fetchAllFilesInFolder(token, file.id);

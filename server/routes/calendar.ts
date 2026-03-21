@@ -9,9 +9,68 @@ import {
   getEventById,
   updateEventAttachments,
 } from '../services/calendar';
+import {
+  listTodayEvents as listTodayMicrosoftEvents,
+  listEvents as listMicrosoftEvents,
+  createEvent as createMicrosoftEvent,
+  updateEvent as updateMicrosoftEvent,
+  deleteEvent as deleteMicrosoftEvent,
+  getEventById as getMicrosoftEventById,
+  updateEventAttachments as updateMicrosoftEventAttachments,
+} from '../services/calendar/microsoftCalendar';
 import { fetchAllFilesInFolder, extractTextFromFile } from '../services/drive';
 import { generateText } from '../services/gemini';
 import { summaryPrompt } from '../utils/prompts';
+import { getStorageAdapter } from '../services/storage';
+
+type Provider = 'google' | 'microsoft';
+
+async function enrichEventAttachments(
+  token: string,
+  provider: Provider,
+  events: Array<{
+    id: string;
+    attachments?: Array<{ fileId?: string; name?: string; url?: string; mimeType?: string }>;
+  }>,
+  microsoftStorageMode?: 'onedrive' | 'sharepoint'
+): Promise<typeof events> {
+  const adapter = getStorageAdapter(provider);
+  const enrichedEvents = await Promise.all(
+    events.map(async (ev) => {
+      if (!ev.attachments || ev.attachments.length === 0) return ev;
+
+      const enrichedAttachments = await Promise.all(
+        ev.attachments.map(async (att) => {
+          if (!att.fileId) return att;
+
+          // If the adapter already resolved metadata, keep it.
+          if (att.name && att.url && att.mimeType) return att;
+
+          try {
+            const info = await adapter.downloadFileInfo({
+              token,
+              fileId: att.fileId,
+              microsoftStorageMode,
+            });
+
+            return {
+              ...att,
+              name: info.name,
+              url: info.viewUrl,
+              mimeType: info.mimeType,
+            };
+          } catch {
+            return att;
+          }
+        })
+      );
+
+      return { ...ev, attachments: enrichedAttachments };
+    })
+  );
+
+  return enrichedEvents;
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -25,8 +84,16 @@ router.get('/today', async (req: Request, res: Response) => {
       return;
     }
 
-    const events = await listTodayEvents(token);
-    res.json({ events });
+    const provider = req.session.provider ?? 'google';
+    const events =
+      provider === 'microsoft' ? await listTodayMicrosoftEvents(token) : await listTodayEvents(token);
+    const enriched = await enrichEventAttachments(
+      token,
+      provider,
+      events,
+      req.session.microsoftStorageMode
+    );
+    res.json({ events: enriched });
   } catch (err) {
     console.error('Calendar today error:', err);
     res.status(500).json({ error: 'Failed to fetch today\u2019s events.' });
@@ -53,8 +120,18 @@ router.get('/events', async (req: Request, res: Response) => {
       return;
     }
 
-    const events = await listEvents(token, { timeMin: start, timeMax: end, timeZone });
-    res.json({ events });
+    const provider = req.session.provider ?? 'google';
+    const events =
+      provider === 'microsoft'
+        ? await listMicrosoftEvents(token, { timeMin: start, timeMax: end, timeZone })
+        : await listEvents(token, { timeMin: start, timeMax: end, timeZone });
+    const enriched = await enrichEventAttachments(
+      token,
+      provider,
+      events,
+      req.session.microsoftStorageMode
+    );
+    res.json({ events: enriched });
   } catch (err) {
     console.error('Calendar events range error:', err);
     res.status(500).json({ error: 'Failed to fetch calendar events.' });
@@ -71,13 +148,21 @@ router.get('/events/:id', async (req: Request, res: Response) => {
     }
 
     const eventId = req.params.id as string;
-    const event = await getEventById(token, eventId);
+    const provider = req.session.provider ?? 'google';
+    const event =
+      provider === 'microsoft' ? await getMicrosoftEventById(token, eventId) : await getEventById(token, eventId);
     if (!event) {
       res.status(404).json({ error: 'Event not found.' });
       return;
     }
 
-    res.json({ event });
+    const enriched = await enrichEventAttachments(
+      token,
+      provider,
+      [event as any],
+      req.session.microsoftStorageMode
+    );
+    res.json({ event: enriched[0] });
   } catch (err) {
     console.error('Calendar event fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch calendar event.' });
@@ -118,7 +203,20 @@ router.post('/events', async (req: Request, res: Response) => {
       return;
     }
 
-    const event = await createEvent(token, {
+    const provider = req.session.provider ?? 'google';
+    const event =
+      provider === 'microsoft'
+        ? await createMicrosoftEvent(token, {
+            title,
+            description,
+            start,
+            end,
+            timeZone,
+            location,
+            patientId,
+            attachmentFileIds,
+          })
+        : await createEvent(token, {
       title,
       description,
       start,
@@ -128,8 +226,13 @@ router.post('/events', async (req: Request, res: Response) => {
       patientId,
       attachmentFileIds,
     });
-
-    res.status(201).json({ event });
+    const enriched = await enrichEventAttachments(
+      token,
+      provider,
+      [event as any],
+      req.session.microsoftStorageMode
+    );
+    res.status(201).json({ event: enriched[0] });
   } catch (err) {
     console.error('Calendar create event error:', err);
     res.status(500).json({ error: 'Failed to create calendar event.' });
@@ -166,18 +269,36 @@ router.patch('/events/:id', async (req: Request, res: Response) => {
       attachmentFileIds?: string[];
     };
 
-    const event = await updateEvent(token, eventId, {
-      title,
-      description,
-      start,
-      end,
-      timeZone,
-      location,
-      patientId,
-      attachmentFileIds,
-    });
-
-    res.json({ event });
+    const provider = req.session.provider ?? 'google';
+    const event =
+      provider === 'microsoft'
+        ? await updateMicrosoftEvent(token, eventId, {
+            title,
+            description,
+            start,
+            end,
+            timeZone,
+            location,
+            patientId,
+            attachmentFileIds,
+          })
+        : await updateEvent(token, eventId, {
+            title,
+            description,
+            start,
+            end,
+            timeZone,
+            location,
+            patientId,
+            attachmentFileIds,
+          });
+    const enriched = await enrichEventAttachments(
+      token,
+      provider,
+      [event as any],
+      req.session.microsoftStorageMode
+    );
+    res.json({ event: enriched[0] });
   } catch (err) {
     console.error('Calendar update event error:', err);
     res.status(500).json({ error: 'Failed to update calendar event.' });
@@ -194,7 +315,9 @@ router.delete('/events/:id', async (req: Request, res: Response) => {
     }
 
     const eventId = req.params.id as string;
-    await deleteEvent(token, eventId);
+    const provider = req.session.provider ?? 'google';
+    if (provider === 'microsoft') await deleteMicrosoftEvent(token, eventId);
+    else await deleteEvent(token, eventId);
     res.status(204).send();
   } catch (err) {
     console.error('Calendar delete event error:', err);
@@ -219,8 +342,19 @@ router.post('/events/:id/attachments', async (req: Request, res: Response) => {
       return;
     }
 
-    const event = await updateEventAttachments(token, eventId, fileIds);
-    res.json({ event });
+    const provider = req.session.provider ?? 'google';
+    const event =
+      provider === 'microsoft'
+        ? await updateMicrosoftEventAttachments(token, eventId, fileIds)
+        : await updateEventAttachments(token, eventId, fileIds);
+
+    const enriched = await enrichEventAttachments(
+      token,
+      provider,
+      [event as any],
+      req.session.microsoftStorageMode
+    );
+    res.json({ event: enriched[0] });
   } catch (err) {
     console.error('Calendar update attachments error:', err);
     res.status(500).json({ error: 'Failed to update event attachments.' });

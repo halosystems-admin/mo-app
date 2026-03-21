@@ -3,7 +3,11 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // --- Required Environment Variables ---
-const REQUIRED_ENV = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GEMINI_API_KEY', 'SESSION_SECRET'] as const;
+const REQUIRED_ENV = ['GEMINI_API_KEY', 'SESSION_SECRET'] as const;
+
+// We require at least one OAuth provider to be configured.
+const missingGoogle = !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET;
+const missingMicrosoft = !process.env.MS_TENANT_ID || !process.env.MS_CLIENT_ID || !process.env.MS_CLIENT_SECRET;
 
 const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
 if (missing.length > 0) {
@@ -12,11 +16,24 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+if (missingGoogle && missingMicrosoft) {
+  console.error('Missing OAuth configuration: either Google or Microsoft must be set.');
+  process.exit(1);
+}
+
 // --- Validated Config Export ---
 export const config = {
   // Google OAuth
-  googleClientId: process.env.GOOGLE_CLIENT_ID!,
-  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+
+  // Microsoft OAuth (Graph)
+  msTenantId: process.env.MS_TENANT_ID || '',
+  msClientId: process.env.MS_CLIENT_ID || '',
+  msClientSecret: process.env.MS_CLIENT_SECRET || '',
+  // Microsoft SharePoint (optional, used when microsoftStorageMode=sharepoint)
+  msSharePointSiteId: process.env.MS_SHAREPOINT_SITE_ID || '',
+  msSharePointDriveId: process.env.MS_SHAREPOINT_DRIVE_ID || '',
 
   // AI
   geminiApiKey: process.env.GEMINI_API_KEY!,
@@ -44,10 +61,10 @@ export const config = {
 
   // Halo Functions API
   haloApiBaseUrl: process.env.HALO_API_BASE_URL || 'https://halo-functions-75316778879.africa-south1.run.app',
-  haloUserId: process.env.HALO_USER_ID || 'cae6877e-0fbe-4ea1-acce-39957e7575bc',
-  // Mobile app: fixed user/template for dictation flow
-  haloMobileUserId: process.env.HALO_MOBILE_USER_ID || 'fcb5cfec-e10e-4c3a-bd44-064a788a6243',
-  haloMobileTemplateId: process.env.HALO_MOBILE_TEMPLATE_ID || 'report',
+  haloUserId: process.env.HALO_USER_ID || '00b70e6e-26e5-422c-bf1e-ea51c658c55c',
+  // Mobile app: fixed user/template for dictation flow (Mo Patel: same user, script template)
+  haloMobileUserId: process.env.HALO_MOBILE_USER_ID || '00b70e6e-26e5-422c-bf1e-ea51c658c55c',
+  haloMobileTemplateId: process.env.HALO_MOBILE_TEMPLATE_ID || 'script',
 
   // Template request email (optional)
   adminEmail: process.env.ADMIN_EMAIL || 'admin@halo.africa',

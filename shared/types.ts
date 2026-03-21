@@ -7,6 +7,7 @@ export interface Patient {
   sex: 'M' | 'F';
   lastVisit: string;
   alerts: string[];
+  webUrl?: string;
 }
 
 export interface DriveFile {
@@ -74,6 +75,10 @@ export interface HaloNote {
   noteId: string;
   title: string;
   content: string;
+  /** Raw HALO payload for this note (source of truth for JSON view). */
+  raw?: unknown;
+  /** In-app PDF preview generated from DOCX (base64, not persisted to Drive). */
+  previewPdfBase64?: string;
   template_id: string;
   lastSavedAt?: string;
   dirty?: boolean;
@@ -129,7 +134,47 @@ export interface ScribeSession {
   /** Human-readable note titles generated in this session (for display only). */
   noteTitles?: string[];
   /** Generated note content for this session (so we can show the actual note, not just transcript). */
-  notes?: Array<{ noteId: string; title: string; content: string; template_id: string }>;
+  notes?: Array<{
+    noteId: string;
+    title: string;
+    content: string;
+    template_id: string;
+    raw?: unknown;
+    fields?: NoteField[];
+  }>;
   /** Short main complaint/summary for list display (e.g. "Ankle Fracture"). */
   mainComplaint?: string;
+}
+
+// --- Ward (doctor diary + admitted patient Kanban) ---
+
+export type WardKanbanStatus = string;
+
+export interface KanbanTodoItem {
+  id: string;
+  /** Human readable task text */
+  title: string;
+  /** Column/status name (e.g. "To do", "Doing", "Done") */
+  status: WardKanbanStatus;
+  /** Optional stable ordering within a status column */
+  order?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AdmittedPatientKanban {
+  patientId: string;
+  admitted: boolean;
+  /** Todo items for this patient (status determines column). */
+  todos: KanbanTodoItem[];
+}
+
+export interface DoctorDiaryEntry {
+  id: string;
+  /** ISO date string like 2026-03-19 */
+  date: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
 }

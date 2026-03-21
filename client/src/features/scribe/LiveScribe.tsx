@@ -32,6 +32,7 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [visibleTranscript, setVisibleTranscript] = useState('');
   const transcriptRef = useRef<string>('');
@@ -177,6 +178,17 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
     return () => cleanup();
   }, [cleanup]);
 
+  useEffect(() => {
+    // Keep a ref in sync so WS chunk gating never suffers from stale closures.
+    isPausedRef.current = isPaused;
+
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+
+    if (isPaused && recorder.state === 'recording') recorder.pause();
+    if (!isPaused && recorder.state === 'paused') recorder.resume();
+  }, [isPaused]);
+
   const startLive = useCallback(async () => {
     if (isLive) {
       setIsModalOpen(true);
@@ -217,7 +229,7 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
         mediaRecorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
             chunksRef.current.push(e.data);
-            if (ws.readyState === WebSocket.OPEN && !isPaused) {
+            if (ws.readyState === WebSocket.OPEN && !isPausedRef.current) {
               ws.send(e.data);
             }
           }
@@ -288,6 +300,19 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
   };
 
   const handlePauseToggle = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === 'recording') {
+      recorder.pause();
+      setIsPaused(true);
+      return;
+    }
+    if (recorder && recorder.state === 'paused') {
+      recorder.resume();
+      setIsPaused(false);
+      return;
+    }
+
+    // Fallback for unexpected recorder state.
     setIsPaused((prev) => !prev);
   };
 

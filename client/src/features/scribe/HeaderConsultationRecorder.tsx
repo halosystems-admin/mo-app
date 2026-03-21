@@ -18,6 +18,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [isLive, setIsLive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
 
@@ -203,7 +204,8 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
         mediaRecorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
             chunksRef.current.push(e.data);
-            if (ws.readyState === WebSocket.OPEN && !isPaused) {
+            // Use ref to avoid stale closure issues; this makes pause actually stop transcription.
+            if (ws.readyState === WebSocket.OPEN && !isPausedRef.current) {
               ws.send(e.data);
             }
           }
@@ -250,12 +252,39 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
 
   const togglePause = () => {
     if (!isLive || connectionState !== 'open') return;
-    setIsPaused(prev => !prev);
+    // Pause should stop chunk generation + prevent further transcription updates.
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === 'recording') {
+      recorder.pause();
+      stopTimer();
+      setIsPaused(true);
+      return;
+    }
+    if (recorder && recorder.state === 'paused') {
+      recorder.resume();
+      startTimer();
+      setIsPaused(false);
+      return;
+    }
+
+    // Fallback: if recorder state is unexpected, just flip UI state.
+    setIsPaused((prev) => !prev);
   };
 
   useEffect(() => {
-    if (!mediaRecorderRef.current || !wsRef.current) return;
-    // MediaRecorder keeps recording; pause only affects whether chunks are sent to WS.
+    isPausedRef.current = isPaused;
+
+    // Keep WS sending gated via ref even with stale closures.
+    // If MediaRecorder is present (browser support permitting), ensure its state matches UI.
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    if (isPaused && recorder.state === 'recording') {
+      recorder.pause();
+      stopTimer();
+    } else if (!isPaused && recorder.state === 'paused') {
+      recorder.resume();
+      startTimer();
+    }
   }, [isPaused]);
 
   const isBusy = connectionState === 'connecting';

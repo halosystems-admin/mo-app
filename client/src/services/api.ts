@@ -7,6 +7,8 @@ import type {
   HaloNote,
   CalendarEvent,
   ScribeSession,
+  DoctorDiaryEntry,
+  AdmittedPatientKanban,
 } from '../../../shared/types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -73,7 +75,10 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   }
 
   if (res.status === 401) {
-    window.location.href = '/';
+    // Don’t force navigation on auth API routes (e.g. avoids full reload if /me ever returns 401).
+    if (!path.startsWith('/api/auth/')) {
+      window.location.href = '/';
+    }
     throw new ApiError('Not authenticated', 401);
   }
 
@@ -99,7 +104,16 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 }
 
 // --- AUTH ---
-export const getLoginUrl = () => request<{ url: string }>('/api/auth/login-url');
+export type AuthProvider = 'google' | 'microsoft';
+export type MicrosoftStorageMode = 'onedrive' | 'sharepoint';
+
+export const getLoginUrl = (params?: { provider?: AuthProvider; storageMode?: MicrosoftStorageMode }) => {
+  const qs = new URLSearchParams();
+  if (params?.provider) qs.set('provider', params.provider);
+  if (params?.storageMode) qs.set('storageMode', params.storageMode);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return request<{ url: string }>(`/api/auth/login-url${suffix}`);
+};
 export const checkAuth = () => request<{ signedIn: boolean; email?: string }>('/api/auth/me');
 export const logout = () => request('/api/auth/logout', { method: 'POST' });
 
@@ -194,6 +208,26 @@ export const generatePrepNote = (patientId: string, patientName: string) =>
     body: JSON.stringify({ patientId, patientName }),
   });
 
+// --- WARD (doctor diary + admitted kanban) ---
+
+export const fetchDoctorDiary = () =>
+  request<{ entries: DoctorDiaryEntry[] }>('/api/ward/diary', { method: 'GET' });
+
+export const saveDoctorDiary = (payload: { entry?: Partial<DoctorDiaryEntry>; entries?: Array<Partial<DoctorDiaryEntry>> }) =>
+  request<{ entries: DoctorDiaryEntry[] }>('/api/ward/diary', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+export const fetchDoctorKanban = () =>
+  request<{ kanban: AdmittedPatientKanban[] }>('/api/ward/kanban', { method: 'GET' });
+
+export const saveDoctorKanban = (kanban: AdmittedPatientKanban[]) =>
+  request<{ kanban: AdmittedPatientKanban[] }>('/api/ward/kanban', {
+    method: 'POST',
+    body: JSON.stringify({ kanban }),
+  });
+
 // --- PATIENTS (paginated) ---
 interface PatientsResponse {
   patients: Patient[];
@@ -250,7 +284,7 @@ export const savePatientSession = (
     context?: string;
     templates?: string[];
     noteTitles?: string[];
-    notes?: Array<{ noteId: string; title: string; content: string; template_id: string }>;
+    notes?: Array<{ noteId: string; title: string; content: string; template_id: string; raw?: unknown; fields?: Array<{ label: string; body: string }> }>;
     mainComplaint?: string;
   }
 ) =>
@@ -424,6 +458,13 @@ export const generateNotePreview = (params: { template_id: string; text: string;
   request<{ notes: HaloNote[] }>('/api/halo/generate-note', {
     method: 'POST',
     body: JSON.stringify({ ...params, return_type: 'note' }),
+  });
+
+/** Generate a DOCX from Halo and convert to PDF for in-app preview (not saved to Drive). */
+export const generateNotePreviewPdf = (params: { template_id: string; text: string; user_id?: string }) =>
+  request<{ pdfBase64: string }>('/api/halo/generate-preview-pdf', {
+    method: 'POST',
+    body: JSON.stringify(params),
   });
 
 /** Generate DOCX and save to patient folder on Drive. Returns { success, fileId, name }. */

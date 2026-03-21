@@ -19,6 +19,7 @@ import {
   askHaloStream,
   askHalo,
   generateNotePreview,
+  generateNotePreviewPdf,
   saveNoteAsDocx,
   generatePrepNote,
   getHaloTemplates,
@@ -42,6 +43,13 @@ import { PatientChat } from '../components/PatientChat';
 import { getErrorMessage } from '../utils/formatting';
 
 const MAX_MAIN_COMPLAINT_LEN = 80;
+
+/** Internal scribe state file — never list in browser/context picker (still stored in cloud). */
+const SCRIBE_SESSIONS_FILE_NAME = 'halo_scribe_sessions.json';
+
+function excludeHiddenPatientFiles(files: DriveFile[]): DriveFile[] {
+  return files.filter((f) => f.name !== SCRIBE_SESSIONS_FILE_NAME);
+}
 
 /** Extract a short main complaint from note content for session list title (e.g. "Ankle Fracture"). */
 function extractMainComplaint(content: string): string {
@@ -78,18 +86,19 @@ function getNoteText(note: HaloNote): string {
 
 /** Fallback when Halo get_templates fails or returns empty; use real IDs from Halo when possible to avoid 404. */
 const DEFAULT_TEMPLATE_OPTIONS: Array<{ id: string; name: string }> = [
-  { id: 'clinical_note', name: 'Clinical Note' },
-  { id: 'op_report', name: 'Operation Report' },
-  { id: 'jon_note', name: 'Open Note' },
+  { id: 'admission', name: 'Admission' },
+  { id: 'colonoscopy', name: 'Colonoscopy' },
+  { id: 'gastroscopy', name: 'Gastroscopy' },
+  { id: 'inpatient_fu', name: 'Inpatient Follow-up' },
+  { id: 'operation', name: 'Operation' },
+  { id: 'outpt_consult', name: 'Outpatient Consult' },
+  { id: 'script', name: 'Script' },
+  { id: 'sick_note', name: 'Sick Note' },
+  { id: 'ward_dictation', name: 'Ward Dictation' },
 ];
 
-/** Orthopaedic surgery Halo user/template mapping (for op_report). */
-const ORTHO_TEMPLATE_ID = 'op_report';
-const ORTHO_USER_ID = '224e8ca0-b8ef-4c6e-8707-e9e0a7774ec5';
-
-function getHaloUserForTemplate(templateId: string | undefined): string | undefined {
-  if (!templateId) return undefined;
-  if (templateId === ORTHO_TEMPLATE_ID) return ORTHO_USER_ID;
+/** All templates use the same HALO user (Mo Patel); server uses HALO_USER_ID when user_id not sent. */
+function getHaloUserForTemplate(_templateId: string | undefined): string | undefined {
   return undefined;
 }
 
@@ -133,7 +142,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [alerts, setAlerts] = useState<LabAlert[]>([]);
   const [notes, setNotes] = useState<HaloNote[]>([]);
   const [activeNoteIndex, setActiveNoteIndex] = useState(0);
-  const [templateId, setTemplateId] = useState(propTemplateId || 'clinical_note');
+  const [templateId, setTemplateId] = useState(propTemplateId || 'outpt_consult');
   const [pendingTranscript, setPendingTranscript] = useState<string | null>(null);
   /** Full transcript for the current session (all completed segments). */
   const [lastTranscript, setLastTranscript] = useState<string>('');
@@ -143,11 +152,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [consultSubTab, setConsultSubTab] = useState<'transcript' | 'context' | number>('transcript');
   const [templateOptions, setTemplateOptions] = useState<Array<{ id: string; name: string }>>(DEFAULT_TEMPLATE_OPTIONS);
-  const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>(['clinical_note']);
+  const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>(['outpt_consult']);
   const [templateSearch, setTemplateSearch] = useState('');
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [activeTab, setActiveTab] = useState<'overview' | 'notes' | 'chat' | 'sessions'>('overview');
   const [savingNoteIndex, setSavingNoteIndex] = useState<number | null>(null);
+  const [regeneratingPdfIndex, setRegeneratingPdfIndex] = useState<number | null>(null);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showAiPanel, setShowAiPanel] = useState(true);
@@ -223,7 +233,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       const contents = folderId === patient.id
         ? await fetchFiles(patient.id)
         : await fetchFolderContents(folderId);
-      setFiles(contents);
+      setFiles(excludeHiddenPatientFiles(contents));
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
     }
@@ -236,7 +246,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       const contents = currentFolderId === patient.id
         ? await fetchFiles(patient.id)
         : await fetchFolderContents(currentFolderId);
-      setFiles(contents);
+      setFiles(excludeHiddenPatientFiles(contents));
     } catch {
       // Silent — don't show errors for background refreshes
     }
@@ -289,6 +299,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           firstFiles = warm.files;
           nextPage = warm.nextPage;
         }
+        firstFiles = excludeHiddenPatientFiles(firstFiles);
         if (!isMounted) return;
         setFiles(firstFiles);
         setStatus(AppStatus.IDLE);
@@ -301,7 +312,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             while (page && isMounted) {
               try {
                 const data = await fetchFilesPage(patient.id, page);
-                all.push(...data.files);
+                all.push(...excludeHiddenPatientFiles(data.files));
                 if (isMounted) setFiles([...all]);
                 page = data.nextPage;
               } catch {
@@ -430,7 +441,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setContextDriveSelectedIds([]);
     try {
       const rootFiles = await fetchFiles(patient.id);
-      setContextDriveFiles(rootFiles);
+      setContextDriveFiles(excludeHiddenPatientFiles(rootFiles));
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
       setContextDriveFiles([]);
@@ -626,6 +637,48 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     onToast('Email not implemented yet.', 'info');
   }, [onToast]);
 
+  const handleRegeneratePdf = useCallback(async (noteIndex: number, text: string) => {
+    const note = notes[noteIndex];
+    const payloadText = text.trim();
+    if (!note || !payloadText) return;
+    const tplId = note.template_id || templateId;
+    setRegeneratingPdfIndex(noteIndex);
+    try {
+      const [{ pdfBase64 }, preview] = await Promise.all([
+        generateNotePreviewPdf({
+          template_id: tplId,
+          text: payloadText,
+          user_id: getHaloUserForTemplate(tplId),
+        }),
+        generateNotePreview({
+          template_id: tplId,
+          text: payloadText,
+          user_id: getHaloUserForTemplate(tplId),
+        }),
+      ]);
+      const first = preview.notes?.[0];
+      setNotes((prev) =>
+        prev.map((n, i) =>
+          i !== noteIndex
+            ? n
+            : {
+                ...n,
+                content: first?.content?.trim() || payloadText,
+                ...(first?.raw !== undefined ? { raw: first.raw } : {}),
+                ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
+                previewPdfBase64: pdfBase64,
+                dirty: true,
+              }
+        )
+      );
+      onToast('PDF preview regenerated from updated note fields.', 'success');
+    } catch (err) {
+      onToast(getErrorMessage(err), 'error');
+    } finally {
+      setRegeneratingPdfIndex(null);
+    }
+  }, [notes, onToast, templateId]);
+
   const GENERATE_TIMEOUT_MS = 95_000;
 
   const generateNotesFromTranscript = useCallback(
@@ -651,20 +704,28 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       try {
         const results = await Promise.race([
           Promise.all(
-            templateIds.map(id =>
-              generateNotePreview({
-                template_id: id,
-                text: trimmedTranscript,
-                user_id: getHaloUserForTemplate(id),
-              })
-            )
+            templateIds.map(async (id) => {
+              const [noteResult, pdfResult] = await Promise.all([
+                generateNotePreview({
+                  template_id: id,
+                  text: trimmedTranscript,
+                  user_id: getHaloUserForTemplate(id),
+                }),
+                generateNotePreviewPdf({
+                  template_id: id,
+                  text: trimmedTranscript,
+                  user_id: getHaloUserForTemplate(id),
+                }),
+              ]);
+              return { noteResult, pdfBase64: pdfResult.pdfBase64 };
+            })
           ),
           timeoutPromise,
         ]);
         const combined: HaloNote[] = results.map((res, i) => {
           const tid = templateIds[i];
           const name = templateNames[tid] ?? tid;
-          const first = res.notes?.[0];
+          const first = res.noteResult.notes?.[0];
           const fromFields =
             first?.fields && first.fields.length > 0
               ? first.fields
@@ -678,6 +739,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             noteId: first?.noteId ?? `note-${tid}-${Date.now()}`,
             title: first?.title ?? name,
             content,
+            ...(first?.raw !== undefined ? { raw: first.raw } : {}),
+            ...(res.pdfBase64 ? { previewPdfBase64: res.pdfBase64 } : {}),
             template_id: tid,
             lastSavedAt: new Date().toISOString(),
             dirty: false,
@@ -710,6 +773,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               title: n.title,
               content: n.content,
               template_id: n.template_id,
+              ...(n.raw !== undefined ? { raw: n.raw } : {}),
+              ...(n.fields && n.fields.length > 0 ? { fields: n.fields } : {}),
             })),
             ...(mainComplaint ? { mainComplaint } : {}),
           };
@@ -752,7 +817,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       setLastTranscript(combined);
       setLiveTranscriptSegment('');
       setPendingTranscript(combined);
-      setSelectedTemplatesForGenerate(['clinical_note']);
+      setSelectedTemplatesForGenerate(['outpt_consult']);
       setActiveTab('notes');
     },
     [lastTranscript, onToast]
@@ -797,7 +862,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         void generateNotesFromTranscript(combined, false);
       } else {
         setPendingTranscript(combined);
-        setSelectedTemplatesForGenerate(['clinical_note']);
+        setSelectedTemplatesForGenerate(['outpt_consult']);
         setActiveTab('notes');
       }
     },
@@ -1076,7 +1141,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       if (Array.isArray(session.templates) && session.templates.length > 0) {
         setSelectedTemplatesForGenerate(session.templates);
       } else {
-        setSelectedTemplatesForGenerate(['clinical_note']);
+        setSelectedTemplatesForGenerate(['outpt_consult']);
       }
 
       if (session.notes && session.notes.length > 0) {
@@ -1084,6 +1149,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           noteId: n.noteId,
           title: n.title,
           content: n.content,
+          ...(n.raw !== undefined ? { raw: n.raw } : {}),
+          ...(n.fields && n.fields.length > 0 ? { fields: n.fields } : {}),
           template_id: n.template_id,
           lastSavedAt: new Date().toISOString(),
           dirty: false,
@@ -1121,15 +1188,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   return (
     <div className="flex flex-col h-full bg-white relative w-full">
       {/* Header */}
-      <div className="border-b border-slate-200 px-4 md:px-8 py-4 flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-4">
+      <div className="border-b border-slate-200 px-4 md:px-8 py-2.5 flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-2">
         <div className="flex items-start gap-3">
-          <button onClick={onBack} className="md:hidden mt-1 p-2 -ml-2 text-slate-500 hover:text-sky-600 rounded-full">
+          <button onClick={onBack} className="md:hidden mt-1 p-2 -ml-2 text-slate-500 hover:text-violet-600 rounded-full">
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="group relative">
             <div className="flex items-center gap-2">
               <h1 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight leading-tight">{patient.name}</h1>
-              <button onClick={startEditPatient} className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-slate-400 hover:text-sky-600 hover:bg-slate-100 rounded-full">
+              <button onClick={startEditPatient} className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-slate-400 hover:text-violet-600 hover:bg-slate-100 rounded-full">
                 <Pencil size={16} />
               </button>
             </div>
@@ -1138,26 +1205,27 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">Sex: {patient.sex || 'Unknown'}</span>
               <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap"><Clock className="w-3.5 h-3.5" /> Last: {patient.lastVisit}</span>
               <a
-                href={`https://drive.google.com/drive/folders/${patient.id}`}
+                href={patient.webUrl || undefined}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap hover:bg-sky-100 hover:text-sky-700 transition-colors"
-                title="Open patient folder in Google Drive"
+                className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap hover:bg-violet-100 hover:text-violet-700 transition-colors"
+                title="Open patient folder in storage"
               >
-                <FolderOpen className="w-3.5 h-3.5" /> Open in Drive <ExternalLink className="w-3 h-3" />
+                <FolderOpen className="w-3.5 h-3.5" /> Open in Storage{' '}
+                <ExternalLink className="w-3 h-3" />
               </a>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-col items-center md:items-end gap-2 w-full md:w-auto">
+        <div className="flex flex-col items-center md:items-end gap-1.5 w-full md:w-auto">
           {status === AppStatus.UPLOADING ? (
             <div className="w-48">
-              <div className="flex justify-between text-xs font-semibold text-sky-700 mb-1">
+              <div className="flex justify-between text-xs font-semibold text-violet-700 mb-1">
                 <span>Uploading...</span><span>{uploadProgress}%</span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                <div className="bg-sky-500 h-2.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+                <div className="bg-violet-500 h-2.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
               </div>
             </div>
           ) : (
@@ -1170,7 +1238,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 />
                 <button
                   onClick={openUploadPicker}
-                  className="w-full md:w-auto flex justify-center items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white px-5 py-2.5 rounded-lg cursor-pointer transition-all shadow-md shadow-sky-600/20 text-sm font-semibold"
+                  className="w-full md:w-auto flex justify-center items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-5 py-2.5 rounded-lg cursor-pointer transition-all shadow-md shadow-violet-600/20 text-sm font-semibold"
                 >
                   <Upload className="w-4 h-4" /> Upload File
                 </button>
@@ -1185,10 +1253,27 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </>
           )}
           {uploadMessage && status !== AppStatus.UPLOADING && (
-            <div className="w-full md:w-auto flex items-center gap-2 text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-3 py-1.5 rounded-md">
+            <div className="w-full md:w-auto flex items-center gap-2 text-xs font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-3 py-1.5 rounded-md">
               <CheckCircle2 className="w-3.5 h-3.5" /> {uploadMessage}
             </div>
           )}
+          <div className="w-full md:w-auto flex items-center justify-end gap-2">
+            <button
+              onClick={handleGenerateAiInsights}
+              disabled={aiLoading || status === AppStatus.LOADING}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 border border-violet-100 text-[11px] font-semibold text-violet-700 transition disabled:opacity-50"
+            >
+              {aiLoading ? 'Generating…' : 'HALO AI Insights'}
+            </button>
+            {hasAiContent && (
+              <button
+                onClick={() => setShowAiPanel(prev => !prev)}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-[11px] font-semibold text-slate-600 transition"
+              >
+                {showAiPanel ? 'Hide Insights' : 'Show Insights'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1196,7 +1281,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50/50">
         <div className="max-w-6xl mx-auto">
           {/* AI Panel */}
-          {hasAiContent && showAiPanel && (
+          {activeTab === 'overview' && hasAiContent && showAiPanel && (
             <div className="mb-6 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">AI Insights</span>
@@ -1204,7 +1289,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   <button
                     onClick={handleGenerateAiInsights}
                     disabled={aiLoading}
-                    className="text-xs font-medium text-sky-600 hover:text-sky-700 flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-sky-50 disabled:opacity-50"
+                    className="text-xs font-medium text-violet-600 hover:text-violet-700 flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-violet-50 disabled:opacity-50"
                   >
                     {aiLoading ? 'Updating…' : 'Refresh'}
                   </button>
@@ -1228,27 +1313,24 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           )}
 
           {/* CTA to generate insights (only when not yet generated) */}
-          {!hasAiContent && (
-            <div className="mb-4">
-              <button
-                onClick={handleGenerateAiInsights}
-                disabled={aiLoading || status === AppStatus.LOADING}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-50 hover:bg-sky-100 border border-sky-100 text-xs font-semibold text-sky-700 transition disabled:opacity-50"
-              >
-                {aiLoading ? 'Generating HALO AI insights…' : 'Generate HALO AI insights for this patient'}
+          {/* Tabs */}
+          <div className="flex items-end justify-between gap-2 border-b border-slate-200 mb-3">
+            <div className="flex gap-4 md:gap-5 overflow-x-auto">
+              <button onClick={() => setActiveTab('overview')} className={`pb-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Active Workspace</button>
+              <button onClick={() => setActiveTab('notes')} className={`pb-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Editor &amp; Scribe</button>
+              <button onClick={() => setActiveTab('chat')} className={`pb-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+              <MessageCircle size={14} /> Ask HALO
+              </button>
+              <button onClick={() => setActiveTab('sessions')} className={`pb-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'sessions' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+              <History size={14} /> Previous Sessions
               </button>
             </div>
-          )}
-
-          {/* Tabs */}
-          <div className="flex gap-6 md:gap-8 border-b border-slate-200 mb-6 overflow-x-auto">
-            <button onClick={() => setActiveTab('overview')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-sky-600 text-sky-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Active Workspace</button>
-            <button onClick={() => setActiveTab('notes')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-sky-600 text-sky-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Editor &amp; Scribe</button>
-            <button onClick={() => setActiveTab('chat')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-sky-600 text-sky-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-              <MessageCircle size={14} /> Ask HALO
-            </button>
-            <button onClick={() => setActiveTab('sessions')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'sessions' ? 'border-sky-600 text-sky-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-              <History size={14} /> Previous Sessions
+            <button
+              type="button"
+              onClick={() => handleLoadSession(null)}
+              className="mb-1 text-[11px] font-medium text-violet-600 hover:text-violet-700 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-violet-200 bg-violet-50/80 hover:bg-violet-50 transition whitespace-nowrap"
+            >
+              <Plus className="w-3.5 h-3.5" /> Start new session
             </button>
           </div>
 
@@ -1278,7 +1360,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <div className="p-4">
                 {sessionsLoading ? (
                   <div className="flex items-center justify-center py-12">
-                    <Loader2 className="w-8 h-8 text-sky-500 animate-spin" />
+                    <Loader2 className="w-8 h-8 text-violet-500 animate-spin" />
                   </div>
                 ) : sessions.length === 0 ? (
                   <p className="text-sm text-slate-500 py-8 text-center">
@@ -1308,7 +1390,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                           <button
                             type="button"
                             onClick={() => handleLoadSession(session)}
-                            className="w-full flex items-center justify-between gap-4 px-4 py-3 rounded-xl border border-slate-200 bg-white text-left hover:bg-sky-50 hover:border-sky-200 transition-colors group"
+                            className="w-full flex items-center justify-between gap-4 px-4 py-3 rounded-xl border border-slate-200 bg-white text-left hover:bg-violet-50 hover:border-violet-200 transition-colors group"
                           >
                             <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                               <span className="font-medium text-slate-800 truncate">{listTitle}</span>
@@ -1317,7 +1399,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                                 {hasNotes ? ` • ${session.notes!.length} note(s)` : ' • transcript only'}
                               </span>
                             </div>
-                            <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-sky-600 shrink-0" />
+                            <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-violet-600 shrink-0" />
                           </button>
                         </li>
                       );
@@ -1328,14 +1410,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
           ) : activeTab === 'notes' ? (
             <>
-              <div className="mb-3 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => handleLoadSession(null)}
-                  className="text-xs font-medium text-sky-600 hover:text-sky-700 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50/80 hover:bg-sky-50 transition"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Start new session
-                </button>
+              <div className="mb-2 flex items-center justify-end">
                 <span className="text-[11px] text-slate-400">
                   {activeSessionId ? 'Viewing a previous session' : 'Current session'}
                 </span>
@@ -1360,7 +1435,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 ) : (
                   <>
                     {/* Consult tab bar: Context | Transcript | note tabs | + */}
-                    <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50/80">
+                    <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-slate-200 bg-slate-50/80">
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mr-1">
                         Consultation
                       </span>
@@ -1401,7 +1476,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                           }}
                           className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium transition-all border ${
                             consultSubTab === i
-                              ? 'bg-sky-50 border-sky-300 text-sky-800 shadow-sm'
+                              ? 'bg-violet-50 border-violet-300 text-violet-800 shadow-sm'
                               : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
                           }`}
                         >
@@ -1412,9 +1487,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         type="button"
                         onClick={() => {
                           setShowAddNoteModal(true);
-                          setSelectedTemplatesForGenerate(['clinical_note']);
+                          setSelectedTemplatesForGenerate(['outpt_consult']);
                         }}
-                        className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-sky-300 hover:text-sky-700 transition-all"
+                        className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-violet-300 hover:text-violet-700 transition-all"
                         title="Add note or draft new letter"
                       >
                         <Plus className="w-4 h-4" />
@@ -1483,7 +1558,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                           onChange={e => setConsultContext(e.target.value)}
                           rows={8}
                           placeholder="e.g. Presenting complaint, key differentials you’re considering, or anything you’d like HALO to keep in mind."
-                          className="w-full h-full min-h-[260px] resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none"
+                          className="w-full h-full min-h-[260px] resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none"
                         />
                       </div>
                     ) : typeof consultSubTab === 'number' ? (
@@ -1492,6 +1567,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         activeIndex={consultSubTab}
                         onActiveIndexChange={(i) => { setConsultSubTab(i); setActiveNoteIndex(i); }}
                         onNoteChange={handleNoteChange}
+                        onRegeneratePdf={handleRegeneratePdf}
                         status={status}
                         templateId={templateId}
                         templateOptions={templateOptions}
@@ -1500,6 +1576,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         onSaveAll={handleSaveAll}
                         onEmail={handleEmail}
                         savingNoteIndex={savingNoteIndex}
+                        regeneratingPdfIndex={regeneratingPdfIndex}
                         showNoteTabs={false}
                       />
                     ) : null}
@@ -1531,7 +1608,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                           value={templateSearch}
                           onChange={e => setTemplateSearch(e.target.value)}
                           placeholder="Search or filter templates..."
-                          className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none"
+                          className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none"
                         />
                       </div>
                       <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/60 divide-y divide-slate-100">
@@ -1550,20 +1627,20 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                                 onClick={() => toggleTemplateForGenerate(t.id)}
                                 className={`w-full px-4 py-3 flex items-center justify-between text-sm font-medium transition-all ${
                                   selected
-                                    ? 'bg-white text-sky-800'
+                                    ? 'bg-white text-violet-800'
                                     : 'bg-transparent text-slate-700 hover:bg-white'
                                 }`}
                               >
                                 <span className="flex items-center gap-2">
                                   <span
                                     className={`w-2 h-2 rounded-full ${
-                                      selected ? 'bg-sky-500' : 'bg-slate-300'
+                                      selected ? 'bg-violet-500' : 'bg-slate-300'
                                     }`}
                                   />
                                   <span>{t.name}</span>
                                 </span>
                                 {selected && (
-                                  <span className="text-[11px] font-semibold text-sky-600 uppercase tracking-wide">
+                                  <span className="text-[11px] font-semibold text-violet-600 uppercase tracking-wide">
                                     Selected
                                   </span>
                                 )}
@@ -1588,7 +1665,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                           type="button"
                           onClick={handleGenerateFromTemplates}
                           disabled={selectedTemplatesForGenerate.length === 0 || isGeneratingNotes}
-                          className="px-4 py-2 rounded-xl text-sm font-bold bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm border border-sky-600"
+                          className="px-4 py-2 rounded-xl text-sm font-bold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm border border-violet-600"
                         >
                           {isGeneratingNotes
                             ? 'Generating…'
@@ -1618,7 +1695,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                             setShowCustomAiNoteModal(true);
                             setCustomAiPrompt('');
                           }}
-                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-white border border-sky-200 text-sky-700 hover:bg-sky-50 hover:border-sky-300 transition shadow-sm"
+                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 hover:border-violet-300 transition shadow-sm"
                         >
                           <MessageCircle className="w-4 h-4" /> Ask HALO to draft a custom note
                         </button>
@@ -1653,22 +1730,22 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">Full Name</label>
-                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition" />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">Date of Birth</label>
-                <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition" />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">Sex</label>
                 <div className="flex bg-slate-100 p-1 rounded-xl">
-                  <button onClick={() => setEditSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'M' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
-                  <button onClick={() => setEditSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'F' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
+                  <button onClick={() => setEditSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'M' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
+                  <button onClick={() => setEditSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'F' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setEditingPatient(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                <button onClick={savePatientEdit} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 transition">Save Changes</button>
+                <button onClick={savePatientEdit} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-violet-600/20 transition">Save Changes</button>
               </div>
             </div>
           </div>
@@ -1688,11 +1765,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">Name</label>
-                <input type="text" value={editFileName} onChange={e => setEditFileName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                <input type="text" value={editFileName} onChange={e => setEditFileName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition" />
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setEditingFile(null)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                <button onClick={saveFileEdit} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 transition">Save Changes</button>
+                <button onClick={saveFileEdit} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-violet-600/20 transition">Save Changes</button>
               </div>
             </div>
           </div>
@@ -1724,9 +1801,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         <div className="fixed inset-0 bg-white/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-slate-200 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-sky-500 rounded-full border-t-transparent animate-spin"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-violet-500 rounded-full border-t-transparent animate-spin"></div>
           </div>
-          <p className="text-sky-900 font-bold text-lg mt-6">HALO is analyzing...</p>
+          <p className="text-violet-900 font-bold text-lg mt-6">HALO is analyzing...</p>
           <p className="text-slate-500 text-sm mt-1">Extracting clinical concepts &amp; tagging files</p>
         </div>
       )}
@@ -1735,9 +1812,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         <div className="fixed inset-0 bg-white/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-slate-200 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-sky-500 rounded-full border-t-transparent animate-spin"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-violet-500 rounded-full border-t-transparent animate-spin"></div>
           </div>
-          <p className="text-sky-900 font-bold text-lg mt-6">Saving note as DOCX...</p>
+          <p className="text-violet-900 font-bold text-lg mt-6">Saving note as DOCX...</p>
           <p className="text-slate-500 text-sm mt-1">Uploading to Patient Notes folder</p>
         </div>
       )}
@@ -1748,7 +1825,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           <div className="bg-white/95 border border-slate-200 rounded-2xl shadow-xl px-6 py-5 flex flex-col items-center gap-3 max-w-sm text-center pointer-events-auto">
             <div className="relative mb-1">
               <div className="w-10 h-10 rounded-full border-2 border-slate-200" />
-              <div className="absolute inset-0 rounded-full border-2 border-sky-500 border-t-transparent animate-spin" />
+              <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
             </div>
             <p className="text-sm font-semibold text-slate-800">HALO is preparing your notes…</p>
             <div className="mt-1 w-full max-w-xs space-y-2">
@@ -1762,7 +1839,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   >
                     <div
                       className={`w-2 h-2 rounded-full ${
-                        active ? 'bg-sky-500 animate-pulse' : 'bg-slate-200'
+                        active ? 'bg-violet-500 animate-pulse' : 'bg-slate-200'
                       }`}
                     />
                     <span
@@ -1793,15 +1870,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
             <div className="mb-3">
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Uploading to:</label>
-              <div className="flex items-center gap-2 bg-sky-50 border border-sky-100 px-3 py-2 rounded-lg">
-                <FolderOpen size={16} className="text-sky-600 shrink-0" />
-                <span className="text-sm font-semibold text-sky-700 truncate">{uploadTargetLabel}</span>
+              <div className="flex items-center gap-2 bg-violet-50 border border-violet-100 px-3 py-2 rounded-lg">
+                <FolderOpen size={16} className="text-violet-600 shrink-0" />
+                <span className="text-sm font-semibold text-violet-700 truncate">{uploadTargetLabel}</span>
               </div>
             </div>
             <div className="mb-4">
               {uploadPickerLoading ? (
                 <div className="flex items-center justify-center py-6">
-                  <Loader2 size={20} className="text-sky-500 animate-spin" />
+                  <Loader2 size={20} className="text-violet-500 animate-spin" />
                 </div>
               ) : uploadPickerFolders.length > 0 ? (
                 <div className="max-h-48 overflow-y-auto space-y-1.5 border border-slate-100 rounded-lg p-2">
@@ -1810,9 +1887,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     <button
                       key={folder.id}
                       onClick={() => selectUploadFolder(folder)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-sm font-medium text-slate-700 hover:bg-sky-50 hover:text-sky-700 transition-colors"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-sm font-medium text-slate-700 hover:bg-violet-50 hover:text-violet-700 transition-colors"
                     >
-                      <FolderOpen size={15} className="text-sky-500 shrink-0" />
+                      <FolderOpen size={15} className="text-violet-500 shrink-0" />
                       <span className="truncate">{folder.name}</span>
                       <ChevronRight size={14} className="text-slate-300 ml-auto shrink-0" />
                     </button>
@@ -1824,7 +1901,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowUploadPicker(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-              <button onClick={confirmUploadDestination} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 transition flex items-center justify-center gap-2">
+              <button onClick={confirmUploadDestination} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-violet-600/20 transition flex items-center justify-center gap-2">
                 <Upload size={16} /> Choose File
               </button>
             </div>
@@ -1838,9 +1915,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <div className="flex flex-col">
-                <span className="text-sm font-semibold text-slate-800">Add files from Drive</span>
+                <span className="text-sm font-semibold text-slate-800">Add files from storage</span>
                 <span className="text-xs text-slate-500">
-                  Choose files from this patient&apos;s Google Drive folder to reference in your context.
+                  Choose files from this patient&apos;s storage folder to reference in your context.
                 </span>
               </div>
               <button
@@ -1856,11 +1933,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="p-5 space-y-3">
               {contextDriveLoading ? (
                 <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 text-sky-500 animate-spin" />
+                  <Loader2 className="w-6 h-6 text-violet-500 animate-spin" />
                 </div>
               ) : contextDriveFiles.filter((f) => !isFolder(f)).length === 0 ? (
                 <p className="text-sm text-slate-500 text-center py-6">
-                  No files found in this patient&apos;s Drive folder yet.
+                  No files found in this patient&apos;s storage folder yet.
                 </p>
               ) : (
                 <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/60 divide-y divide-slate-100">
@@ -1877,7 +1954,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                             type="checkbox"
                             checked={checked}
                             onChange={() => toggleContextDriveSelection(file.id)}
-                            className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                            className="rounded border-slate-300 text-violet-600 focus:ring-violet-500"
                           />
                           <span className="truncate">{file.name}</span>
                         </label>
@@ -1901,7 +1978,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 type="button"
                 disabled={contextDriveSelectedIds.length === 0}
                 onClick={applyContextDriveSelection}
-                className="px-4 py-2 rounded-xl text-sm font-semibold bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                className="px-4 py-2 rounded-xl text-sm font-semibold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
                 Add to context
               </button>
@@ -1932,7 +2009,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Creating folder in:</label>
-                <p className="text-sm font-semibold text-sky-700 bg-sky-50 px-3 py-2 rounded-lg border border-sky-100">
+                <p className="text-sm font-semibold text-violet-700 bg-violet-50 px-3 py-2 rounded-lg border border-violet-100">
                   {breadcrumbs.map(b => b.name).join(' / ')}
                 </p>
               </div>
@@ -1944,13 +2021,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   onChange={e => setNewFolderName(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleCreateFolder(); }}
                   placeholder="e.g. Lab Results, Imaging..."
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition"
                   autoFocus
                 />
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => { setShowCreateFolderModal(false); setNewFolderName(""); }} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                <button onClick={handleCreateFolder} disabled={!newFolderName.trim()} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                <button onClick={handleCreateFolder} disabled={!newFolderName.trim()} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-violet-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2">
                   <FolderPlus size={16} /> Create
                 </button>
               </div>
@@ -1986,7 +2063,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 onChange={(e) => setCustomAiPrompt(e.target.value)}
                 rows={4}
                 placeholder="e.g. Draft a medical motivation letter explaining why this patient requires a CT scan based on their current findings and history."
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none resize-none"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none resize-none"
               />
               <p className="text-[11px] text-slate-500">
                 HALO will use the same context as the <span className="font-semibold">Ask HALO</span> chat, plus your latest transcript, to generate the note.
@@ -2022,7 +2099,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         noteId: `custom-${Date.now()}`,
                         title: title || 'Custom note',
                         content,
-                        template_id: 'jon_note',
+                        template_id: 'script',
                         lastSavedAt: new Date().toISOString(),
                         dirty: true,
                       };
@@ -2039,7 +2116,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   }
                   setCustomAiLoading(false);
                 }}
-                className="px-4 py-2 rounded-xl text-sm font-semibold bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center gap-2"
+                className="px-4 py-2 rounded-xl text-sm font-semibold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center gap-2"
               >
                 {customAiLoading ? (
                   <>

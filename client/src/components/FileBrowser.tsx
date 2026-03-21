@@ -26,7 +26,7 @@ const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYP
 const FileSkeleton: React.FC = () => (
   <div className="space-y-3">
     <div className="flex items-center justify-center gap-2 py-4 text-slate-500">
-      <div className="h-5 w-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+      <div className="h-5 w-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
       <span className="text-sm font-medium">Loading files…</span>
     </div>
     {[1, 2, 3].map((i) => (
@@ -58,7 +58,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           {!isAtRoot && (
             <button
               onClick={onNavigateBack}
-              className="p-1.5 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors mr-1"
+              className="p-1.5 text-slate-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors mr-1"
               title="Go back"
             >
               <ChevronLeft size={18} />
@@ -71,8 +71,8 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                 onClick={() => onNavigateToBreadcrumb(index)}
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                   index === breadcrumbs.length - 1
-                    ? 'text-sky-700 bg-sky-50'
-                    : 'text-slate-500 hover:text-sky-600 hover:bg-slate-100'
+                    ? 'text-violet-700 bg-violet-50'
+                    : 'text-slate-500 hover:text-violet-600 hover:bg-slate-100'
                 }`}
               >
                 {index === 0 && <Home size={13} className="shrink-0" />}
@@ -83,7 +83,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
         </div>
         <button
           onClick={onCreateFolder}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors"
         >
           <FolderPlus size={15} /> New Folder
         </button>
@@ -97,8 +97,8 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           <div className="text-center py-12 border-2 border-dashed border-slate-200 rounded-lg">
             {status === AppStatus.UPLOADING ? (
               <div className="flex flex-col items-center gap-3">
-                <CloudUpload className="w-12 h-12 text-sky-200 animate-bounce" />
-                <p className="text-sky-600 font-medium">Adding file to drive...</p>
+                <CloudUpload className="w-12 h-12 text-violet-200 animate-bounce" />
+                <p className="text-violet-600 font-medium">Adding file to drive...</p>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2">
@@ -120,25 +120,25 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                 {folders.map(folder => (
                   <div
                     key={folder.id}
-                    className="group flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-sky-200 transition-all duration-200 cursor-pointer"
+                    className="group flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-violet-200 transition-all duration-200 cursor-pointer"
                     onClick={() => onNavigateToFolder(folder)}
                   >
-                    <div className="p-3 rounded-lg mr-4 bg-sky-100 text-sky-600">
+                    <div className="p-3 rounded-lg mr-4 bg-violet-100 text-violet-600">
                       <FolderOpen className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-slate-800 group-hover:text-sky-700 transition-colors truncate">{folder.name}</h4>
+                      <h4 className="font-semibold text-slate-800 group-hover:text-violet-700 transition-colors truncate">{folder.name}</h4>
                       <p className="text-xs text-slate-500 mt-1">Folder &bull; {folder.createdTime}</p>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); onStartEditFile(folder); }}
-                        className="p-2 text-slate-400 hover:text-sky-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        className="p-2 text-slate-400 hover:text-violet-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                         title="Rename"
                       >
                         <Pencil size={16} />
                       </button>
-                      <ChevronRight size={18} className="text-slate-300 group-hover:text-sky-500 transition-colors" />
+                      <ChevronRight size={18} className="text-slate-300 group-hover:text-violet-500 transition-colors" />
                     </div>
                   </div>
                 ))}
@@ -165,25 +165,25 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                     : isPdf ? FileText
                     : File;
                   return (
-                    <div key={file.id} className="group flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-sky-200 transition-all duration-200">
+                    <div key={file.id} className="group flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-violet-200 transition-all duration-200">
                       <div className={`p-3 rounded-lg mr-4 ${iconClass}`}>
                         <IconComponent className="w-5 h-5" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-slate-800 group-hover:text-sky-700 transition-colors truncate">{file.name}</h4>
+                        <h4 className="font-semibold text-slate-800 group-hover:text-violet-700 transition-colors truncate">{file.name}</h4>
                         <p className="text-xs text-slate-500 mt-1 truncate">{file.createdTime} &bull; {getFriendlyFileType(file.mimeType)}</p>
                       </div>
                       <div className="flex items-center gap-1">
-                        <button onClick={() => onStartEditFile(file)} className="p-2 text-slate-400 hover:text-sky-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Rename">
+                        <button onClick={() => onStartEditFile(file)} className="p-2 text-slate-400 hover:text-violet-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Rename">
                           <Pencil size={16} />
                         </button>
                         <button onClick={() => onDeleteFile(file)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Delete">
                           <Trash2 size={16} />
                         </button>
-                        <button onClick={() => onViewFile(file)} className="hidden sm:flex items-center gap-1.5 text-sm bg-slate-50 text-slate-600 px-3 py-1.5 rounded-md font-medium hover:bg-sky-50 hover:text-sky-700 transition-colors" title="Preview">
+                        <button onClick={() => onViewFile(file)} className="hidden sm:flex items-center gap-1.5 text-sm bg-slate-50 text-slate-600 px-3 py-1.5 rounded-md font-medium hover:bg-violet-50 hover:text-violet-700 transition-colors" title="Preview">
                           <Eye size={14} /> View
                         </button>
-                        <a href={file.url} target="_blank" rel="noreferrer" className="p-2 text-slate-400 hover:text-sky-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Open in new tab">
+                        <a href={file.url} target="_blank" rel="noreferrer" className="p-2 text-slate-400 hover:text-violet-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Open in new tab">
                           <ExternalLink size={16} />
                         </a>
                       </div>

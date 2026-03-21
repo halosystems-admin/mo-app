@@ -5,11 +5,15 @@ import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
 import { checkAuth, getLoginUrl, logout, fetchAllPatients, warmAndListFiles, createPatient, deletePatient, loadSettings, saveSettings, ApiError, fetchTodayEvents } from './services/api';
 import type { Patient, UserSettings, CalendarEvent } from '../../shared/types';
-import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2 } from 'lucide-react';
+import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, Menu } from 'lucide-react';
 import { CalendarPage } from './pages/CalendarPage';
+import { WardPage } from './pages/WardPage';
 
 const ENABLE_EXPANDED_CALENDAR =
   import.meta.env.VITE_ENABLE_EXPANDED_CALENDAR !== 'false';
+
+type AuthProvider = 'google' | 'microsoft';
+type MicrosoftStorageMode = 'onedrive' | 'sharepoint';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -49,7 +53,12 @@ export const App = () => {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarPrepEvent, setCalendarPrepEvent] = useState<CalendarEvent | null>(null);
-  const [activeMainView, setActiveMainView] = useState<'workspace' | 'calendar'>('workspace');
+  const [activeMainView, setActiveMainView] = useState<'workspace' | 'calendar' | 'ward'>('workspace');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Auth provider selection (Google vs Microsoft)
+  const [authProvider, setAuthProvider] = useState<AuthProvider>('microsoft');
+  const [microsoftStorageMode, setMicrosoftStorageMode] = useState<MicrosoftStorageMode>('onedrive');
 
   // Persist selected patient to sessionStorage so it survives page refresh
   // Also track recently opened patients in localStorage
@@ -68,9 +77,35 @@ export const App = () => {
     }
   }, []);
 
+  const openPatientWorkspace = useCallback((id: string) => {
+    selectPatient(id);
+    setActiveMainView('workspace');
+  }, [selectPatient]);
+
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
   }, []);
+
+  // OAuth callback redirects (admin consent / errors) land on CLIENT_URL with query params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    let strip = false;
+    if (params.get('admin_consent') === 'ok') {
+      showToast('Microsoft admin consent completed for your organization. You can sign in below.', 'success');
+      params.delete('admin_consent');
+      strip = true;
+    }
+    const authErr = params.get('auth_error');
+    if (authErr) {
+      showToast(decodeURIComponent(authErr.replace(/\+/g, ' ')), 'error');
+      params.delete('auth_error');
+      strip = true;
+    }
+    if (strip) {
+      const q = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${q ? `?${q}` : ''}${window.location.hash}`);
+    }
+  }, [showToast]);
 
   const getErrorMessage = (err: unknown): string => {
     if (err instanceof ApiError) return err.message;
@@ -157,7 +192,10 @@ export const App = () => {
     setLoading(true);
     try {
       console.log('Fetching login URL...');
-      const { url } = await getLoginUrl();
+      const { url } = await getLoginUrl({
+        provider: authProvider,
+        storageMode: authProvider === 'microsoft' ? microsoftStorageMode : undefined,
+      });
       console.log('Got login URL:', url);
       if (url) {
         window.location.href = url;
@@ -238,11 +276,28 @@ export const App = () => {
     }
   };
 
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileSidebarOpen(false);
+    };
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileSidebarOpen]);
+
   if (!isReady) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-4">
-          <Loader className="animate-spin text-sky-600" size={32} />
+          <Loader className="animate-spin text-violet-600" size={32} />
           <p className="text-sm text-slate-400 font-medium">Loading HALO...</p>
         </div>
       </div>
@@ -255,16 +310,58 @@ export const App = () => {
         <div className="max-w-sm w-full text-center px-6">
           <img
             src="/halo-medical-logo.png"
-            alt="HALO Medical"
+            alt="Dr Mohamed Patel"
             className="w-48 h-auto mx-auto mb-6 select-none"
             draggable={false}
           />
-          <h1 className="text-3xl font-bold text-slate-800 mb-2">Welcome to HALO</h1>
-          <p className="text-slate-500 mb-8 leading-relaxed">Sign in to access your Secure Patient Drive.</p>
+          <h1 className="text-3xl font-bold text-slate-800 mb-2">Dr Mohamed Patel</h1>
+          <p className="text-slate-500 mb-6 leading-relaxed">Sign in to access your patient files.</p>
 
-          <button onClick={handleSignIn} className="w-full flex items-center justify-center gap-3 bg-sky-600 hover:bg-sky-700 text-white px-6 py-4 rounded-xl transition-all shadow-md hover:shadow-lg font-semibold text-lg active:scale-[0.98]">
+          <div className="mb-5 flex flex-col gap-3">
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setAuthProvider('google')}
+                className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
+                  authProvider === 'google'
+                    ? 'bg-violet-50 border-violet-300 text-violet-700'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                }`}
+              >
+                Google
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthProvider('microsoft')}
+                className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
+                  authProvider === 'microsoft'
+                    ? 'bg-violet-50 border-violet-300 text-violet-700'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                }`}
+              >
+                Microsoft
+              </button>
+            </div>
+
+            {authProvider === 'microsoft' && (
+              <select
+                value={microsoftStorageMode}
+                onChange={(e) => setMicrosoftStorageMode(e.target.value as MicrosoftStorageMode)}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold"
+              >
+                <option value="onedrive">OneDrive</option>
+                <option value="sharepoint">SharePoint</option>
+              </select>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void handleSignIn()}
+            className="w-full flex items-center justify-center gap-3 bg-violet-600 hover:bg-violet-700 text-white px-6 py-4 rounded-xl transition-all shadow-md hover:shadow-lg font-semibold text-lg active:scale-[0.98]"
+          >
             {loading ? <Loader className="animate-spin" /> : <LogIn size={20} />}
-            {loading ? "Connecting..." : "Sign In with Google"}
+            {loading ? 'Connecting...' : `Sign In with ${authProvider === 'microsoft' ? 'Microsoft' : 'Google'}`}
           </button>
 
           <p className="mt-8 text-xs text-slate-400">Secure Environment &bull; POPIA Compliant</p>
@@ -277,16 +374,90 @@ export const App = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden relative">
-      <div className={`${selectedPatientId ? 'hidden md:flex' : 'flex'} h-full shrink-0 z-20`}>
+      {/* Mobile navigation drawer (patients, calendar, settings, logout) */}
+      {isSignedIn && (
+        <button
+          type="button"
+          onClick={() => setMobileSidebarOpen(true)}
+          className="md:hidden absolute top-3 left-3 z-50 p-2 rounded-xl bg-white/80 backdrop-blur border border-slate-200 shadow-sm text-slate-700"
+          aria-label="Open menu"
+          aria-haspopup="dialog"
+          aria-expanded={mobileSidebarOpen}
+        >
+          <Menu size={20} />
+        </button>
+      )}
+
+      {mobileSidebarOpen && (
+        <div className="md:hidden fixed inset-0 z-[60]">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setMobileSidebarOpen(false)}
+            role="button"
+            tabIndex={0}
+          />
+          <div className="absolute left-0 top-0 bottom-0 w-80">
+            <Sidebar
+              patients={patients}
+              selectedPatientId={selectedPatientId}
+              recentPatientIds={recentPatientIds}
+              onSelectPatient={(id) => {
+                selectPatient(id);
+                setActiveMainView('workspace');
+                setMobileSidebarOpen(false);
+              }}
+              onCreatePatient={() => {
+                openCreateModal();
+                setMobileSidebarOpen(false);
+              }}
+              onDeletePatient={(p) => {
+                setMobileSidebarOpen(false);
+                handleDeleteRequest(p);
+              }}
+              onLogout={() => {
+                setMobileSidebarOpen(false);
+                void handleLogout();
+              }}
+              onOpenSettings={() => {
+                setMobileSidebarOpen(false);
+                setShowSettings(true);
+              }}
+              onOpenWard={() => {
+                setMobileSidebarOpen(false);
+                setActiveMainView('ward');
+              }}
+              userEmail={userEmail}
+              userSettings={userSettings}
+              calendarEvents={calendarEvents}
+              calendarLoading={calendarLoading}
+              onSelectCalendarEvent={(ev) => {
+                setMobileSidebarOpen(false);
+                handleSelectCalendarEvent(ev);
+              }}
+              onOpenFullCalendar={
+                ENABLE_EXPANDED_CALENDAR
+                  ? () => {
+                      setMobileSidebarOpen(false);
+                      setActiveMainView('calendar');
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="hidden md:flex h-full shrink-0 z-20">
         <Sidebar
           patients={patients}
           selectedPatientId={selectedPatientId}
           recentPatientIds={recentPatientIds}
-          onSelectPatient={selectPatient}
+          onSelectPatient={openPatientWorkspace}
           onCreatePatient={openCreateModal}
           onDeletePatient={handleDeleteRequest}
           onLogout={handleLogout}
           onOpenSettings={() => setShowSettings(true)}
+          onOpenWard={() => setActiveMainView('ward')}
           userEmail={userEmail}
           userSettings={userSettings}
           calendarEvents={calendarEvents}
@@ -298,7 +469,7 @@ export const App = () => {
         />
       </div>
 
-      <div className={`flex-1 flex flex-col h-screen relative ${!selectedPatientId ? 'hidden md:flex' : 'flex'}`}>
+      <div className={`flex-1 flex flex-col h-screen relative ${activeMainView === 'workspace' && !selectedPatientId ? 'hidden md:flex' : 'flex'}`}>
         {ENABLE_EXPANDED_CALENDAR && activeMainView === 'calendar' ? (
           <CalendarPage
             patients={patients}
@@ -308,6 +479,13 @@ export const App = () => {
             }}
             onClose={() => setActiveMainView('workspace')}
           />
+        ) : activeMainView === 'ward' ? (
+          <WardPage
+            patients={patients}
+            onOpenPatient={(id) => {
+              openPatientWorkspace(id);
+            }}
+          />
         ) : activePatient ? (
           <PatientWorkspace
             key={activePatient.id}
@@ -315,7 +493,7 @@ export const App = () => {
             onBack={() => selectPatient(null)}
             onDataChange={refreshPatients}
             onToast={showToast}
-            templateId={userSettings?.templateId || 'clinical_note'}
+            templateId={userSettings?.templateId || 'outpt_consult'}
             calendarPrepEvent={
               calendarPrepEvent && calendarPrepEvent.patientId === activePatient.id
                 ? calendarPrepEvent
@@ -336,7 +514,7 @@ export const App = () => {
             <div className="relative z-10 flex flex-col items-center text-center px-6">
               <img
                 src="/halo-logo.png"
-                alt="HALO Medical"
+                alt="Dr Mohamed Patel"
                 className="w-44 h-44 md:w-56 md:h-56 lg:w-64 lg:h-64 object-contain mb-6 opacity-20"
                 draggable={false}
               />
@@ -371,31 +549,31 @@ export const App = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 m-4">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserPlus className="text-sky-600" size={24}/> New Patient Folder</h2>
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserPlus className="text-violet-600" size={24}/> New Patient Folder</h2>
               <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"><X size={20} /></button>
             </div>
             <form onSubmit={submitCreatePatient}>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-slate-600 mb-1.5">Full Name</label>
-                  <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                  <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition" />
                 </div>
                 <div className="flex gap-4">
                   <div className="flex-1">
                     <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Calendar size={14} /> Date of Birth</label>
-                    <input type="date" value={newPatientDob} onChange={(e) => setNewPatientDob(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                    <input type="date" value={newPatientDob} onChange={(e) => setNewPatientDob(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition" />
                   </div>
                   <div className="w-1/3">
                     <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Users size={14} /> Sex</label>
                     <div className="flex bg-slate-100 p-1 rounded-xl">
-                      <button type="button" onClick={() => setNewPatientSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'M' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
-                      <button type="button" onClick={() => setNewPatientSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'F' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
+                      <button type="button" onClick={() => setNewPatientSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'M' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
+                      <button type="button" onClick={() => setNewPatientSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'F' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
                     </div>
                   </div>
                 </div>
                 <div className="pt-2 flex gap-3">
                   <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                  <button type="submit" disabled={!newPatientName.trim() || loading} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
+                  <button type="submit" disabled={!newPatientName.trim() || loading} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-violet-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
                     {loading ? <Loader className="animate-spin" size={18}/> : 'Create Folder'}
                   </button>
                 </div>
@@ -416,7 +594,7 @@ export const App = () => {
               <h2 className="text-xl font-bold text-slate-800">Delete Patient Folder?</h2>
               <p className="text-slate-500 mt-2 px-4">
                 Are you sure you want to delete <span className="font-bold text-slate-800">{patientToDelete.name}</span>?
-                This will move the folder to your Google Drive Trash.
+                This will move the folder to your storage trash.
               </p>
             </div>
             <div className="flex gap-3">
