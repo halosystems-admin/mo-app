@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { HALO_USER_ID } from '../../shared/haloTemplates';
 
 dotenv.config();
 
@@ -61,9 +62,9 @@ export const config = {
 
   // Halo Functions API
   haloApiBaseUrl: process.env.HALO_API_BASE_URL || 'https://halo-functions-75316778879.africa-south1.run.app',
-  haloUserId: process.env.HALO_USER_ID || '00b70e6e-26e5-422c-bf1e-ea51c658c55c',
-  // Mobile app: fixed user/template for dictation flow (Mo Patel: same user, script template)
-  haloMobileUserId: process.env.HALO_MOBILE_USER_ID || '00b70e6e-26e5-422c-bf1e-ea51c658c55c',
+  haloUserId: process.env.HALO_USER_ID || HALO_USER_ID,
+  // Mobile app: fixed user/template for dictation flow (same Halo user as web)
+  haloMobileUserId: process.env.HALO_MOBILE_USER_ID || HALO_USER_ID,
   haloMobileTemplateId: process.env.HALO_MOBILE_TEMPLATE_ID || 'script',
 
   // Template request email (optional)

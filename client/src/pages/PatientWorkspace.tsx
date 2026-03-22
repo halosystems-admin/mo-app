@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote, NoteField, CalendarEvent, ScribeSession } from '../../../shared/types';
+import { DEFAULT_HALO_TEMPLATE_ID, HALO_TEMPLATE_OPTIONS } from '../../../shared/haloTemplates';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 
 import {
@@ -84,20 +85,8 @@ function getNoteText(note: HaloNote): string {
   return '';
 }
 
-/** Fallback when Halo get_templates fails or returns empty; use real IDs from Halo when possible to avoid 404. */
-const DEFAULT_TEMPLATE_OPTIONS: Array<{ id: string; name: string }> = [
-  { id: 'admission', name: 'Admission' },
-  { id: 'colonoscopy', name: 'Colonoscopy' },
-  { id: 'gastroscopy', name: 'Gastroscopy' },
-  { id: 'inpatient_fu', name: 'Inpatient Follow-up' },
-  { id: 'operation', name: 'Operation' },
-  { id: 'outpt_consult', name: 'Outpatient Consult' },
-  { id: 'script', name: 'Script' },
-  { id: 'sick_note', name: 'Sick Note' },
-  { id: 'ward_dictation', name: 'Ward Dictation' },
-];
-
-/** All templates use the same HALO user (Mo Patel); server uses HALO_USER_ID when user_id not sent. */
+/** Fallback when Halo get_templates fails or returns empty (must match shared/haloTemplates). */
+/** Server uses HALO_USER_ID from env / shared when user_id is not sent. */
 function getHaloUserForTemplate(_templateId: string | undefined): string | undefined {
   return undefined;
 }
@@ -142,7 +131,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [alerts, setAlerts] = useState<LabAlert[]>([]);
   const [notes, setNotes] = useState<HaloNote[]>([]);
   const [activeNoteIndex, setActiveNoteIndex] = useState(0);
-  const [templateId, setTemplateId] = useState(propTemplateId || 'outpt_consult');
+  const [templateId, setTemplateId] = useState(propTemplateId || DEFAULT_HALO_TEMPLATE_ID);
   const [pendingTranscript, setPendingTranscript] = useState<string | null>(null);
   /** Full transcript for the current session (all completed segments). */
   const [lastTranscript, setLastTranscript] = useState<string>('');
@@ -151,8 +140,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [isLiveStreaming, setIsLiveStreaming] = useState(false);
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [consultSubTab, setConsultSubTab] = useState<'transcript' | 'context' | number>('transcript');
-  const [templateOptions, setTemplateOptions] = useState<Array<{ id: string; name: string }>>(DEFAULT_TEMPLATE_OPTIONS);
-  const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>(['outpt_consult']);
+  const [templateOptions, setTemplateOptions] = useState<Array<{ id: string; name: string }>>([...HALO_TEMPLATE_OPTIONS]);
+  const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>([DEFAULT_HALO_TEMPLATE_ID]);
   const [templateSearch, setTemplateSearch] = useState('');
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [activeTab, setActiveTab] = useState<'overview' | 'notes' | 'chat' | 'sessions'>('overview');
@@ -351,7 +340,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           }
         })
         .catch(() => {
-          // Keep DEFAULT_TEMPLATE_OPTIONS on failure
+          // Keep HALO_TEMPLATE_OPTIONS on failure
         });
     }
 
@@ -817,7 +806,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       setLastTranscript(combined);
       setLiveTranscriptSegment('');
       setPendingTranscript(combined);
-      setSelectedTemplatesForGenerate(['outpt_consult']);
+      setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
       setActiveTab('notes');
     },
     [lastTranscript, onToast]
@@ -862,7 +851,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         void generateNotesFromTranscript(combined, false);
       } else {
         setPendingTranscript(combined);
-        setSelectedTemplatesForGenerate(['outpt_consult']);
+        setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
         setActiveTab('notes');
       }
     },
@@ -1141,7 +1130,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       if (Array.isArray(session.templates) && session.templates.length > 0) {
         setSelectedTemplatesForGenerate(session.templates);
       } else {
-        setSelectedTemplatesForGenerate(['outpt_consult']);
+        setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
       }
 
       if (session.notes && session.notes.length > 0) {
@@ -1487,7 +1476,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         type="button"
                         onClick={() => {
                           setShowAddNoteModal(true);
-                          setSelectedTemplatesForGenerate(['outpt_consult']);
+                          setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
                         }}
                         className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-violet-300 hover:text-violet-700 transition-all"
                         title="Add note or draft new letter"

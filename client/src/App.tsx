@@ -5,6 +5,7 @@ import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
 import { checkAuth, getLoginUrl, logout, fetchAllPatients, warmAndListFiles, createPatient, deletePatient, loadSettings, saveSettings, ApiError, fetchTodayEvents } from './services/api';
 import type { Patient, UserSettings, CalendarEvent } from '../../shared/types';
+import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, Menu } from 'lucide-react';
 import { CalendarPage } from './pages/CalendarPage';
 import { WardPage } from './pages/WardPage';
@@ -493,7 +494,7 @@ export const App = () => {
             onBack={() => selectPatient(null)}
             onDataChange={refreshPatients}
             onToast={showToast}
-            templateId={userSettings?.templateId || 'outpt_consult'}
+            templateId={userSettings?.templateId || DEFAULT_HALO_TEMPLATE_ID}
             calendarPrepEvent={
               calendarPrepEvent && calendarPrepEvent.patientId === activePatient.id
                 ? calendarPrepEvent

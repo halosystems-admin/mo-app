@@ -1,22 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { UserSettings } from '../../../shared/types';
+import { DEFAULT_HALO_TEMPLATE_ID, HALO_TEMPLATE_OPTIONS } from '../../../shared/haloTemplates';
 import {
   X, Pencil, Save, User, Clock, Briefcase, MapPin, GraduationCap,
   FileText, Upload, Check, AlertCircle, Send, Plus,
 } from 'lucide-react';
 import { requestNewTemplate } from '../services/api';
-
-const HALO_TEMPLATE_OPTIONS = [
-  { id: 'admission', name: 'Admission' },
-  { id: 'colonoscopy', name: 'Colonoscopy' },
-  { id: 'gastroscopy', name: 'Gastroscopy' },
-  { id: 'inpatient_fu', name: 'Inpatient Follow-up' },
-  { id: 'operation', name: 'Operation' },
-  { id: 'outpt_consult', name: 'Outpatient Consult' },
-  { id: 'script', name: 'Script' },
-  { id: 'sick_note', name: 'Sick Note' },
-  { id: 'ward_dictation', name: 'Ward Dictation' },
-];
 
 const DEFAULT_SETTINGS: UserSettings = {
   firstName: '',
@@ -29,7 +18,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   noteTemplate: 'soap',
   customTemplateContent: '',
   customTemplateName: '',
-  templateId: 'outpt_consult',
+  templateId: DEFAULT_HALO_TEMPLATE_ID,
 };
 
 interface Props {
@@ -88,7 +77,7 @@ export const SettingsModal: React.FC<Props> = ({
     if (editMode && requiredFieldsMissing) return;
     setSaving(true);
     try {
-      const updated = { ...form, noteTemplate: templateTab, templateId: form.templateId || 'outpt_consult' };
+      const updated = { ...form, noteTemplate: templateTab, templateId: form.templateId || DEFAULT_HALO_TEMPLATE_ID };
       await onSave(updated);
       setForm(updated);
       setEditMode(false);
@@ -367,7 +356,7 @@ export const SettingsModal: React.FC<Props> = ({
 
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">Default template</label>
             <select
-              value={form.templateId || 'outpt_consult'}
+              value={form.templateId || DEFAULT_HALO_TEMPLATE_ID}
               onChange={(e) => setForm(prev => ({ ...prev, templateId: e.target.value }))}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none shadow-sm"
             >
@@ -445,7 +434,7 @@ export const SettingsModal: React.FC<Props> = ({
         </div>
 
         {/* Footer with Save */}
-        {editMode || templateTab !== (settings?.noteTemplate || 'soap') || form.customTemplateContent !== (settings?.customTemplateContent || '') || form.templateId !== (settings?.templateId || 'outpt_consult') ? (
+        {editMode || templateTab !== (settings?.noteTemplate || 'soap') || form.customTemplateContent !== (settings?.customTemplateContent || '') || form.templateId !== (settings?.templateId || DEFAULT_HALO_TEMPLATE_ID) ? (
           <div className="border-t border-slate-100 p-4 bg-slate-50 flex gap-3">
             <button
               onClick={() => {

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import nodemailer from 'nodemailer';
 import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
+import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { getTemplates, generateNote } from '../services/haloApi';
 import { getStorageAdapter } from '../services/storage';
 
@@ -156,7 +157,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     }
 
     const userId = useMobileConfig ? config.haloMobileUserId : (user_id || config.haloUserId);
-    const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || 'clinical_note');
+    const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
     console.log('[Halo] generate-note request:', { userId: userId.slice(0, 8) + '…', templateId, return_type, textLength: text.length });
     const result = await generateNote({ user_id: userId, template_id: templateId, text, return_type });
 
@@ -223,7 +224,7 @@ router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
       return;
     }
     const userId = useMobileConfig ? config.haloMobileUserId : (user_id || config.haloUserId);
-    const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || 'clinical_note');
+    const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
 
     const docx = await generateNote({
       user_id: userId,
