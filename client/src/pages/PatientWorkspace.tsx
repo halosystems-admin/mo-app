@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote, NoteField, CalendarEvent, ScribeSession } from '../../../shared/types';
-import { DEFAULT_HALO_TEMPLATE_ID, HALO_TEMPLATE_OPTIONS } from '../../../shared/haloTemplates';
+import { DEFAULT_HALO_TEMPLATE_ID, HALO_TEMPLATE_OPTIONS, HOSPITALS, type HospitalKey } from '../../../shared/haloTemplates';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 
 import {
@@ -143,6 +143,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [templateOptions, setTemplateOptions] = useState<Array<{ id: string; name: string }>>([...HALO_TEMPLATE_OPTIONS]);
   const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>([DEFAULT_HALO_TEMPLATE_ID]);
   const [templateSearch, setTemplateSearch] = useState('');
+  const [selectedHospital, setSelectedHospital] = useState<HospitalKey>('louis_leipoldt');
+  const activeHospitalConfig = HOSPITALS.find(h => h.key === selectedHospital) ?? HOSPITALS[0];
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [activeTab, setActiveTab] = useState<'overview' | 'notes' | 'chat' | 'sessions'>('overview');
   const [savingNoteIndex, setSavingNoteIndex] = useState<number | null>(null);
@@ -698,12 +700,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 generateNotePreview({
                   template_id: id,
                   text: trimmedTranscript,
-                  user_id: getHaloUserForTemplate(id),
+                  user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
                 }),
                 generateNotePreviewPdf({
                   template_id: id,
                   text: trimmedTranscript,
-                  user_id: getHaloUserForTemplate(id),
+                  user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
                 }),
               ]);
               return { noteResult, pdfBase64: pdfResult.pdfBase64 };
@@ -1591,6 +1593,27 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                       </p>
                     </div>
                     <div className="px-6 pb-6 pt-4 space-y-4">
+                      {/* Hospital toggle */}
+                      <div className="flex rounded-xl bg-slate-100 p-1 gap-1">
+                        {HOSPITALS.map(h => (
+                          <button
+                            key={h.key}
+                            type="button"
+                            onClick={() => {
+                              setSelectedHospital(h.key);
+                              setSelectedTemplatesForGenerate([h.defaultTemplateId]);
+                              setTemplateSearch('');
+                            }}
+                            className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                              selectedHospital === h.key
+                                ? 'bg-white text-violet-700 shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                          >
+                            {h.label}
+                          </button>
+                        ))}
+                      </div>
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
@@ -1601,7 +1624,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         />
                       </div>
                       <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/60 divide-y divide-slate-100">
-                        {templateOptions
+                        {(selectedHospital === 'louis_leipoldt' ? templateOptions : activeHospitalConfig.templates as Array<{ id: string; name: string }>)
                           .filter(t => {
                             if (!templateSearch.trim()) return true;
                             const q = templateSearch.toLowerCase();
@@ -1636,7 +1659,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                               </button>
                             );
                           })}
-                        {templateOptions.length === 0 && (
+                        {(selectedHospital === 'louis_leipoldt' ? templateOptions : activeHospitalConfig.templates).length === 0 && (
                           <div className="px-4 py-6 text-xs text-slate-500 text-center">
                             No templates available. HALO will fall back to the default clinical note.
                           </div>
