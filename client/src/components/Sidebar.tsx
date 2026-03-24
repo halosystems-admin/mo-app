@@ -258,7 +258,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      <div className="p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm z-10">
+      <div className="p-4 pb-safe border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm z-10">
         <button onClick={onCreatePatient} className="w-full bg-violet-600 hover:bg-violet-500 text-white p-3.5 rounded-xl font-bold transition-all shadow-lg shadow-violet-900/20 flex items-center justify-center gap-2 mb-3 active:scale-[0.98]">
           <Plus size={20} /> New Patient Folder
         </button>
