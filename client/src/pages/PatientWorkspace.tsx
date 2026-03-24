@@ -1177,9 +1177,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   return (
     <div className="flex flex-col h-full bg-white relative w-full">
       {/* Header */}
-      <div className="border-b border-slate-200 px-4 md:px-8 py-2.5 flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-2">
+      <div className="border-b border-slate-200 pl-14 pr-4 md:px-8 py-2.5 flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-2">
         <div className="flex items-start gap-3">
-          <button onClick={onBack} className="md:hidden mt-1 p-2 -ml-2 text-slate-500 hover:text-violet-600 rounded-full">
+          <button onClick={onBack} className="md:hidden mt-1 p-2 text-slate-500 hover:text-violet-600 rounded-full">
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="group relative">
@@ -1305,12 +1305,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           {/* Tabs */}
           <div className="flex items-end justify-between gap-2 border-b border-slate-200 mb-3">
             <div className="flex gap-4 md:gap-5 overflow-x-auto">
-              <button onClick={() => setActiveTab('overview')} className={`pb-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Active Workspace</button>
-              <button onClick={() => setActiveTab('notes')} className={`pb-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Editor &amp; Scribe</button>
-              <button onClick={() => setActiveTab('chat')} className={`pb-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+              <button onClick={() => setActiveTab('overview')} className={`py-3 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Active Workspace</button>
+              <button onClick={() => setActiveTab('notes')} className={`py-3 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Editor &amp; Scribe</button>
+              <button onClick={() => setActiveTab('chat')} className={`py-3 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
               <MessageCircle size={14} /> Ask HALO
               </button>
-              <button onClick={() => setActiveTab('sessions')} className={`pb-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'sessions' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+              <button onClick={() => setActiveTab('sessions')} className={`py-3 text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'sessions' ? 'border-violet-600 text-violet-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
               <History size={14} /> Previous Sessions
               </button>
             </div>
@@ -1406,7 +1406,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               </div>
 
               {/* Current session: transcript when modal is open, or main content when not */}
-              <div className="h-[600px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative">
+              <div className="h-[calc(100svh-240px)] max-h-[600px] min-h-[350px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative">
                 {pendingTranscript ? (
                   /* Transcript visible in background while template modal is open */
                   <div className="flex-1 flex flex-col p-4 overflow-auto bg-slate-50">

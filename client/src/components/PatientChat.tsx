@@ -23,7 +23,7 @@ export const PatientChat: React.FC<PatientChatProps> = ({
   }, [chatMessages, chatLoading]);
 
   return (
-    <div className="h-[600px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div className="h-[calc(100svh-240px)] max-h-[600px] min-h-[350px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
       <div className="bg-gradient-to-r from-violet-50 to-violet-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
         <MessageCircle size={16} className="text-violet-600" />
         <span className="text-sm font-bold text-violet-800 uppercase tracking-wider">Ask HALO</span>
