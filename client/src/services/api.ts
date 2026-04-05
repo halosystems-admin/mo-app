@@ -9,7 +9,10 @@ import type {
   ScribeSession,
   DoctorDiaryEntry,
   AdmittedPatientKanban,
+  ExtractedPatientSticker,
+  HaloPatientProfile,
 } from '../../../shared/types';
+import { mimeFromFilename } from '../../../shared/mimeFromFilename';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -29,12 +32,14 @@ export function getTranscribeWebSocketUrl(): string {
     return `${wsProtocol}//${host}/ws/transcribe`;
   }
 
-  // Dev fallback: assume backend is on port 3001 at same host
+  // Same-origin (e.g. Heroku: one HTTPS server for static + API + WebSocket)
   if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const hostname = window.location.hostname;
-    const port = 3001;
-    return `${protocol}//${hostname}:${port}/ws/transcribe`;
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    // Local Vite: REST uses /api proxy; WebSocket must hit the Node server on 3001
+    if (window.location.hostname === 'localhost' && window.location.port === '5173') {
+      return `${wsProtocol}//localhost:3001/ws/transcribe`;
+    }
+    return `${wsProtocol}//${window.location.host}/ws/transcribe`;
   }
 
   // SSR / safety fallback
@@ -369,12 +374,18 @@ export const fetchFolderContents = async (folderId: string): Promise<DriveFile[]
 };
 
 export const uploadFile = async (patientId: string, file: File, customName?: string): Promise<DriveFile> => {
+  const nameForMime = customName || file.name;
+  const inferred = mimeFromFilename(nameForMime);
+  const fileType = file.type?.trim() ? file.type : inferred || '';
+  if (!fileType) {
+    throw new Error('Could not determine file type. Use a normal extension (e.g. .pdf, .jpg).');
+  }
   const base64 = await fileToBase64(file);
   return request<DriveFile>(`/api/drive/patients/${patientId}/upload`, {
     method: 'POST',
     body: JSON.stringify({
-      fileName: customName || file.name,
-      fileType: file.type,
+      fileName: nameForMime,
+      fileType,
       fileData: base64,
     }),
   });
@@ -407,6 +418,12 @@ export const generatePatientSummary = async (patientName: string, files: DriveFi
     body: JSON.stringify({ patientName, patientId, files }),
   });
 };
+
+export const draftDischargeSummary = (params: { patientName: string; clinicalContext: string }) =>
+  request<{ text: string }>('/api/ai/draft-discharge-summary', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
 
 export const extractLabAlerts = async (content: string): Promise<LabAlert[]> => {
   return request<LabAlert[]>('/api/ai/lab-alerts', {
@@ -445,6 +462,57 @@ export const describeFile = async (patientId: string, file: DriveFile): Promise<
   });
   return data.description ?? '';
 };
+
+/** Gemini vision: sticker / wristband / note photo → demographics JSON. */
+export const extractPatientFromSticker = async (
+  base64Image: string,
+  mimeType = 'image/jpeg'
+): Promise<ExtractedPatientSticker> =>
+  request<ExtractedPatientSticker>('/api/ai/extract-patient-sticker', {
+    method: 'POST',
+    body: JSON.stringify({ base64Image, mimeType }),
+  });
+
+/** Vision: image → Markdown context for note generation (text + diagrams). */
+export const extractConsultContextFromImage = async (
+  base64Image: string,
+  mimeType: string,
+  fileName?: string
+): Promise<string> => {
+  const data = await request<{ summary: string }>('/api/ai/consult-context-from-image', {
+    method: 'POST',
+    body: JSON.stringify({ base64Image, mimeType, fileName }),
+  });
+  return data.summary ?? '';
+};
+
+/** Text-based file already on Drive → Markdown context. */
+export const consultContextFromUploadedFile = async (
+  patientId: string,
+  file: DriveFile
+): Promise<string> => {
+  const data = await request<{ summary: string }>('/api/ai/consult-context-from-file', {
+    method: 'POST',
+    body: JSON.stringify({
+      patientId,
+      fileId: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+    }),
+  });
+  return data.summary ?? '';
+};
+
+/** Save billing / demographics extension as HALO_patient_profile.json in the patient folder. */
+export async function uploadPatientHaloProfile(
+  patientId: string,
+  profile: HaloPatientProfile
+): Promise<DriveFile> {
+  const json = JSON.stringify(profile, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const file = new File([blob], 'HALO_patient_profile.json', { type: 'application/json' });
+  return uploadFile(patientId, file, 'HALO_patient_profile.json');
+}
 
 // --- Halo API (note generation + templates) ---
 export const getHaloTemplates = (userId?: string) =>
@@ -596,4 +664,9 @@ function fileToBase64(file: File): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+export async function extractPatientFromStickerFile(file: File): Promise<ExtractedPatientSticker> {
+  const base64 = await fileToBase64(file);
+  return extractPatientFromSticker(base64, file.type || 'image/jpeg');
 }

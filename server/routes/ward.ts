@@ -126,11 +126,25 @@ router.post('/kanban', async (req: Request, res: Response) => {
       return;
     }
 
+    const validBoardColumns = new Set([
+      'icu',
+      'f',
+      's',
+      'm',
+      'paeds',
+      'ed',
+      'labour',
+      'other',
+    ]);
+
     const safe: AdmittedPatientKanban[] = kanban
       .filter((p) => p && typeof p === 'object')
       .map((p) => {
         const patientId = typeof p.patientId === 'string' ? p.patientId : '';
         const admitted = Boolean((p as any).admitted);
+        const bcRaw = (p as any).boardColumn;
+        const boardColumn =
+          typeof bcRaw === 'string' && validBoardColumns.has(bcRaw) ? bcRaw : undefined;
         const todosRaw = Array.isArray((p as any).todos) ? (p as any).todos : [];
         const todos = todosRaw
           .filter((t: any) => t && typeof t === 'object')
@@ -149,6 +163,7 @@ router.post('/kanban', async (req: Request, res: Response) => {
               patientId,
               admitted,
               todos,
+              ...(boardColumn ? { boardColumn } : {}),
             }
           : null;
       })

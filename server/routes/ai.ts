@@ -11,7 +11,12 @@ import {
   chatSystemPrompt,
   geminiTranscriptionPrompt,
   fileDescriptionPrompt,
+  patientStickerExtractionPrompt,
+  consultContextImagePrompt,
+  consultContextDocumentPrompt,
+  dischargeSummaryPrompt,
 } from '../utils/prompts';
+import type { ExtractedPatientSticker } from '../../shared/types';
 
 const router = Router();
 router.use(requireAuth);
@@ -385,6 +390,151 @@ router.post('/transcribe', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[ai/transcribe] Transcribe error:', err);
     res.status(500).json({ error: 'Could not transcribe audio.' });
+  }
+});
+
+// POST /extract-patient-sticker — Gemini vision: wristband / sticker / note → demographics JSON
+router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
+  try {
+    const { base64Image, mimeType } = req.body as { base64Image?: string; mimeType?: string };
+
+    if (!base64Image || typeof base64Image !== 'string') {
+      res.status(400).json({ error: 'base64Image is required.' });
+      return;
+    }
+
+    const cleanBase64 = base64Image.split(',')[1] || base64Image;
+    const mime = mimeType && /^image\/(jpeg|png|gif|webp)$/i.test(mimeType) ? mimeType : 'image/jpeg';
+
+    const raw = await analyzeImage(patientStickerExtractionPrompt(), cleanBase64, mime);
+    const fallback: ExtractedPatientSticker = {
+      name: '',
+      dob: '',
+      sex: null,
+      idNumber: '',
+      folderNumber: '',
+      ward: '',
+      rawNotes: '',
+      medicalAidName: '',
+      medicalAidPackage: '',
+      medicalAidMemberNumber: '',
+      medicalAidPhone: '',
+    };
+    const parsed = safeJsonParse<ExtractedPatientSticker>(raw, fallback);
+    let sex = parsed.sex;
+    if (sex !== 'M' && sex !== 'F') sex = null;
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+    res.json({
+      ...parsed,
+      sex,
+      name: str(parsed.name),
+      dob: str(parsed.dob),
+      idNumber: str(parsed.idNumber),
+      folderNumber: str(parsed.folderNumber),
+      ward: str(parsed.ward),
+      rawNotes: str(parsed.rawNotes),
+      medicalAidName: str(parsed.medicalAidName),
+      medicalAidPackage: str(parsed.medicalAidPackage),
+      medicalAidMemberNumber: str(parsed.medicalAidMemberNumber),
+      medicalAidPhone: str(parsed.medicalAidPhone),
+    });
+  } catch (err) {
+    console.error('[ai/extract-patient-sticker] error:', err);
+    res.status(500).json({ error: 'Could not read image. Try a clearer photo.' });
+  }
+});
+
+// POST /consult-context-from-image — vision: scans/diagrams → Markdown for note context
+router.post('/consult-context-from-image', async (req: Request, res: Response) => {
+  try {
+    const { base64Image, mimeType, fileName } = req.body as {
+      base64Image?: string;
+      mimeType?: string;
+      fileName?: string;
+    };
+
+    if (!base64Image || typeof base64Image !== 'string') {
+      res.status(400).json({ error: 'base64Image is required.' });
+      return;
+    }
+
+    const cleanBase64 = base64Image.split(',')[1] || base64Image;
+    const mime = mimeType && /^image\/(jpeg|png|gif|webp)$/i.test(mimeType) ? mimeType : 'image/jpeg';
+    const fname =
+      typeof fileName === 'string' && fileName.trim() ? fileName.trim() : 'consult-context-image';
+
+    const summary = await analyzeImage(consultContextImagePrompt(fname), cleanBase64, mime);
+    res.json({ summary: (summary || '').trim() });
+  } catch (err) {
+    console.error('[ai/consult-context-from-image] error:', err);
+    res.status(500).json({ error: 'Could not analyse image for context. Check GEMINI_API_KEY and try again.' });
+  }
+});
+
+// POST /consult-context-from-file — extracted text from PDF/DOCX → Markdown context
+router.post('/consult-context-from-file', async (req: Request, res: Response) => {
+  try {
+    const { patientId, fileId, name, mimeType } = req.body as {
+      patientId?: string;
+      fileId?: string;
+      name?: string;
+      mimeType?: string;
+    };
+
+    if (!patientId || !fileId) {
+      res.status(400).json({ error: 'patientId and fileId are required.' });
+      return;
+    }
+
+    const token = req.session.accessToken;
+    if (!token) {
+      res.status(401).json({ error: 'Not authenticated.' });
+      return;
+    }
+
+    const dummyFile = {
+      id: fileId,
+      name: name || 'Uploaded file',
+      mimeType: mimeType || 'application/octet-stream',
+    };
+
+    const extracted = await extractTextFromFile(token, dummyFile, 8000);
+    if (!extracted.trim()) {
+      res.json({
+        summary:
+          '_No extractable text in this file. If it is a scan or photo, upload it as an image (JPG/PNG) from Context → Upload._',
+      });
+      return;
+    }
+
+    const raw = await generateText(consultContextDocumentPrompt(dummyFile.name, extracted));
+    res.json({ summary: (raw || '').trim() });
+  } catch (err) {
+    console.error('[ai/consult-context-from-file] error:', err);
+    res.status(500).json({ error: 'Could not build context from file.' });
+  }
+});
+
+// POST /draft-discharge-summary — structured admission/ward text → Markdown discharge summary
+router.post('/draft-discharge-summary', async (req: Request, res: Response) => {
+  try {
+    const { patientName, clinicalContext } = req.body as {
+      patientName?: string;
+      clinicalContext?: string;
+    };
+
+    if (!patientName?.trim() || typeof clinicalContext !== 'string' || !clinicalContext.trim()) {
+      res.status(400).json({ error: 'patientName and clinicalContext are required.' });
+      return;
+    }
+
+    const text = await generateText(
+      dischargeSummaryPrompt(patientName.trim(), clinicalContext.trim())
+    );
+    res.json({ text: (text || '').trim() });
+  } catch (err) {
+    console.error('[ai/draft-discharge-summary] error:', err);
+    res.status(500).json({ error: 'Could not draft discharge summary.' });
   }
 });
 

@@ -146,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={onOpenWard}
               className="p-2 rounded-lg text-slate-500 hover:text-violet-400 hover:bg-slate-800 transition-all"
-              title="Ward (diary + admitted kanban)"
+              title="Ward board & diary"
               type="button"
             >
               <BookOpen size={20} />

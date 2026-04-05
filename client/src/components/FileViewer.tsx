@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, ExternalLink, Loader2, FileText, AlertCircle } from 'lucide-react';
+import { refineMimeType } from '../../../shared/mimeFromFilename';
 
 interface FileViewerProps {
   fileId: string;
@@ -16,11 +17,13 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
  * Returns the type of viewer to use.
  */
 function getViewerType(mimeType: string, fileName: string): 'pdf' | 'image' | 'text' | 'google-embed' | 'unsupported' {
-  // Images
-  if (mimeType.startsWith('image/')) return 'image';
+  const lower = fileName.toLowerCase();
+
+  // Images (extension fallback when Drive sends application/octet-stream)
+  if (mimeType.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(lower)) return 'image';
 
   // PDFs
-  if (mimeType === 'application/pdf' || fileName.endsWith('.pdf')) return 'pdf';
+  if (mimeType === 'application/pdf' || lower.endsWith('.pdf')) return 'pdf';
 
   // Text-based files
   if (
@@ -28,9 +31,9 @@ function getViewerType(mimeType: string, fileName: string): 'pdf' | 'image' | 't
     mimeType === 'text/csv' ||
     mimeType === 'text/html' ||
     mimeType === 'application/json' ||
-    fileName.endsWith('.txt') ||
-    fileName.endsWith('.csv') ||
-    fileName.endsWith('.json')
+    lower.endsWith('.txt') ||
+    lower.endsWith('.csv') ||
+    lower.endsWith('.json')
   ) return 'text';
 
   // Google Workspace files (Docs, Sheets, Slides) — export as PDF for viewer
@@ -50,7 +53,8 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
   const [error, setError] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
 
-  const viewerType = getViewerType(mimeType, fileName);
+  const effectiveMime = useMemo(() => refineMimeType(mimeType, fileName), [mimeType, fileName]);
+  const viewerType = getViewerType(effectiveMime, fileName);
 
   useEffect(() => {
     if (viewerType === 'unsupported') {
@@ -79,14 +83,27 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         if (cancelled) return;
 
         if (!res.ok) {
-          throw new Error(`Failed to load file (${res.status})`);
+          let msg = `Failed to load file (${res.status})`;
+          try {
+            const errBody = await res.clone().json();
+            if (errBody && typeof errBody.error === 'string' && errBody.error.trim()) {
+              msg = errBody.error.trim();
+            }
+          } catch {
+            /* keep status message */
+          }
+          throw new Error(msg);
         }
 
         if (viewerType === 'text') {
           const text = await res.text();
           if (!cancelled) setTextContent(text);
         } else {
-          const blob = await res.blob();
+          const headerType = res.headers.get('Content-Type')?.split(';')[0]?.trim() || '';
+          const blobType =
+            headerType && headerType !== 'application/octet-stream' ? headerType : effectiveMime;
+          const buf = await res.arrayBuffer();
+          const blob = new Blob([buf], { type: blobType || 'application/octet-stream' });
           if (!cancelled) {
             const url = URL.createObjectURL(blob);
             blobUrlRef.current = url;
@@ -111,7 +128,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         blobUrlRef.current = null;
       }
     };
-  }, [fileId, viewerType]);
+  }, [fileId, viewerType, effectiveMime]);
 
   // Close on Escape key
   useEffect(() => {
@@ -154,7 +171,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <FileText className="w-12 h-12 text-slate-300" />
           <p className="text-slate-600 font-medium">Preview not available for this file type</p>
-          <p className="text-slate-400 text-sm">({mimeType})</p>
+          <p className="text-slate-400 text-sm">({effectiveMime})</p>
           <a
             href={fileUrl}
             target="_blank"
@@ -213,7 +230,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
             <FileText size={18} className="text-violet-600 shrink-0" />
             <h3 className="font-semibold text-slate-800 truncate">{fileName}</h3>
             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
-              {mimeType.split('/').pop()?.toUpperCase() || 'FILE'}
+              {effectiveMime.split('/').pop()?.toUpperCase() || 'FILE'}
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">

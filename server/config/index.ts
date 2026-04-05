@@ -1,7 +1,34 @@
+import fs from 'fs';
+import path from 'path';
 import dotenv from 'dotenv';
 import { HALO_USER_ID } from '../../shared/haloTemplates';
 
-dotenv.config();
+/** Load .env from project root whether the server runs from repo root (ts-node) or dist/ (node). */
+function loadRootEnv(): void {
+  const candidates = [
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(__dirname, '../../.env'),
+    path.resolve(__dirname, '../../../.env'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      dotenv.config({ path: p, override: true });
+      return;
+    }
+  }
+  dotenv.config();
+}
+loadRootEnv();
+
+/** Strip BOM, whitespace, and wrapping quotes often pasted into .env by mistake. */
+export function sanitizeGeminiApiKey(raw: string | undefined): string {
+  if (raw == null) return '';
+  let s = raw.replace(/^\uFEFF/, '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
 
 // --- Required Environment Variables ---
 const REQUIRED_ENV = ['GEMINI_API_KEY', 'SESSION_SECRET'] as const;
@@ -10,7 +37,10 @@ const REQUIRED_ENV = ['GEMINI_API_KEY', 'SESSION_SECRET'] as const;
 const missingGoogle = !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET;
 const missingMicrosoft = !process.env.MS_TENANT_ID || !process.env.MS_CLIENT_ID || !process.env.MS_CLIENT_SECRET;
 
-const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
+const missing = REQUIRED_ENV.filter((key) => {
+  if (key === 'GEMINI_API_KEY') return !sanitizeGeminiApiKey(process.env.GEMINI_API_KEY);
+  return !String(process.env[key] ?? '').trim();
+});
 if (missing.length > 0) {
   console.error(`Missing required environment variables: ${missing.join(', ')}`);
   console.error('Copy .env.example to .env and fill in the values.');
@@ -36,8 +66,8 @@ export const config = {
   msSharePointSiteId: process.env.MS_SHAREPOINT_SITE_ID || '',
   msSharePointDriveId: process.env.MS_SHAREPOINT_DRIVE_ID || '',
 
-  // AI
-  geminiApiKey: process.env.GEMINI_API_KEY!,
+  // AI — must be the Google AI Studio / Gemini API key (server .env only, not VITE_)
+  geminiApiKey: sanitizeGeminiApiKey(process.env.GEMINI_API_KEY),
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
 
   // Session

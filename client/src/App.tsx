@@ -1,14 +1,30 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { PatientWorkspace } from './pages/PatientWorkspace';
 import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
-import { checkAuth, getLoginUrl, logout, fetchAllPatients, warmAndListFiles, createPatient, deletePatient, loadSettings, saveSettings, ApiError, fetchTodayEvents } from './services/api';
+import {
+  checkAuth,
+  getLoginUrl,
+  logout,
+  fetchAllPatients,
+  warmAndListFiles,
+  createPatient,
+  deletePatient,
+  loadSettings,
+  saveSettings,
+  ApiError,
+  fetchTodayEvents,
+  extractPatientFromStickerFile,
+  uploadFile,
+  uploadPatientHaloProfile,
+} from './services/api';
 import type { Patient, UserSettings, CalendarEvent } from '../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
-import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, Menu } from 'lucide-react';
+import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, Menu, Camera, Upload } from 'lucide-react';
 import { CalendarPage } from './pages/CalendarPage';
 import { WardPage } from './pages/WardPage';
+import { StickerCameraModal } from './components/StickerCameraModal';
 
 const ENABLE_EXPANDED_CALENDAR =
   import.meta.env.VITE_ENABLE_EXPANDED_CALENDAR !== 'false';
@@ -31,6 +47,21 @@ export const App = () => {
   const [newPatientName, setNewPatientName] = useState("");
   const [newPatientDob, setNewPatientDob] = useState("");
   const [newPatientSex, setNewPatientSex] = useState<'M' | 'F'>('M');
+  const [stickerFile, setStickerFile] = useState<File | null>(null);
+  const [stickerBusy, setStickerBusy] = useState(false);
+  const emptyStickerProfile = () => ({
+    idNumber: '',
+    folderNumber: '',
+    ward: '',
+    medicalAidName: '',
+    medicalAidPackage: '',
+    medicalAidMemberNumber: '',
+    medicalAidPhone: '',
+    rawNotes: '',
+  });
+  const [stickerProfile, setStickerProfile] = useState(emptyStickerProfile);
+  const createStickerInputRef = useRef<HTMLInputElement>(null);
+  const [showStickerCamera, setShowStickerCamera] = useState(false);
 
   // Settings / profile state
   const [showSettings, setShowSettings] = useState(false);
@@ -219,7 +250,50 @@ export const App = () => {
 
   const openCreateModal = () => {
     setLoading(false);
+    setStickerFile(null);
+    setStickerProfile(emptyStickerProfile());
     setShowCreateModal(true);
+  };
+
+  const applyStickerFromFile = async (f: File) => {
+    if (!f.type.startsWith('image/')) {
+      showToast('Please use an image file.', 'info');
+      return;
+    }
+    setStickerFile(f);
+    setStickerBusy(true);
+    try {
+      const ex = await extractPatientFromStickerFile(f);
+      if (ex.name?.trim()) setNewPatientName(ex.name.trim());
+      if (ex.dob?.trim()) {
+        const d = ex.dob.trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) setNewPatientDob(d);
+      }
+      if (ex.sex === 'M' || ex.sex === 'F') setNewPatientSex(ex.sex);
+      setStickerProfile({
+        idNumber: ex.idNumber?.trim() ?? '',
+        folderNumber: ex.folderNumber?.trim() ?? '',
+        ward: ex.ward?.trim() ?? '',
+        medicalAidName: ex.medicalAidName?.trim() ?? '',
+        medicalAidPackage: ex.medicalAidPackage?.trim() ?? '',
+        medicalAidMemberNumber: ex.medicalAidMemberNumber?.trim() ?? '',
+        medicalAidPhone: ex.medicalAidPhone?.trim() ?? '',
+        rawNotes: ex.rawNotes?.trim() ?? '',
+      });
+      showToast('Review fields, then create folder.', 'success');
+    } catch (error) {
+      showToast(getErrorMessage(error), 'error');
+      setStickerFile(null);
+    } finally {
+      setStickerBusy(false);
+    }
+  };
+
+  const handleStickerImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    await applyStickerFromFile(f);
   };
 
   const submitCreatePatient = async (e: React.FormEvent) => {
@@ -230,11 +304,40 @@ export const App = () => {
     try {
       const newP = await createPatient(newPatientName, newPatientDob, newPatientSex);
       if (newP) {
+        if (stickerFile) {
+          try {
+            const ext = stickerFile.name.includes('.') ? stickerFile.name.split('.').pop() : 'jpg';
+            await uploadFile(newP.id, stickerFile, `patient_sticker_${Date.now()}.${ext}`);
+          } catch {
+            showToast('Folder created; upload the photo again from the patient workspace if needed.', 'info');
+          }
+        }
+        try {
+          await uploadPatientHaloProfile(newP.id, {
+            version: 1,
+            fullName: newPatientName.trim(),
+            dob: newPatientDob,
+            sex: newPatientSex,
+            idNumber: stickerProfile.idNumber.trim() || undefined,
+            folderNumber: stickerProfile.folderNumber.trim() || undefined,
+            ward: stickerProfile.ward.trim() || undefined,
+            medicalAidName: stickerProfile.medicalAidName.trim() || undefined,
+            medicalAidPackage: stickerProfile.medicalAidPackage.trim() || undefined,
+            medicalAidMemberNumber: stickerProfile.medicalAidMemberNumber.trim() || undefined,
+            medicalAidPhone: stickerProfile.medicalAidPhone.trim() || undefined,
+            rawNotes: stickerProfile.rawNotes.trim() || undefined,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch {
+          showToast('Folder created; profile file could not be saved — you can re-enter details later.', 'info');
+        }
         await refreshPatients();
         setShowCreateModal(false);
         setNewPatientName("");
         setNewPatientDob("");
         setNewPatientSex("M");
+        setStickerFile(null);
+        setStickerProfile(emptyStickerProfile());
         showToast('Patient folder created successfully.', 'success');
       }
     } catch (error) {
@@ -374,7 +477,7 @@ export const App = () => {
   const activePatient = patients.find(p => p.id === selectedPatientId);
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden relative">
+    <div className="flex h-screen min-w-0 bg-slate-50 font-sans text-slate-900 overflow-hidden overscroll-x-none relative">
       {/* Mobile navigation drawer (patients, calendar, settings, logout) */}
       {isSignedIn && (
         <button
@@ -470,7 +573,9 @@ export const App = () => {
         />
       </div>
 
-      <div className={`flex-1 flex flex-col h-screen relative ${activeMainView === 'workspace' && !selectedPatientId ? 'hidden md:flex' : 'flex'}`}>
+      <div
+        className={`flex-1 flex flex-col min-w-0 h-screen relative overscroll-x-none overflow-x-hidden ${activeMainView === 'workspace' && !selectedPatientId ? 'hidden md:flex' : 'flex'}`}
+      >
         {ENABLE_EXPANDED_CALENDAR && activeMainView === 'calendar' ? (
           <CalendarPage
             patients={patients}
@@ -485,6 +590,12 @@ export const App = () => {
             patients={patients}
             onOpenPatient={(id) => {
               openPatientWorkspace(id);
+            }}
+            userSettings={userSettings}
+            onToast={showToast}
+            onBackToPatientList={() => {
+              selectPatient(null);
+              setActiveMainView('workspace');
             }}
           />
         ) : activePatient ? (
@@ -547,14 +658,60 @@ export const App = () => {
 
       {/* CREATE PATIENT MODAL */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 m-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 my-4 max-h-[min(92vh,900px)] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserPlus className="text-violet-600" size={24}/> New Patient Folder</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"><X size={20} /></button>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setStickerFile(null);
+                  setStickerProfile(emptyStickerProfile());
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"
+              >
+                <X size={20} />
+              </button>
             </div>
+            <input
+              ref={createStickerInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleStickerImage}
+            />
             <form onSubmit={submitCreatePatient}>
               <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={stickerBusy || loading}
+                    onClick={() => createStickerInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-violet-200 bg-violet-50 text-sm font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+                  >
+                    {stickerBusy ? <Loader className="animate-spin w-4 h-4" /> : <Upload className="w-4 h-4" />}
+                    {stickerBusy ? 'Scanning…' : 'Gallery / file'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={stickerBusy || loading}
+                    onClick={() => setShowStickerCamera(true)}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <Camera className="w-4 h-4" />
+                    Live camera
+                  </button>
+                  {stickerFile ? (
+                    <span className="text-xs text-slate-600 self-center truncate max-w-[200px]" title={stickerFile.name}>
+                      {stickerFile.name}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="text-xs text-slate-500">
+                  Scan a wristband or sticker — Gemini fills the profile below. Edit anything before creating the folder. A{' '}
+                  <span className="font-mono text-[11px]">HALO_patient_profile.json</span> file is saved in the folder for billing /
+                  future Supabase sync.
+                </p>
                 <div>
                   <label className="block text-sm font-semibold text-slate-600 mb-1.5">Full Name</label>
                   <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition" />
@@ -572,8 +729,55 @@ export const App = () => {
                     </div>
                   </div>
                 </div>
+                <div className="border-t border-slate-200 pt-4 space-y-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-violet-800">Hospital ID &amp; billing</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">ID / hospital number</label>
+                      <input type="text" value={stickerProfile.idNumber} onChange={(e) => setStickerProfile((p) => ({ ...p, idNumber: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Folder / file number</label>
+                      <input type="text" value={stickerProfile.folderNumber} onChange={(e) => setStickerProfile((p) => ({ ...p, folderNumber: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Ward</label>
+                      <input type="text" value={stickerProfile.ward} onChange={(e) => setStickerProfile((p) => ({ ...p, ward: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Medical aid / insurer</label>
+                      <input type="text" value={stickerProfile.medicalAidName} onChange={(e) => setStickerProfile((p) => ({ ...p, medicalAidName: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Plan / package</label>
+                      <input type="text" value={stickerProfile.medicalAidPackage} onChange={(e) => setStickerProfile((p) => ({ ...p, medicalAidPackage: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Member number</label>
+                      <input type="text" value={stickerProfile.medicalAidMemberNumber} onChange={(e) => setStickerProfile((p) => ({ ...p, medicalAidMemberNumber: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Scheme phone (authorisation)</label>
+                      <input type="text" value={stickerProfile.medicalAidPhone} onChange={(e) => setStickerProfile((p) => ({ ...p, medicalAidPhone: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Other notes from sticker</label>
+                      <textarea value={stickerProfile.rawNotes} onChange={(e) => setStickerProfile((p) => ({ ...p, rawNotes: e.target.value }))} rows={2} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm resize-none" />
+                    </div>
+                  </div>
+                </div>
                 <div className="pt-2 flex gap-3">
-                  <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setStickerFile(null);
+                      setStickerProfile(emptyStickerProfile());
+                    }}
+                    className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition"
+                  >
+                    Cancel
+                  </button>
                   <button type="submit" disabled={!newPatientName.trim() || loading} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-violet-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
                     {loading ? <Loader className="animate-spin" size={18}/> : 'Create Folder'}
                   </button>
@@ -583,6 +787,12 @@ export const App = () => {
           </div>
         </div>
       )}
+
+      <StickerCameraModal
+        isOpen={showStickerCamera}
+        onClose={() => setShowStickerCamera(false)}
+        onCapture={(file) => void applyStickerFromFile(file)}
+      />
 
       {/* DELETE CONFIRMATION MODAL */}
       {patientToDelete && (

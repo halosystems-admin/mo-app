@@ -80,6 +80,53 @@ ${customTemplate}`;
   return 'You are a medical scribe. Transcribe this audio into a SOAP note with ## headers for Subjective, Objective, Assessment, Plan.';
 }
 
+export function patientStickerExtractionPrompt(): string {
+  return `You extract patient and billing identifiers from a photo of a hospital wristband, ward sticker, ID label, admissions armband, or handwritten clinical note.
+Read all visible text. Return ONLY valid JSON (no markdown) with this exact shape:
+{"name":"string","dob":"YYYY-MM-DD or empty","sex":"M"|"F"|null,"idNumber":"","folderNumber":"","ward":"","medicalAidName":"","medicalAidPackage":"","medicalAidMemberNumber":"","medicalAidPhone":"","rawNotes":""}
+Rules:
+- name: patient full name; if several names, use the primary patient name.
+- dob: use YYYY-MM-DD when possible; otherwise best-effort or empty string.
+- sex: M, F, or null if not visible.
+- idNumber: national ID, hospital MR#, account number, or similar if visible.
+- folderNumber: folder / file / episode number if visible.
+- ward: ward name or number if visible.
+- medicalAidName: medical scheme / insurer / medical aid name (e.g. Discovery, Bonitas) if visible.
+- medicalAidPackage: plan, option, network, or package name if visible.
+- medicalAidMemberNumber: member, beneficiary, or dependent number if visible.
+- medicalAidPhone: scheme or authorisation phone if visible.
+- rawNotes: other legible text not captured above (short).
+Use empty strings for missing string fields. If the image has no patient text, return empty strings and null for sex.`;
+}
+
+/** Vision: clinical scan / photo / diagram for note-generation context. */
+export function consultContextImagePrompt(fileName: string): string {
+  return `You are assisting a doctor preparing clinical documentation. They uploaded an image for CONTEXT (not diagnosis): ${fileName}
+
+Carefully examine the image and produce structured Markdown for use as note-generation context.
+
+Include:
+1. **Extracted text** — Transcribe all readable printed or handwritten text (labs, vitals, labels, dates, names if clearly patient-related).
+2. **Diagrams & figures** — For charts, ECG strips, radiology screenshots, drawings, anatomy sketches, ward boards, or device displays: describe layout, axes/labels, trends, morphology, and anything a clinician would need to document without seeing the image.
+3. **Clinical summary** — 2–6 bullet points of what matters for documentation (no new diagnoses beyond what the image supports; do not invent data).
+
+If the image is blank or illegible, say so briefly. Return Markdown only (no JSON).`;
+}
+
+/** Text extracted from PDF/DOCX etc. → consult context for notes. */
+export function consultContextDocumentPrompt(fileName: string, extractedText: string): string {
+  const t = extractedText.substring(0, 12000);
+  return `You are assisting a doctor. Below is text extracted from a file they attached for note context: "${fileName}".
+
+Produce Markdown for note generation:
+- **Key facts** — bullets of patient-relevant facts, values, dates, plans.
+- **Diagrams / figures** — If the text describes figures or results tables, summarise structure and important values.
+- **Gaps** — Note if critical information is missing.
+
+Extracted text:
+${t}`;
+}
+
 export function fileDescriptionPrompt(fileName: string, extractedText: string): string {
   const truncated = extractedText.substring(0, MAX_CONTENT_LENGTH);
   return `
@@ -94,4 +141,24 @@ In 2–4 short bullet points, describe clearly what this file contains and why i
 Avoid speculation and do not invent diagnoses that are not supported by the text.
 Return ONLY a raw Markdown string (no JSON).
 `;
+}
+
+/** Draft inpatient discharge summary from structured ward/admission context (not full chart). */
+export function dischargeSummaryPrompt(patientName: string, clinicalContext: string): string {
+  const ctx = clinicalContext.length > 12000 ? clinicalContext.slice(0, 12000) + '\n…[truncated]' : clinicalContext;
+  return `You are a clinician drafting a hospital discharge summary for handover to primary care.
+
+Patient: ${patientName}
+
+Clinical data from admission / ward record (may be incomplete):
+${ctx}
+
+Write a clear, professional discharge summary suitable for the patient file and GP. Use Markdown with these sections:
+## Admission diagnosis / reason for admission
+## Inpatient course and key investigations or procedures
+## Condition at discharge
+## Medications on discharge (if mentioned in the data; otherwise say "To be completed from chart")
+## Follow-up and outstanding actions
+
+Use only information present in the clinical data. If something is not documented, write "Not documented in supplied data" for that point. Be concise; use short bullets where appropriate.`;
 }

@@ -102,4 +102,10 @@ attachTranscribeWebSocket(server);
 
 server.listen(config.port, () => {
   console.log(`Halo server running on port ${config.port} (${config.isProduction ? 'production' : 'development'})`);
+  if (!config.isProduction) {
+    const k = config.geminiApiKey;
+    console.log(
+      `[config] GEMINI_API_KEY ${k ? `loaded (${k.length} chars, starts with ${k.slice(0, 4)}…)` : 'MISSING — AI routes will fail'}`
+    );
+  }
 });

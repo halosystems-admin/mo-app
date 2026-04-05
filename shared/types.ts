@@ -33,6 +33,45 @@ export interface LabAlert {
   context: string;
 }
 
+/** Gemini extraction from wristband / sticker / note photo (new patient flow). */
+export interface ExtractedPatientSticker {
+  name: string;
+  dob: string;
+  sex: 'M' | 'F' | null;
+  idNumber?: string;
+  folderNumber?: string;
+  ward?: string;
+  rawNotes?: string;
+  /** Medical scheme / insurer name if visible on sticker. */
+  medicalAidName?: string;
+  /** Plan / option / package name if visible. */
+  medicalAidPackage?: string;
+  /** Member or beneficiary number for billing. */
+  medicalAidMemberNumber?: string;
+  /** Scheme contact number if visible. */
+  medicalAidPhone?: string;
+}
+
+/**
+ * Persisted in the patient folder as HALO_patient_profile.json for billing / future Supabase sync.
+ * Editable in the new-patient modal after sticker scan.
+ */
+export interface HaloPatientProfile {
+  version: 1;
+  fullName: string;
+  dob: string;
+  sex: 'M' | 'F';
+  idNumber?: string;
+  folderNumber?: string;
+  ward?: string;
+  medicalAidName?: string;
+  medicalAidPackage?: string;
+  medicalAidMemberNumber?: string;
+  medicalAidPhone?: string;
+  rawNotes?: string;
+  updatedAt: string;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -154,7 +193,7 @@ export interface KanbanTodoItem {
   id: string;
   /** Human readable task text */
   title: string;
-  /** Column/status name (e.g. "To do", "Doing", "Done") */
+  /** Open items use "To do"; completed use "Done" (legacy "Doing" treated as open in UI). */
   status: WardKanbanStatus;
   /** Optional stable ordering within a status column */
   order?: number;
@@ -162,11 +201,24 @@ export interface KanbanTodoItem {
   updatedAt?: string;
 }
 
+/** Ward board columns — one per clinical ward + Other for unknown. */
+export type WardBoardColumnId =
+  | 'icu'
+  | 'f'
+  | 's'
+  | 'm'
+  | 'paeds'
+  | 'ed'
+  | 'labour'
+  | 'other';
+
 export interface AdmittedPatientKanban {
   patientId: string;
   admitted: boolean;
   /** Todo items for this patient (status determines column). */
   todos: KanbanTodoItem[];
+  /** Trello-style ward column; drag to change. Omitted → derived from Hospital ward when known. */
+  boardColumn?: WardBoardColumnId;
 }
 
 export interface DoctorDiaryEntry {

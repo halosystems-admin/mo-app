@@ -55,13 +55,30 @@ const geminiRequestOptions = { timeout: GEMINI_TIMEOUT_MS };
 /**
  * Generate text content using the Gemini text model.
  */
+function wrapGeminiError(err: unknown, context: string): Error {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/API[_ ]?KEY|API key not valid|invalid api key|401|403|PERMISSION_DENIED|not configured/i.test(msg)) {
+    return new Error(
+      `${context}: Gemini rejected the call (${msg}). Set GEMINI_API_KEY in the server .env at the project root (not Vite), save, and restart the Node server.`
+    );
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 export async function generateText(prompt: string): Promise<string> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
-  const result = await withRetry(() =>
-    model.generateContent(prompt, geminiRequestOptions)
-  );
-  return result.response.text();
+  if (!config.geminiApiKey) {
+    throw new Error('GEMINI_API_KEY is empty after trim — check .env and restart the server.');
+  }
+  try {
+    const genAI = getGenAI();
+    const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
+    const result = await withRetry(() =>
+      model.generateContent(prompt, geminiRequestOptions)
+    );
+    return result.response.text();
+  } catch (e) {
+    throw wrapGeminiError(e, 'generateText');
+  }
 }
 
 /**
@@ -84,15 +101,22 @@ export async function* generateTextStream(prompt: string): AsyncGenerator<string
  * Generate content from an image using the Gemini vision model.
  */
 export async function analyzeImage(prompt: string, base64Data: string, mimeType: string): Promise<string> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: VISION_MODEL });
-  const result = await withRetry(() =>
-    model.generateContent(
-      [prompt, { inlineData: { data: base64Data, mimeType } }],
-      geminiRequestOptions
-    )
-  );
-  return result.response.text();
+  if (!config.geminiApiKey) {
+    throw new Error('GEMINI_API_KEY is empty after trim — check .env and restart the server.');
+  }
+  try {
+    const genAI = getGenAI();
+    const model = genAI.getGenerativeModel({ model: VISION_MODEL });
+    const result = await withRetry(() =>
+      model.generateContent(
+        [prompt, { inlineData: { data: base64Data, mimeType } }],
+        geminiRequestOptions
+      )
+    );
+    return result.response.text();
+  } catch (e) {
+    throw wrapGeminiError(e, 'analyzeImage');
+  }
 }
 
 /**

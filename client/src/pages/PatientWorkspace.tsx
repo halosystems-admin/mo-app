@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote, NoteField, CalendarEvent, ScribeSession } from '../../../shared/types';
+import type {
+  Patient,
+  DriveFile,
+  LabAlert,
+  BreadcrumbItem,
+  ChatMessage,
+  HaloNote,
+  NoteField,
+  CalendarEvent,
+  ScribeSession,
+} from '../../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID, HALO_TEMPLATE_OPTIONS, HOSPITALS, type HospitalKey } from '../../../shared/haloTemplates';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 
@@ -25,6 +35,8 @@ import {
   generatePrepNote,
   getHaloTemplates,
   describeFile,
+  extractConsultContextFromImage,
+  consultContextFromUploadedFile,
   fetchPatientSessions,
   savePatientSession,
 } from '../services/api';
@@ -214,6 +226,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [contextDriveFiles, setContextDriveFiles] = useState<DriveFile[]>([]);
   const [contextDriveLoading, setContextDriveLoading] = useState(false);
   const [contextDriveSelectedIds, setContextDriveSelectedIds] = useState<string[]>([]);
+  const contextUploadInputRef = useRef<HTMLInputElement>(null);
+  const [contextEnrichBusy, setContextEnrichBusy] = useState(false);
 
   const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
 
@@ -388,9 +402,63 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   };
 
   const handleContextUploadClick = () => {
-    setUploadTargetFolderId(patient.id);
-    setUploadTargetLabel(patient.name);
-    fileInputRef.current?.click();
+    contextUploadInputRef.current?.click();
+  };
+
+  const handleConsultContextFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const isImage = file.type.startsWith('image/');
+    const isPdf = file.type === 'application/pdf';
+    if (!isImage && !isPdf) {
+      onToast('Please choose an image (scan/photo) or PDF.', 'info');
+      return;
+    }
+    setContextEnrichBusy(true);
+    try {
+      const safeName = `consult_context_${Date.now()}_${file.name.replace(/[^\w.-]/g, '_')}`;
+      if (isImage) {
+        const uploaded = await uploadFile(patient.id, file, safeName);
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const r = reader.result as string;
+            resolve(r.includes(',') ? r.split(',')[1] : r);
+          };
+          reader.onerror = () => reject(new Error('Could not read file'));
+          reader.readAsDataURL(file);
+        });
+        try {
+          const summary = await extractConsultContextFromImage(
+            base64,
+            file.type || 'image/jpeg',
+            file.name
+          );
+          const block = `### Context from image: ${uploaded.name}\n\n${summary.trim() || '_No summary returned._'}`;
+          setConsultContext((prev) => (prev ? `${prev}\n\n${block}` : block));
+          onToast('Image saved to the folder; Gemini added text and diagram notes to Context.', 'success');
+        } catch (aiErr) {
+          onToast(
+            'Image is saved in the patient folder. AI could not analyse it — add a short description manually in Context.',
+            'info'
+          );
+          console.error(aiErr);
+        }
+      } else {
+        const uploaded = await uploadFile(patient.id, file, safeName);
+        const summary = await consultContextFromUploadedFile(patient.id, uploaded);
+        const block = `### Context from file: ${uploaded.name}\n\n${summary.trim() || '_No summary returned._'}`;
+        setConsultContext((prev) => (prev ? `${prev}\n\n${block}` : block));
+        onToast('PDF saved to the folder; extracted summary added to context.', 'success');
+      }
+      await loadFolderContents(currentFolderId);
+      onDataChange();
+    } catch (err) {
+      onToast(getErrorMessage(err), 'error');
+    } finally {
+      setContextEnrichBusy(false);
+    }
   };
 
   // Upload destination picker — always default to current patient so switching profiles doesn't show previous patient
@@ -466,75 +534,76 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
     const targetId = uploadTargetFolderId;
+    e.target.value = '';
 
     setStatus(AppStatus.UPLOADING);
-    setUploadProgress(10);
-    setUploadMessage(`Uploading ${file.name}...`);
+    setUploadProgress(8);
+    setUploadMessage(`Uploading ${file.name}…`);
 
-    // Track interval in a ref so it's cleaned up on unmount
     if (uploadIntervalRef.current) clearInterval(uploadIntervalRef.current);
     uploadIntervalRef.current = setInterval(() => {
-      setUploadProgress(prev => (prev >= 90 ? 90 : prev + 10));
-    }, 200);
+      setUploadProgress((prev) => (prev >= 85 ? 85 : prev + 7));
+    }, 140);
 
-    await new Promise(r => setTimeout(r, 2000));
-    if (uploadIntervalRef.current) {
-      clearInterval(uploadIntervalRef.current);
-      uploadIntervalRef.current = null;
-    }
-    setUploadProgress(100);
-
-    setStatus(AppStatus.ANALYZING);
-    setUploadMessage(null);
-
-    const performUpload = async (base64?: string) => {
+    try {
       let finalName = file.name;
-      try {
-        if (base64 && file.type.startsWith('image/')) {
-          setUploadMessage("HALO is analyzing visual features...");
+
+      if (file.type.startsWith('image/')) {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const r = reader.result as string;
+            resolve(r.includes(',') ? r.split(',')[1] : r);
+          };
+          reader.onerror = () => reject(new Error('Could not read file'));
+          reader.readAsDataURL(file);
+        });
+        setStatus(AppStatus.ANALYZING);
+        setUploadMessage('Suggesting filename…');
+        try {
           finalName = await analyzeAndRenameImage(base64);
-          setUploadMessage(`AI Renamed: ${finalName}`);
+        } catch {
+          /* keep original name */
+        }
+        setStatus(AppStatus.UPLOADING);
+        setUploadMessage(`Uploading ${finalName}…`);
+      }
+
+      const uploaded = await uploadFile(targetId, file, finalName);
+
+      if (uploadIntervalRef.current) {
+        clearInterval(uploadIntervalRef.current);
+        uploadIntervalRef.current = null;
+      }
+      setUploadProgress(100);
+
+      await silentRefresh();
+      onDataChange();
+      onToast(`File uploaded to "${uploadTargetLabel}".`, 'success');
+
+      try {
+        const description = await describeFile(patient.id, uploaded);
+        if (description && description.trim()) {
+          setConsultContext((prev) =>
+            prev
+              ? `${prev}\n\n${uploaded.name} — AI description:\n${description}`
+              : `${uploaded.name} — AI description:\n${description}`
+          );
         }
       } catch {
-        // AI rename not available
+        /* optional */
       }
-
-      try {
-        const uploaded = await uploadFile(targetId, file, finalName);
-        await loadFolderContents(currentFolderId);
-        onToast(`File uploaded to "${uploadTargetLabel}".`, 'success');
-
-        // Best-effort: ask Gemini to describe the uploaded file for future context
-        try {
-          const description = await describeFile(patient.id, uploaded);
-          if (description && description.trim()) {
-            setConsultContext(prev =>
-              prev
-                ? `${prev}\n\n${uploaded.name} — AI description:\n${description}`
-                : `${uploaded.name} — AI description:\n${description}`
-            );
-          }
-        } catch {
-          // Description is optional; ignore failures
-        }
-      } catch (err) {
-        onToast(getErrorMessage(err), 'error');
+    } catch (err) {
+      onToast(getErrorMessage(err), 'error');
+    } finally {
+      if (uploadIntervalRef.current) {
+        clearInterval(uploadIntervalRef.current);
+        uploadIntervalRef.current = null;
       }
+      setUploadProgress(0);
+      setUploadMessage(null);
       setStatus(AppStatus.IDLE);
-    };
-
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = (reader.result as string).split(',')[1];
-        performUpload(base64);
-      };
-      reader.readAsDataURL(file);
-    } else {
-      performUpload();
     }
-
-    e.target.value = '';
   };
 
   useEffect(() => {
@@ -1241,6 +1310,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 onChange={handleFileUpload}
                 accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
               />
+              <input
+                ref={contextUploadInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*,application/pdf"
+                onChange={(ev) => void handleConsultContextFileUpload(ev)}
+              />
             </>
           )}
           {uploadMessage && status !== AppStatus.UPLOADING && (
@@ -1248,7 +1324,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <CheckCircle2 className="w-3.5 h-3.5" /> {uploadMessage}
             </div>
           )}
-          <div className="w-full md:w-auto flex items-center justify-end gap-2">
+          <div className="w-full md:w-auto flex items-center justify-end gap-2 flex-wrap">
             <button
               onClick={handleGenerateAiInsights}
               disabled={aiLoading || status === AppStatus.LOADING}
@@ -1517,27 +1593,31 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                       <div className="flex-1 overflow-auto bg-slate-50/60 p-4">
                         <div className="flex flex-col gap-2 mb-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex flex-col">
-                              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                                Context
-                              </p>
+                            <div className="flex flex-col min-w-0">
+                              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Context</p>
                               <p className="text-[11px] text-slate-500">
-                                Add any additional context about the patient or paste key details here. This panel mirrors the
-                                free-form context area from your favourite scribe.
+                                Uploads are saved to the patient folder. Images go to Gemini to extract text and describe diagrams for
+                                this note session; PDFs are read after upload.
                               </p>
                             </div>
                             <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
+                                disabled={contextEnrichBusy}
                                 onClick={handleContextUploadClick}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-slate-200 bg-white text-[11px] font-medium text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition"
+                                className="inline-flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] px-3 py-2 rounded-full border border-slate-200 bg-white text-[11px] font-medium text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition disabled:opacity-50"
                               >
-                                <CloudUpload className="w-3.5 h-3.5" /> Upload from computer
+                                {contextEnrichBusy ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CloudUpload className="w-3.5 h-3.5" />
+                                )}
+                                {contextEnrichBusy ? 'Analysing…' : 'Upload image / PDF'}
                               </button>
                               <button
                                 type="button"
                                 onClick={openContextDrivePicker}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-slate-200 bg-white text-[11px] font-medium text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition"
+                                className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 py-2 rounded-full border border-slate-200 bg-white text-[11px] font-medium text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition"
                               >
                                 <FolderOpen className="w-3.5 h-3.5" /> Add from Drive
                               </button>

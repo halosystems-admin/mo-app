@@ -1,4 +1,5 @@
 import { config } from '../../config';
+import { refineMimeType } from '../../../shared/mimeFromFilename';
 import type { AdmittedPatientKanban, DoctorDiaryEntry, DriveFile, Patient, ScribeSession, UserSettings } from '../../../shared/types';
 import type { MicrosoftStorageMode, StorageAdapter, StorageProvider } from './types';
 import {
@@ -484,11 +485,12 @@ export const googleDriveAdapter: StorageAdapter = {
     invalidateFilesCacheForFolder(parentFolderId);
 
     const meta = await driveRequest(token, `/files/${fileId}?fields=name,mimeType,webViewLink,createdTime`);
+    const resolvedName = meta.name ?? safeFileName;
 
     return {
       id: fileId,
-      name: meta.name ?? safeFileName,
-      mimeType: meta.mimeType ?? safeFileType,
+      name: resolvedName,
+      mimeType: refineMimeType(meta.mimeType ?? safeFileType, resolvedName),
       url: meta.webViewLink ?? '',
       createdTime: meta.createdTime?.split('T')[0] ?? new Date().toISOString().split('T')[0],
     };
@@ -566,8 +568,8 @@ export const googleDriveAdapter: StorageAdapter = {
     fileId: string;
   }) : Promise<{ mimeType: string; filename: string; data: Buffer }> {
     const meta = await driveRequest(token, `/files/${fileId}?fields=name,mimeType`);
-    const mimeType = meta.mimeType ?? 'application/octet-stream';
     const name = meta.name ?? 'file';
+    const mimeType = refineMimeType(meta.mimeType ?? 'application/octet-stream', name);
 
     let contentResponse: globalThis.Response;
 

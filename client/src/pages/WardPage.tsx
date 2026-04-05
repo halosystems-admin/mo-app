@@ -1,26 +1,47 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AdmittedPatientKanban, DoctorDiaryEntry, Patient } from '../../../shared/types';
-import { fetchDoctorDiary, fetchDoctorKanban, saveDoctorDiary, saveDoctorKanban } from '../services/api';
+import type {
+  AdmittedPatientKanban,
+  DoctorDiaryEntry,
+  Patient,
+  UserSettings,
+  WardBoardColumnId,
+} from '../../../shared/types';
+import { WardKanbanBoard } from '../features/clinical/ward/WardKanbanBoard';
+import { ClinicalDashboard } from '../features/clinical/ClinicalDashboard';
+import type { InpatientRecord } from '../types/clinical';
 import {
-  Calendar as CalendarIcon,
-  CheckCircle2,
-  FileText,
-  Layers,
-  Plus,
-  Trash2,
-} from 'lucide-react';
+  clinicalWardToBoardColumn,
+  fetchCurrentInpatients,
+  findInpatientMatchingHaloPatient,
+  mergeAdmittedRowWithMockKanbanSeeds,
+} from '../services/clinicalData';
+import { fetchDoctorDiary, fetchDoctorKanban, saveDoctorDiary, saveDoctorKanban } from '../services/api';
+import { syncAllHospitalWardTasksToKanban } from '../services/wardKanbanSync';
+import { resolvePatientIdFromClinicalNames } from '../features/clinical/shared/clinicalDisplay';
+import { Calendar as CalendarIcon, Layers, Plus, RefreshCw } from 'lucide-react';
 
-type KanbanStatus = string;
-
-const DEFAULT_STATUSES: KanbanStatus[] = ['To do', 'Doing', 'Done'];
+/** Hospital ward tasks sync into kanban; checked = Done. */
+const KANBAN_TODO_OPEN = 'To do';
+const KANBAN_TODO_DONE = 'Done';
 
 interface WardPageProps {
   patients: Patient[];
   /** Open a selected patient in the normal PatientWorkspace view. */
   onOpenPatient: (patientId: string) => void;
+  userSettings?: UserSettings | null;
+  onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  /** Leave Ward and return to main HALO (patient list); clears selected patient for clean home. */
+  onBackToPatientList?: () => void;
 }
 
-export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient }) => {
+export const WardPage: React.FC<WardPageProps> = ({
+  patients,
+  onOpenPatient,
+  userSettings,
+  onToast,
+  onBackToPatientList,
+}) => {
+  const [wardMode, setWardMode] = useState<'diary' | 'hospital'>('diary');
   // --- Doctor diary ---
   const [diaryEntries, setDiaryEntries] = useState<DoctorDiaryEntry[]>([]);
   const [diaryLoading, setDiaryLoading] = useState(false);
@@ -74,12 +95,31 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient }) =
   const [kanban, setKanban] = useState<AdmittedPatientKanban[]>([]);
   const [kanbanLoading, setKanbanLoading] = useState(false);
   const [kanbanSaving, setKanbanSaving] = useState(false);
+  const [hospitalSyncBusy, setHospitalSyncBusy] = useState(false);
+  const [inpatients, setInpatients] = useState<InpatientRecord[]>([]);
 
   const patientsById = useMemo(() => new Map(patients.map((p) => [p.id, p])), [patients]);
+
+  useEffect(() => {
+    void fetchCurrentInpatients().then(setInpatients);
+  }, []);
 
   const admittedKanban = useMemo(
     () => kanban.filter((p) => Boolean(p.admitted)),
     [kanban]
+  );
+
+  /** Mock admissions with no HALO folder match — still show WARD TO DO on the board (like the old Hospital ward view). */
+  const unlinkedAdmittedInpatients = useMemo(
+    () =>
+      inpatients.filter((r) => {
+        if (!r.currentlyAdmitted) return false;
+        const pid =
+          r.linkedDrivePatientId?.trim() ||
+          resolvePatientIdFromClinicalNames(patients, r.firstName, r.surname);
+        return !pid;
+      }),
+    [inpatients, patients]
   );
 
   const loadKanban = useCallback(async () => {
@@ -111,63 +151,93 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient }) =
     []
   );
 
+  const pullFromHospital = useCallback(async () => {
+    setHospitalSyncBusy(true);
+    try {
+      const r = await syncAllHospitalWardTasksToKanban(patients);
+      await loadKanban();
+      if (r.linked > 0) {
+        onToast?.(`Synced ${r.linked} admission(s).`, 'success');
+      } else {
+        onToast?.('No name match to HALO patients.', 'info');
+      }
+      if (r.skippedNoHaloMatch > 0) {
+        onToast?.(`${r.skippedNoHaloMatch} row(s) skipped (no HALO match).`, 'info');
+      }
+    } catch {
+      onToast?.('Could not sync from Hospital — check your connection.', 'error');
+    } finally {
+      setHospitalSyncBusy(false);
+    }
+  }, [patients, loadKanban, onToast]);
+
   // Admit patient to ward (creates kanban row if needed)
   const [admitPatientId, setAdmitPatientId] = useState('');
 
   const admitSelectedPatient = useCallback(() => {
     if (!admitPatientId) return;
-    const now = new Date().toISOString();
+    const patient = patientsById.get(admitPatientId);
     const next = [...kanban];
     const idx = next.findIndex((p) => p.patientId === admitPatientId);
+    const seedStatus = KANBAN_TODO_OPEN;
     if (idx >= 0) {
-      next[idx] = { ...next[idx], admitted: true, todos: Array.isArray(next[idx].todos) ? next[idx].todos : [] };
+      let row: AdmittedPatientKanban = {
+        ...next[idx],
+        admitted: true,
+        todos: Array.isArray(next[idx].todos) ? next[idx].todos : [],
+      };
+      row = mergeAdmittedRowWithMockKanbanSeeds(row, patient, seedStatus);
+      const ip = findInpatientMatchingHaloPatient(patient, inpatients);
+      row = { ...row, boardColumn: row.boardColumn ?? (ip ? clinicalWardToBoardColumn(ip.ward) : 'other') };
+      next[idx] = row;
     } else {
-      next.push({ patientId: admitPatientId, admitted: true, todos: [] });
+      let row: AdmittedPatientKanban = { patientId: admitPatientId, admitted: true, todos: [] };
+      row = mergeAdmittedRowWithMockKanbanSeeds(row, patient, seedStatus);
+      const ip = findInpatientMatchingHaloPatient(patient, inpatients);
+      row = { ...row, boardColumn: row.boardColumn ?? (ip ? clinicalWardToBoardColumn(ip.ward) : 'other') };
+      next.push(row);
     }
     void persistKanban(next);
     setAdmitPatientId('');
-  }, [admitPatientId, kanban, persistKanban]);
+  }, [admitPatientId, kanban, patientsById, persistKanban, inpatients]);
 
-  const dischargePatient = useCallback(
-    (patientId: string) => {
-      const next = kanban.map((p) => (p.patientId === patientId ? { ...p, admitted: false } : p));
-      void persistKanban(next);
-    },
-    [kanban, persistKanban]
-  );
-
-  // Task drafts keyed by patient/status so you can add tasks directly in a column
-  const [taskDrafts, setTaskDrafts] = useState<Record<string, string>>({});
-
-  const addTodo = useCallback(
-    (patientId: string, status: KanbanStatus, title: string) => {
-      const trimmed = title.trim();
+  const addKanbanTodo = useCallback(
+    (patientId: string, title: string) => {
+      const trimmed = title.trim().slice(0, 200);
       if (!trimmed) return;
       const now = new Date().toISOString();
       const next = kanban.map((p) => {
         if (p.patientId !== patientId) return p;
         const todos = Array.isArray(p.todos) ? p.todos : [];
-        const nextTodo = {
-          id: crypto.randomUUID(),
-          title: trimmed.slice(0, 200),
-          status,
-          updatedAt: now,
-          createdAt: now,
+        return {
+          ...p,
+          todos: [
+            ...todos,
+            {
+              id: crypto.randomUUID(),
+              title: trimmed,
+              status: KANBAN_TODO_OPEN,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
         };
-        return { ...p, admitted: true, todos: [...todos, nextTodo] };
       });
       void persistKanban(next);
     },
     [kanban, persistKanban]
   );
 
-  const moveTodoToStatus = useCallback(
-    async (patientId: string, todoId: string, toStatus: KanbanStatus) => {
+  const toggleTodoDone = useCallback(
+    (patientId: string, todoId: string, done: boolean) => {
       const now = new Date().toISOString();
+      const status = done ? KANBAN_TODO_DONE : KANBAN_TODO_OPEN;
       const next = kanban.map((p) => {
         if (p.patientId !== patientId) return p;
         const todos = Array.isArray(p.todos) ? p.todos : [];
-        const updatedTodos = todos.map((t) => (t.id === todoId ? { ...t, status: toStatus, updatedAt: now } : t));
+        const updatedTodos = todos.map((t) =>
+          t.id === todoId ? { ...t, status, updatedAt: now } : t
+        );
         return { ...p, todos: updatedTodos };
       });
       void persistKanban(next);
@@ -175,47 +245,72 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient }) =
     [kanban, persistKanban]
   );
 
-  // Native DnD payload
-  const handleDragStartTodo = useCallback((e: React.DragEvent, payload: { patientId: string; todoId: string }) => {
-    e.dataTransfer.setData('application/json', JSON.stringify(payload));
-    e.dataTransfer.effectAllowed = 'move';
-  }, []);
-
-  const handleDropColumn = useCallback(
-    (e: React.DragEvent, toStatus: KanbanStatus) => {
-      e.preventDefault();
-      const raw = e.dataTransfer.getData('application/json');
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw) as { patientId: string; todoId: string };
-        if (!parsed.patientId || !parsed.todoId) return;
-        void moveTodoToStatus(parsed.patientId, parsed.todoId, toStatus);
-      } catch {
-        // ignore
-      }
+  const setBoardColumn = useCallback(
+    (patientId: string, column: WardBoardColumnId) => {
+      const next = kanban.map((r) => (r.patientId === patientId ? { ...r, boardColumn: column } : r));
+      void persistKanban(next);
     },
-    [moveTodoToStatus]
+    [kanban, persistKanban]
   );
 
-  const handleDragOverColumn = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }, []);
-
-  const statuses = DEFAULT_STATUSES;
-
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50/50">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden overscroll-x-none p-3 sm:p-4 md:p-8 bg-slate-50/50">
+      <div
+        className={`mx-auto space-y-6 min-w-0 ${
+          wardMode === 'hospital' ? 'max-w-[min(96rem,100%)]' : 'max-w-[min(96rem,100%)]'
+        }`}
+      >
+        <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+          <button
+            type="button"
+            onClick={() => setWardMode('diary')}
+            className={
+              wardMode === 'diary'
+                ? 'px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 text-white'
+                : 'px-3 py-2 rounded-lg text-sm font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }
+          >
+            Ward board &amp; diary
+          </button>
+          <button
+            type="button"
+            onClick={() => setWardMode('hospital')}
+            className={
+              wardMode === 'hospital'
+                ? 'px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 text-white'
+                : 'px-3 py-2 rounded-lg text-sm font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }
+          >
+            Hospital sheets
+          </button>
+        </div>
+        {wardMode === 'hospital' && onBackToPatientList ? (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-violet-200 bg-violet-50/60 px-3 py-2 text-sm text-slate-700">
+            <span className="min-w-0">Live board: <strong>Ward board &amp; diary</strong>.</span>
+            <button
+              type="button"
+              onClick={onBackToPatientList}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-white border border-violet-300 text-violet-800 font-semibold text-sm hover:bg-violet-50"
+            >
+              Patient list
+            </button>
+          </div>
+        ) : null}
+        {wardMode === 'hospital' ? (
+          <ClinicalDashboard
+            userSettings={userSettings}
+            onToast={onToast}
+            patients={patients}
+            onOpenPatient={onOpenPatient}
+            onOpenWardBoard={() => setWardMode('diary')}
+          />
+        ) : (
+          <>
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">
-              Ward
-            </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Doctor diary and admitted-patient kanban with todo lists.
-            </p>
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">Ward</h1>
+            <p className="text-sm text-slate-500 mt-1">Tap a name for tasks. Drag the grip to change ward.</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -246,16 +341,60 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient }) =
           </div>
         </div>
 
-        {/* Main grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Diary */}
+        <div className="space-y-4">
+          <section className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-0">
+            <div className="px-4 py-2.5 border-b border-violet-200/80 bg-violet-50/90 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Layers className="w-4 h-4 shrink-0 text-violet-700" />
+                <h2 className="text-sm font-bold text-violet-950">Ward board</h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void pullFromHospital()}
+                  disabled={hospitalSyncBusy || kanbanLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-violet-300 text-violet-800 hover:bg-violet-50 disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={hospitalSyncBusy ? 'animate-spin' : ''} />
+                  {hospitalSyncBusy ? '…' : 'Pull from Hospital'}
+                </button>
+                <span className="text-xs text-slate-500 tabular-nums">
+                  {kanbanLoading ? '…' : `${admittedKanban.length}`}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-2 sm:p-3 min-w-0">
+              {(kanbanSaving || hospitalSyncBusy) && (
+                <div className="mb-2 text-xs text-slate-600">{hospitalSyncBusy ? 'Syncing…' : 'Saving…'}</div>
+              )}
+
+              {admittedKanban.length === 0 && unlinkedAdmittedInpatients.length === 0 ? (
+                <div className="text-sm text-slate-500 py-6 px-1">
+                  <p>Admit a patient or pull from Hospital.</p>
+                </div>
+              ) : (
+                <WardKanbanBoard
+                  admittedKanban={admittedKanban}
+                  unlinkedAdmittedInpatients={unlinkedAdmittedInpatients}
+                  patientsById={patientsById}
+                  inpatients={inpatients}
+                  kanbanSaving={kanbanSaving}
+                  onOpenPatient={onOpenPatient}
+                  onToggleTodoDone={toggleTodoDone}
+                  onSetBoardColumn={setBoardColumn}
+                  onAddTodo={addKanbanTodo}
+                />
+              )}
+            </div>
+          </section>
+
           <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/60 flex items-center justify-between gap-3">
+            <div className="px-4 py-3 border-b border-violet-200/80 bg-violet-50/90 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <CalendarIcon className="w-4 h-4 text-violet-600" />
+                <CalendarIcon className="w-4 h-4 text-violet-700" />
                 <div>
-                  <h2 className="text-sm font-bold text-slate-800">Doctor Diary</h2>
-                  <p className="text-xs text-slate-500">Global entries by date</p>
+                  <h2 className="text-sm font-bold text-violet-950">Doctor diary</h2>
                 </div>
               </div>
               <button
@@ -382,150 +521,15 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient }) =
               )}
             </div>
           </section>
-
-          {/* Kanban */}
-          <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/60 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-violet-600" />
-                <div>
-                  <h2 className="text-sm font-bold text-slate-800">Admitted Kanban</h2>
-                  <p className="text-xs text-slate-500">Drag todo items between columns</p>
-                </div>
-              </div>
-              <div className="text-xs text-slate-500">
-                {kanbanLoading ? 'Loading...' : `${admittedKanban.length} admitted patient(s)`}
-              </div>
-            </div>
-
-            <div className="p-4">
-              {kanbanSaving && (
-                <div className="mb-3 text-xs text-violet-700 font-semibold">
-                  Saving ward state...
-                </div>
-              )}
-
-              {admittedKanban.length === 0 ? (
-                <div className="text-sm text-slate-500 py-6">
-                  Admit a patient to see their todo list here.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {statuses.map((status) => (
-                    <div
-                      key={status}
-                      onDragOver={(e) => handleDragOverColumn(e)}
-                      onDrop={(e) => handleDropColumn(e, status)}
-                      className="rounded-xl border border-slate-200 bg-slate-50/60"
-                    >
-                      <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-                        <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                          {status}
-                        </div>
-                      </div>
-
-                      <div className="p-3 space-y-3 max-h-[70vh] overflow-auto">
-                        {admittedKanban
-                          .map((p) => {
-                            const tasks = (Array.isArray(p.todos) ? p.todos : []).filter((t) => t.status === status);
-                            return { patient: p, tasks };
-                          })
-                          .filter((x) => x.tasks.length > 0)
-                          .map(({ patient, tasks }) => {
-                            const patientInfo = patientsById.get(patient.patientId);
-                            const patientName = patientInfo?.name || patient.patientId;
-                            return (
-                              <div
-                                key={patient.patientId}
-                                className="border border-slate-200 bg-white rounded-xl p-3"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => onOpenPatient(patient.patientId)}
-                                    className="text-sm font-semibold text-slate-800 hover:text-violet-700 truncate"
-                                    title="Open patient"
-                                  >
-                                    {patientName}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => dischargePatient(patient.patientId)}
-                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                                    title="Discharge / remove from ward"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-
-                                <div className="mt-2 space-y-2">
-                                  {tasks.map((t) => (
-                                    <div
-                                      key={t.id}
-                                      draggable
-                                      onDragStart={(e) => handleDragStartTodo(e, { patientId: patient.patientId, todoId: t.id })}
-                                      className="flex items-start gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-violet-50 transition-colors cursor-move"
-                                      title="Drag to another column"
-                                    >
-                                      <FileText size={14} className="text-violet-600 mt-0.5" />
-                                      <div className="min-w-0 flex-1">
-                                        <div className="text-xs font-semibold text-slate-800 truncate">{t.title}</div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-
-                                <div className="mt-3">
-                                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                                    Add todo to {status}
-                                  </label>
-                                  <div className="flex gap-2">
-                                    <input
-                                      type="text"
-                                      value={taskDrafts[`${patient.patientId}:${status}`] || ''}
-                                      onChange={(e) =>
-                                        setTaskDrafts((prev) => ({
-                                          ...prev,
-                                          [`${patient.patientId}:${status}`]: e.target.value,
-                                        }))
-                                      }
-                                      placeholder="e.g. Review MRI results"
-                                      className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const draftKey = `${patient.patientId}:${status}`;
-                                        const title = taskDrafts[draftKey] || '';
-                                        void addTodo(patient.patientId, status, title);
-                                        setTaskDrafts((prev) => ({ ...prev, [draftKey]: '' }));
-                                      }}
-                                      disabled={kanbanSaving}
-                                      className="inline-flex items-center justify-center px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-60 transition"
-                                      title="Add todo"
-                                    >
-                                      <Plus size={16} />
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
         </div>
+          </>
+        )}
       </div>
     </div>
   );
 };
 
 function XIcon() {
-  // Small inline icon to avoid adding another lucide import.
   return (
     <span className="inline-block w-4 h-4 relative">
       <span className="absolute left-1 top-1 w-2 h-px bg-slate-400 rotate-45" />
@@ -533,4 +537,3 @@ function XIcon() {
     </span>
   );
 }
-

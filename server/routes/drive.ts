@@ -32,6 +32,7 @@ const ALLOWED_UPLOAD_TYPES = [
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/json',
 ];
 const DEFAULT_PAGE_SIZE = 50;
 

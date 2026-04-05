@@ -8,6 +8,7 @@ import {
   type ScribeSession,
   type UserSettings,
 } from '../../../shared/types';
+import { refineMimeType } from '../../../shared/mimeFromFilename';
 import type { MicrosoftStorageMode, StorageAdapter } from './types';
 import { parseFolderString } from '../drive';
 
@@ -889,7 +890,7 @@ export const microsoftGraphAdapter: StorageAdapter = {
     }
     const meta = (await metaRes.json()) as any;
     const filename = meta.name ?? 'file';
-    const mimeType = meta?.file?.mimeType ?? 'application/octet-stream';
+    const mimeType = refineMimeType(meta?.file?.mimeType ?? 'application/octet-stream', filename);
 
     const data = await downloadItemContentAsBuffer({ token, fileId, storageMode });
     return { mimeType, filename, data };
