@@ -30,6 +30,17 @@ export function sanitizeGeminiApiKey(raw: string | undefined): string {
   return s;
 }
 
+/** Trim, strip quotes, remove trailing slash — keeps CLIENT_URL / PRODUCTION_URL aligned with browser Origin and OAuth consoles. */
+function normalizePublicOrigin(raw: string | undefined, fallback?: string): string {
+  let s = (raw ?? '').replace(/^\uFEFF/, '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  s = s.replace(/\/$/, '');
+  if (!s && fallback !== undefined) return fallback;
+  return s;
+}
+
 // --- Required Environment Variables ---
 const REQUIRED_ENV = ['GEMINI_API_KEY', 'SESSION_SECRET'] as const;
 
@@ -79,8 +90,8 @@ export const config = {
   isProduction: process.env.NODE_ENV === 'production',
 
   // URLs
-  clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
-  productionUrl: process.env.PRODUCTION_URL || '',
+  clientUrl: normalizePublicOrigin(process.env.CLIENT_URL, 'http://localhost:5173'),
+  productionUrl: normalizePublicOrigin(process.env.PRODUCTION_URL),
 
   // Drive API
   driveApi: 'https://www.googleapis.com/drive/v3',

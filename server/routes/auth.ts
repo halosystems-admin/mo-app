@@ -3,11 +3,28 @@ import { config } from '../config';
 
 const router = Router();
 
-const getRedirectUri = (): string => {
-  if (config.isProduction) {
-    return `${config.productionUrl}/api/auth/callback`;
+/**
+ * OAuth redirect_uri must match exactly between authorize, token exchange, and Google/Azure console.
+ * In production, prefer PRODUCTION_URL when set (single canonical origin). If unset, derive from the
+ * incoming request (X-Forwarded-* on Heroku) so login-url and callback use the same host the user
+ * actually used — fixes session cookie + state when custom domain and *.herokuapp.com would otherwise split hosts.
+ */
+const getRedirectUri = (req: Request): string => {
+  if (!config.isProduction) {
+    return `http://localhost:${config.port}/api/auth/callback`;
   }
-  return `http://localhost:${config.port}/api/auth/callback`;
+  const fromEnv = config.productionUrl || '';
+  if (fromEnv) {
+    return `${fromEnv}/api/auth/callback`;
+  }
+  const proto = ((req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0] || 'https').trim();
+  const host = ((req.get('x-forwarded-host') || req.get('host') || '').split(',')[0] || '').trim();
+  if (!host) {
+    throw new Error(
+      'OAuth redirect_uri cannot be determined: set PRODUCTION_URL to your public https origin (same as in Google/Azure redirect URIs).'
+    );
+  }
+  return `${proto}://${host}/api/auth/callback`;
 };
 
 router.get('/login-url', (req: Request, res: Response) => {
@@ -36,7 +53,7 @@ router.get('/login-url', (req: Request, res: Response) => {
       'profile',
     ].join(' ');
 
-    const redirectUri = getRedirectUri();
+    const redirectUri = getRedirectUri(req);
 
     const state = crypto.randomUUID();
     req.session.oauthState = state;
@@ -81,7 +98,7 @@ router.get('/login-url', (req: Request, res: Response) => {
       'User.Read',
     ].join(' ');
 
-    const redirectUri = getRedirectUri();
+    const redirectUri = getRedirectUri(req);
 
     const state = crypto.randomUUID();
     req.session.oauthState = state;
@@ -137,7 +154,7 @@ router.get('/callback', async (req: Request, res: Response) => {
   }
 
   try {
-    const redirectUri = getRedirectUri();
+    const redirectUri = getRedirectUri(req);
 
     const expectedState = req.session.oauthState;
     if (!state || typeof state !== 'string' || !expectedState || state !== expectedState) {

@@ -18,8 +18,9 @@ import wardRoutes from './routes/ward';
 
 const app = express();
 
-// Heroku (and other reverse proxies) set X-Forwarded-*; required for express-rate-limit and correct req.ip.
-app.set('trust proxy', 1);
+// Heroku terminates TLS; X-Forwarded-Proto / Host must be trusted so req.secure, cookies, and rate limits behave.
+// Use full trust on the platform router (see https://expressjs.com/en/guide/behind-proxies.html).
+app.set('trust proxy', true);
 
 // --- Global Rate Limiter ---
 const globalLimiter = rateLimit({
@@ -55,17 +56,23 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '50mb' }));
-app.use(session({
-  secret: config.sessionSecret,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: config.isProduction,
-    httpOnly: true,
-    sameSite: config.isProduction ? 'none' : 'lax',
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-  },
-}));
+
+app.use(
+  session({
+    name: 'halo.sid',
+    secret: config.sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    proxy: config.isProduction,
+    cookie: {
+      secure: config.isProduction,
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    },
+  })
+);
 
 // --- ROUTES ---
 app.use('/api/auth', authLimiter, authRoutes);
