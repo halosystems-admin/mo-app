@@ -50,7 +50,7 @@ const { driveApi, uploadApi } = config;
 const DRIVE_REQUEST_TIMEOUT_MS = 25_000;
 
 /** fetch with timeout to avoid hanging on slow/hung Drive API */
-async function fetchWithTimeout(
+export async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
   timeoutMs: number = DRIVE_REQUEST_TIMEOUT_MS

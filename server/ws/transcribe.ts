@@ -37,7 +37,9 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
       onTranscript: (result) => {
         if (result?.transcript) {
           fullTranscript = `${fullTranscript}${fullTranscript ? ' ' : ''}${result.transcript}`.trim();
-          console.log('[ws/transcribe] partial transcript:', result.transcript);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('[ws/transcribe] partial transcript:', result.transcript);
+          }
         }
         if (clientWs.readyState === 1) {
           clientWs.send(

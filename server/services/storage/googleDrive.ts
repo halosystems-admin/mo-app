@@ -6,6 +6,7 @@ import {
   driveRequest,
   extractTextFromFile,
   fetchAllFilesInFolder,
+  fetchWithTimeout,
   getHaloRootFolder,
   getOrCreatePatientNotesFolder,
   isValidDate,
@@ -18,6 +19,24 @@ import {
 } from '../drive';
 
 const provider: StorageProvider = 'google';
+
+/** Large photos / PDF proxy; Drive can be slow for big binaries. */
+const PROXY_MEDIA_TIMEOUT_MS = 120_000;
+
+/** GET file metadata without application/json Content-Type (matches Drive examples; avoids rare proxy rejections). */
+async function driveGetFileMetaForProxy(
+  token: string,
+  fileId: string
+): Promise<{ name?: string; mimeType?: string; shortcutDetails?: { targetId?: string } }> {
+  const url = `${config.driveApi}/files/${encodeURIComponent(fileId)}?fields=name,mimeType,shortcutDetails&supportsAllDrives=true`;
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, 25_000);
+  const data = (await res.json()) as { error?: { message?: string }; name?: string; mimeType?: string; shortcutDetails?: { targetId?: string } };
+  if (!res.ok) {
+    const msg = data.error?.message || `Drive API error ${res.status}`;
+    throw new Error(`[Drive ${res.status}] ${msg}`);
+  }
+  return data;
+}
 
 const MAX_FILE_SIZE_MB = 25;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -567,50 +586,88 @@ export const googleDriveAdapter: StorageAdapter = {
     token: string;
     fileId: string;
   }) : Promise<{ mimeType: string; filename: string; data: Buffer }> {
-    const meta = await driveRequest(token, `/files/${fileId}?fields=name,mimeType`);
-    const name = meta.name ?? 'file';
-    const mimeType = refineMimeType(meta.mimeType ?? 'application/octet-stream', name);
+    const trimmedId = fileId.trim();
+    if (!trimmedId) {
+      throw new Error('Invalid file id');
+    }
 
-    let contentResponse: globalThis.Response;
+    // Resolve shortcut → target (up to a few hops). Use supportsAllDrives for team/shared drives.
+    let resolvedId = trimmedId;
+    for (let i = 0; i < 6; i++) {
+      const meta = await driveGetFileMetaForProxy(token, resolvedId);
+      const rawMime = typeof meta.mimeType === 'string' ? meta.mimeType : '';
+      if (rawMime === 'application/vnd.google-apps.shortcut') {
+        const details = (meta as { shortcutDetails?: { targetId?: string } }).shortcutDetails;
+        const targetId = details?.targetId?.trim();
+        if (!targetId) {
+          throw new Error('Drive shortcut has no target file');
+        }
+        resolvedId = targetId;
+        continue;
+      }
+      const name = meta.name ?? 'file';
+      const mimeType = refineMimeType(meta.mimeType ?? 'application/octet-stream', name);
 
-    // Google Workspace files need export, not direct download.
-    if (mimeType === 'application/vnd.google-apps.document') {
-      contentResponse = await fetch(`${config.driveApi}/files/${fileId}/export?mimeType=application/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!contentResponse.ok) throw new Error(`Failed to export Google Doc ${fileId} (${contentResponse.status})`);
+      let contentResponse: globalThis.Response;
+      const authHeader = { Authorization: `Bearer ${token}` };
+      const sd = 'supportsAllDrives=true';
+
+      // Google Workspace files need export, not direct download.
+      if (mimeType === 'application/vnd.google-apps.document') {
+        contentResponse = await fetchWithTimeout(
+          `${config.driveApi}/files/${encodeURIComponent(resolvedId)}/export?mimeType=application/pdf&${sd}`,
+          { headers: authHeader },
+          PROXY_MEDIA_TIMEOUT_MS
+        );
+        if (!contentResponse.ok) {
+          throw new Error(`Failed to export Google Doc (${contentResponse.status})`);
+        }
+        const arrayBuffer = await contentResponse.arrayBuffer();
+        return { mimeType: 'application/pdf', filename: name, data: Buffer.from(arrayBuffer) };
+      }
+
+      if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+        contentResponse = await fetchWithTimeout(
+          `${config.driveApi}/files/${encodeURIComponent(resolvedId)}/export?mimeType=application/pdf&${sd}`,
+          { headers: authHeader },
+          PROXY_MEDIA_TIMEOUT_MS
+        );
+        if (!contentResponse.ok) {
+          throw new Error(`Failed to export Google Sheet (${contentResponse.status})`);
+        }
+        const arrayBuffer = await contentResponse.arrayBuffer();
+        return { mimeType: 'application/pdf', filename: name, data: Buffer.from(arrayBuffer) };
+      }
+
+      if (mimeType === 'application/vnd.google-apps.presentation') {
+        contentResponse = await fetchWithTimeout(
+          `${config.driveApi}/files/${encodeURIComponent(resolvedId)}/export?mimeType=application/pdf&${sd}`,
+          { headers: authHeader },
+          PROXY_MEDIA_TIMEOUT_MS
+        );
+        if (!contentResponse.ok) {
+          throw new Error(`Failed to export Google Slides (${contentResponse.status})`);
+        }
+        const arrayBuffer = await contentResponse.arrayBuffer();
+        return { mimeType: 'application/pdf', filename: name, data: Buffer.from(arrayBuffer) };
+      }
+
+      contentResponse = await fetchWithTimeout(
+        `${config.driveApi}/files/${encodeURIComponent(resolvedId)}?alt=media&${sd}`,
+        { headers: authHeader },
+        PROXY_MEDIA_TIMEOUT_MS
+      );
+
+      if (!contentResponse.ok) {
+        const errText = await contentResponse.text().catch(() => '');
+        throw new Error(`Failed to fetch file content (${contentResponse.status}) ${errText.slice(0, 200)}`);
+      }
+
       const arrayBuffer = await contentResponse.arrayBuffer();
-      return { mimeType: 'application/pdf', filename: name, data: Buffer.from(arrayBuffer) };
+      return { mimeType, filename: name, data: Buffer.from(arrayBuffer) };
     }
 
-    if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-      contentResponse = await fetch(`${config.driveApi}/files/${fileId}/export?mimeType=application/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!contentResponse.ok) throw new Error(`Failed to export Google Sheet ${fileId} (${contentResponse.status})`);
-      const arrayBuffer = await contentResponse.arrayBuffer();
-      return { mimeType: 'application/pdf', filename: name, data: Buffer.from(arrayBuffer) };
-    }
-
-    if (mimeType === 'application/vnd.google-apps.presentation') {
-      contentResponse = await fetch(`${config.driveApi}/files/${fileId}/export?mimeType=application/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!contentResponse.ok) throw new Error(`Failed to export Google Slides ${fileId} (${contentResponse.status})`);
-      const arrayBuffer = await contentResponse.arrayBuffer();
-      return { mimeType: 'application/pdf', filename: name, data: Buffer.from(arrayBuffer) };
-    }
-
-    contentResponse = await fetch(`${config.driveApi}/files/${fileId}?alt=media`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!contentResponse.ok) {
-      throw new Error(`Failed to fetch file content (${contentResponse.status})`);
-    }
-
-    const arrayBuffer = await contentResponse.arrayBuffer();
-    return { mimeType, filename: name, data: Buffer.from(arrayBuffer) };
+    throw new Error('Too many shortcut hops');
   },
 
   async getPatientSessions({

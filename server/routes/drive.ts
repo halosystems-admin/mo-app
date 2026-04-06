@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
 import { getStorageAdapter } from '../services/storage';
+import mammoth from 'mammoth';
 import {
   driveRequest,
   getHaloRootFolder,
@@ -23,6 +24,8 @@ const { driveApi, uploadApi } = config;
 
 const MAX_FILE_SIZE_MB = 25;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+/** Mammoth conversion is memory-heavy; cap preview size below full upload limit. */
+const MAX_DOCX_PREVIEW_BYTES = 20 * 1024 * 1024;
 const ALLOWED_UPLOAD_TYPES = [
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
   'application/pdf',
@@ -435,7 +438,48 @@ router.get('/files/:fileId/proxy', async (req: Request, res: Response) => {
     res.send(proxy.data);
   } catch (err) {
     console.error('File proxy error:', err);
-    res.status(500).json({ error: 'Failed to proxy file.' });
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: 'Failed to proxy file.', detail });
+  }
+});
+
+// GET /files/:fileId/preview-docx-html — .docx → HTML for in-app preview (mammoth)
+router.get('/files/:fileId/preview-docx-html', async (req: Request, res: Response) => {
+  try {
+    const token = req.session.accessToken!;
+    const fileId = routeParam(req.params.fileId);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const proxy = await adapter.proxyFile({
+      token,
+      fileId,
+      microsoftStorageMode,
+    });
+
+    const name = (proxy.filename || '').toLowerCase();
+    const mime = (proxy.mimeType || '').toLowerCase();
+    const isDocx =
+      mime.includes('wordprocessingml') ||
+      mime.includes('officedocument.wordprocessingml.document') ||
+      name.endsWith('.docx');
+
+    if (!isDocx) {
+      res.status(400).json({ error: 'Preview is only available for .docx Word files.' });
+      return;
+    }
+
+    if (proxy.data.length > MAX_DOCX_PREVIEW_BYTES) {
+      res.status(413).json({ error: 'File is too large to preview in the app. Open in a new tab instead.' });
+      return;
+    }
+
+    const { value: html } = await mammoth.convertToHtml({ buffer: proxy.data });
+    res.json({ html });
+  } catch (err) {
+    console.error('DOCX preview error:', err);
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: 'Failed to build Word preview.', detail });
   }
 });
 

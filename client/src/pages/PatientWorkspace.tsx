@@ -228,6 +228,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [contextDriveSelectedIds, setContextDriveSelectedIds] = useState<string[]>([]);
   const contextUploadInputRef = useRef<HTMLInputElement>(null);
   const [contextEnrichBusy, setContextEnrichBusy] = useState(false);
+  /** Shown after image/PDF context upload succeeds; Done saves context text as a file in the patient folder. */
+  const [contextUploadAck, setContextUploadAck] = useState(false);
+  const [contextSaveBusy, setContextSaveBusy] = useState(false);
 
   const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
 
@@ -416,6 +419,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       return;
     }
     setContextEnrichBusy(true);
+    setContextUploadAck(false);
     try {
       const safeName = `consult_context_${Date.now()}_${file.name.replace(/[^\w.-]/g, '_')}`;
       if (isImage) {
@@ -435,8 +439,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             file.type || 'image/jpeg',
             file.name
           );
-          const block = `### Context from image: ${uploaded.name}\n\n${summary.trim() || '_No summary returned._'}`;
+          const block = `## Context from image: ${uploaded.name}\n\n${summary.trim() || '_No summary returned._'}`;
           setConsultContext((prev) => (prev ? `${prev}\n\n${block}` : block));
+          setContextUploadAck(true);
           onToast('Image saved to the folder; Gemini added text and diagram notes to Context.', 'success');
         } catch (aiErr) {
           onToast(
@@ -448,8 +453,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       } else {
         const uploaded = await uploadFile(patient.id, file, safeName);
         const summary = await consultContextFromUploadedFile(patient.id, uploaded);
-        const block = `### Context from file: ${uploaded.name}\n\n${summary.trim() || '_No summary returned._'}`;
+        const block = `## Context from file: ${uploaded.name}\n\n${summary.trim() || '_No summary returned._'}`;
         setConsultContext((prev) => (prev ? `${prev}\n\n${block}` : block));
+        setContextUploadAck(true);
         onToast('PDF saved to the folder; extracted summary added to context.', 'success');
       }
       await loadFolderContents(currentFolderId);
@@ -458,6 +464,33 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast(getErrorMessage(err), 'error');
     } finally {
       setContextEnrichBusy(false);
+    }
+  };
+
+  /** Save current Context panel text as a .md file in the patient workspace (separate from the scan image). */
+  const handleContextDoneSave = async () => {
+    const text = consultContext.trim();
+    if (!text) {
+      onToast('Context is empty — nothing to save. Add text or run an image/PDF upload first.', 'info');
+      return;
+    }
+    setContextSaveBusy(true);
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const safePatient = patient.name.replace(/[^\w\s-]/g, '').trim().slice(0, 40) || 'patient';
+      const fileName = `HALO_clinical_context_${safePatient}_${stamp}.md`;
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const file = new File([blob], fileName, { type: 'text/plain' });
+      await uploadFile(patient.id, file, fileName);
+      await silentRefresh();
+      onDataChange();
+      onToast(`Clinical context saved to folder: ${fileName}`, 'success');
+      setContextUploadAck(false);
+      setConsultSubTab('transcript');
+    } catch (err) {
+      onToast(getErrorMessage(err), 'error');
+    } finally {
+      setContextSaveBusy(false);
     }
   };
 
@@ -1624,6 +1657,28 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                             </div>
                           </div>
                         </div>
+                        {contextUploadAck ? (
+                          <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-2.5">
+                            <p className="text-sm text-emerald-950 min-w-0">
+                              <span className="font-semibold">Scan in folder.</span> Edit the text below if needed, then use the button
+                              to save this context as a Markdown file in the patient workspace.
+                            </p>
+                            <button
+                              type="button"
+                              disabled={contextSaveBusy || contextEnrichBusy}
+                              onClick={() => void handleContextDoneSave()}
+                              className="shrink-0 inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 transition disabled:opacity-55 disabled:cursor-not-allowed"
+                            >
+                              {contextSaveBusy ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin" /> Saving…
+                                </>
+                              ) : (
+                                'Done — save context to folder'
+                              )}
+                            </button>
+                          </div>
+                        ) : null}
                         <textarea
                           value={consultContext}
                           onChange={e => setConsultContext(e.target.value)}

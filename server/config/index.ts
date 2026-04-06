@@ -79,7 +79,8 @@ export const config = {
 
   // AI — must be the Google AI Studio / Gemini API key (server .env only, not VITE_)
   geminiApiKey: sanitizeGeminiApiKey(process.env.GEMINI_API_KEY),
-  deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
+  // Same trimming as Gemini (quotes/BOM from .env / Heroku dashboard pastes).
+  deepgramApiKey: sanitizeGeminiApiKey(process.env.DEEPGRAM_API_KEY),
 
   // Session
   sessionSecret: process.env.SESSION_SECRET!,

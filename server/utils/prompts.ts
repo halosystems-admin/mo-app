@@ -103,14 +103,19 @@ Use empty strings for missing string fields. If the image has no patient text, r
 export function consultContextImagePrompt(fileName: string): string {
   return `You are assisting a doctor preparing clinical documentation. They uploaded an image for CONTEXT (not diagnosis): ${fileName}
 
-Carefully examine the image and produce structured Markdown for use as note-generation context.
+Examine the image and write plain clinical note context for downstream documentation.
 
-Include:
-1. **Extracted text** — Transcribe all readable printed or handwritten text (labs, vitals, labels, dates, names if clearly patient-related).
-2. **Diagrams & figures** — For charts, ECG strips, radiology screenshots, drawings, anatomy sketches, ward boards, or device displays: describe layout, axes/labels, trends, morphology, and anything a clinician would need to document without seeing the image.
-3. **Clinical summary** — 2–6 bullet points of what matters for documentation (no new diagnoses beyond what the image supports; do not invent data).
+Formatting rules (strict):
+- You may use at most a few ## section headings (e.g. ## Extracted text, ## Diagrams, ## Summary). Do not use ### or deeper.
+- Do NOT use **bold**, *italics*, __underline__, or markdown asterisk/bullet lists. Use simple line breaks; if you need a list, each line can start with a hyphen and space (- like this).
+- Avoid decorative punctuation clusters. Keep prose readable and calm.
 
-If the image is blank or illegible, say so briefly. Return Markdown only (no JSON).`;
+Content:
+1. Extracted text — transcribe readable printed or handwritten text (labs, vitals, labels, dates, names if clearly patient-related).
+2. Diagrams and figures — for charts, ECGs, imaging screenshots, sketches, ward boards, device displays: describe layout, labels, trends, and what a clinician would need without the image.
+3. Short summary — a few plain lines on what matters for documentation (no new diagnoses beyond the image; do not invent data).
+
+If the image is blank or illegible, say so in one short line. Plain text and optional ## headings only (no JSON).`;
 }
 
 /** Text extracted from PDF/DOCX etc. → consult context for notes. */
@@ -118,10 +123,9 @@ export function consultContextDocumentPrompt(fileName: string, extractedText: st
   const t = extractedText.substring(0, 12000);
   return `You are assisting a doctor. Below is text extracted from a file they attached for note context: "${fileName}".
 
-Produce Markdown for note generation:
-- **Key facts** — bullets of patient-relevant facts, values, dates, plans.
-- **Diagrams / figures** — If the text describes figures or results tables, summarise structure and important values.
-- **Gaps** — Note if critical information is missing.
+Write plain context for note generation. Use at most a few ## headings if helpful. Do NOT use **bold**, *italics*, or asterisk bullets; use line breaks and simple "- " lines if needed.
+
+Cover: key facts (values, dates, plans); figures or tables if described; note any obvious gaps.
 
 Extracted text:
 ${t}`;

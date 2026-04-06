@@ -848,10 +848,8 @@ export const microsoftGraphAdapter: StorageAdapter = {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
     const driveBase = getDriveBase(storageMode);
 
-    const res = await fetchWithTimeout(
-      `${driveBase}/items/${encodeURIComponent(fileId)}?$select=name,webUrl,file/mimeType,@microsoft.graph.downloadUrl`,
-      token
-    );
+    // No $select: some SharePoint/tenant drive endpoints return 400 "Select options are not supported."
+    const res = await fetchWithTimeout(`${driveBase}/items/${encodeURIComponent(fileId)}`, token);
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -879,11 +877,8 @@ export const microsoftGraphAdapter: StorageAdapter = {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
     const driveBase = getDriveBase(storageMode);
 
-    // Fetch metadata for correct content-type.
-    const metaRes = await fetchWithTimeout(
-      `${driveBase}/items/${encodeURIComponent(fileId)}?$select=name,file/mimeType`,
-      token
-    );
+    // Full item (no $select) — Graph rejects $select=file/mimeType on some drive bases.
+    const metaRes = await fetchWithTimeout(`${driveBase}/items/${encodeURIComponent(fileId)}`, token);
     if (!metaRes.ok) {
       const text = await metaRes.text().catch(() => '');
       throw new Error(`[Graph ${metaRes.status}] Failed to load file metadata: ${text}`);

@@ -23,7 +23,7 @@ export function isDeepgramAvailable(): boolean {
  */
 export async function transcribeWithDeepgram(audioBuffer: Buffer, mimeType: string): Promise<string> {
   const dgResponse = await fetch(
-    'https://api.deepgram.com/v1/listen?model=nova-3-medical&smart_format=true&punctuate=true',
+    'https://api.deepgram.com/v1/listen?model=nova-3-medical&smart_format=true&punctuate=true&no_delay=true',
     {
       method: 'POST',
       headers: {

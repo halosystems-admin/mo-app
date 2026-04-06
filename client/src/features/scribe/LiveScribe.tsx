@@ -234,7 +234,7 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
             }
           }
         };
-        mediaRecorder.start(250);
+        mediaRecorder.start(100);
       };
 
       ws.onmessage = (event) => {

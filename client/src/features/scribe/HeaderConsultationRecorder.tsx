@@ -210,7 +210,8 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
             }
           }
         };
-        mediaRecorder.start(250);
+        // 100ms timeslices: audio reaches Deepgram faster (Deepgram recommends ~20–100ms chunks for low latency).
+        mediaRecorder.start(100);
         setIsLive(true);
         setIsPaused(false);
         startTimer();

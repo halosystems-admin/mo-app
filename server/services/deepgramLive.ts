@@ -32,11 +32,13 @@ export function createDeepgramLiveConnection(callbacks: {
 }): { send: (data: Buffer | ArrayBuffer) => void; requestClose: () => void; disconnect: () => void } {
   const deepgram = createClient(config.deepgramApiKey);
 
-  // Nova 3 Medical, smart format, punctuation. Omit encoding for containerized (e.g. WebM) so Deepgram can auto-detect.
+  // Nova 3 Medical; latency helpers: interim_results + no_delay (with smart_format). Do not raise endpointing—defaults are already aggressive.
   const connection = deepgram.listen.live({
     model: 'nova-3-medical',
     smart_format: true,
     punctuate: true,
+    interim_results: true,
+    no_delay: true,
     // Client sends WebM/opus chunks from MediaRecorder; Deepgram accepts containerized without encoding param
   });
 
@@ -67,13 +69,15 @@ export function createDeepgramLiveConnection(callbacks: {
       const transcript = (primary || paragraphs || '').trim();
       if (!transcript) return;
 
-      try {
-        console.log('[deepgram-live] transcript chunk', {
-          textPreview: transcript.slice(0, 80),
-          isFinal: alt.is_final ?? true,
-        });
-      } catch {
-        // ignore logging failure
+      if (process.env.NODE_ENV !== 'production') {
+        try {
+          console.log('[deepgram-live] transcript chunk', {
+            textPreview: transcript.slice(0, 80),
+            isFinal: alt.is_final ?? true,
+          });
+        } catch {
+          // ignore
+        }
       }
 
       callbacks.onTranscript({
