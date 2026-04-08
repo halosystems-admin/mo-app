@@ -72,11 +72,6 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">
-        All admissions — spreadsheet view (mock).{' '}
-        <strong className="text-slate-800">Scroll horizontally</strong> inside the table to see all columns; click a
-        row for the full profile.
-      </p>
       {loading ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : (
@@ -153,10 +148,10 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
                       <span className="inline-flex items-center gap-2 flex-wrap max-w-[10rem]">
                         <span className="text-xs text-slate-800 tabular-nums">{r.medicalAidPhone || '—'}</span>
                         {tel ? (
-                          <span className="inline-flex gap-1 text-violet-600 shrink-0">
+                          <span className="inline-flex gap-1 text-teal-600 shrink-0">
                             <a
                               href={`tel:${tel}`}
-                              className="p-1 rounded-md hover:bg-violet-100"
+                              className="p-1 rounded-md hover:bg-teal-100"
                               aria-label="Call"
                               onClick={(e) => e.stopPropagation()}
                             >
@@ -164,7 +159,7 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
                             </a>
                             <a
                               href={`sms:${tel}`}
-                              className="p-1 rounded-md hover:bg-violet-100"
+                              className="p-1 rounded-md hover:bg-teal-100"
                               aria-label="SMS"
                               onClick={(e) => e.stopPropagation()}
                             >

@@ -24,7 +24,7 @@ export const WardBoardMock: React.FC<Props> = ({ byWard, onSelect }) => (
     {ORDER.map((w) => (
       <div
         key={w}
-        className="min-w-[220px] max-w-[260px] flex-shrink-0 rounded-xl border border-slate-200 bg-slate-50/80 flex flex-col max-h-[480px]"
+        className="min-w-[240px] sm:min-w-[260px] max-w-[300px] flex-shrink-0 rounded-xl border border-slate-200 bg-white flex flex-col max-h-[480px] shadow-sm"
       >
         <div
           className={`px-3 py-2 border-b rounded-t-xl ${wardHeadingStripClass(w)}`}
@@ -38,7 +38,7 @@ export const WardBoardMock: React.FC<Props> = ({ byWard, onSelect }) => (
               key={p.id}
               type="button"
               onClick={() => onSelect(p.id)}
-              className="w-full text-left rounded-lg border border-slate-200 bg-white p-3 hover:border-violet-300 hover:shadow-sm transition"
+              className="w-full text-left rounded-lg border border-slate-200 bg-white p-3 hover:border-teal-300 hover:shadow-sm transition"
             >
               <div className="font-semibold text-slate-800 text-sm truncate">
                 {p.firstName} {p.surname}
@@ -49,8 +49,8 @@ export const WardBoardMock: React.FC<Props> = ({ byWard, onSelect }) => (
                 {p.taskIndicators.slice(0, 3).map((t) => (
                   <span
                     key={t.label}
-                    className={`inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded ${
-                      t.urgent ? 'bg-rose-100 text-rose-800' : 'bg-violet-100 text-violet-800'
+                    className={`inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-md border border-slate-200 ${
+                      t.urgent ? 'bg-slate-200/90 text-slate-900' : 'bg-slate-50 text-slate-700'
                     }`}
                   >
                     {t.urgent ? <AlertCircle size={10} /> : null}

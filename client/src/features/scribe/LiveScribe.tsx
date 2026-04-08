@@ -332,8 +332,8 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
       {/* Primary floating button (desktop & mobile) */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
         {isLive && !isMinimized && (
-          <div className="bg-white border border-emerald-200 shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2 animate-in fade-in">
-            <Radio className="w-3.5 h-3.5 text-emerald-500" />
+          <div className="bg-white border border-teal-200 shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2 animate-in fade-in">
+            <Radio className="w-3.5 h-3.5 text-teal-500" />
             <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
               {connectionState === 'connecting' ? 'Connecting…' : isPaused ? 'Paused' : 'Live transcription'}
             </span>
@@ -343,9 +343,9 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
         {isMinimized && (
           <button
             onClick={() => { setIsMinimized(false); setIsModalOpen(true); }}
-            className="flex items-center gap-2 px-3 py-2 rounded-full bg-white border border-emerald-200 shadow-lg text-xs font-medium text-slate-700 hover:bg-emerald-50 transition"
+            className="flex items-center gap-2 px-3 py-2 rounded-full bg-white border border-teal-200 shadow-lg text-xs font-medium text-slate-700 hover:bg-teal-50 transition"
           >
-            <Radio className="w-3.5 h-3.5 text-emerald-500" />
+            <Radio className="w-3.5 h-3.5 text-teal-500" />
             <span>{isPaused ? 'Consultation paused' : 'Consultation in progress'}</span>
           </button>
         )}
@@ -356,10 +356,10 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
           title={isLive ? 'View consultation controls' : 'Start live consultation'}
           className={`flex items-center justify-center rounded-full shadow-lg transition-all duration-200 ${
             isLive
-              ? 'w-12 h-12 bg-emerald-600 hover:bg-emerald-700 text-white ring-4 ring-emerald-200'
+              ? 'w-12 h-12 bg-teal-600 hover:bg-teal-700 text-white ring-4 ring-teal-200'
               : isConnecting
                 ? 'w-12 h-12 bg-slate-200 text-slate-400 cursor-not-allowed'
-                : 'w-12 h-12 bg-emerald-600 hover:bg-emerald-700 text-white hover:scale-110 active:scale-95 hover:shadow-xl'
+                : 'w-12 h-12 bg-teal-600 hover:bg-teal-700 text-white hover:scale-110 active:scale-95 hover:shadow-xl'
           }`}
         >
           {isConnecting ? (
@@ -378,8 +378,8 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
           <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-emerald-50 flex items-center justify-center">
-                  <Mic className="w-4 h-4 text-emerald-600" />
+                <div className="w-9 h-9 rounded-full bg-teal-50 flex items-center justify-center">
+                  <Mic className="w-4 h-4 text-teal-600" />
                 </div>
                 <div className="flex flex-col">
                   <span className="text-sm font-semibold text-slate-800">
@@ -426,7 +426,7 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
                   <span className="inline-flex items-center gap-1 text-[11px]">
                     <span
                       className={`w-1.5 h-1.5 rounded-full ${
-                        audioLevel > 0.01 ? 'bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.35)]' : 'bg-slate-300'
+                        audioLevel > 0.01 ? 'bg-teal-500 shadow-[0_0_0_3px_rgba(16,185,129,0.35)]' : 'bg-slate-300'
                       }`}
                     />
                     {audioLevel > 0.01 ? 'We can hear you' : 'Waiting for audio...'}
@@ -435,7 +435,7 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
                 <div className="relative h-9 rounded-2xl bg-slate-100 overflow-hidden flex items-center">
                   <div className="absolute inset-x-0 h-px bg-slate-200 mx-4" />
                   <div
-                    className="mx-4 h-4 rounded-full bg-gradient-to-r from-emerald-400 via-emerald-500 to-emerald-600 shadow-[0_0_14px_rgba(16,185,129,0.7)] transition-[width] duration-150 ease-out"
+                    className="mx-4 h-4 rounded-full bg-gradient-to-r from-teal-400 via-teal-500 to-teal-600 shadow-[0_0_14px_rgba(16,185,129,0.7)] transition-[width] duration-150 ease-out"
                     style={{ width: `${Math.min(100, Math.max(12, 8 + audioLevel * 260))}%` }}
                   />
                 </div>
@@ -460,7 +460,7 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
             {/* Controls */}
             <div className="px-5 py-4 border-t border-slate-100 flex flex-wrap gap-3 justify-between items-center bg-slate-50/60">
               <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
                 <span>
                   {isLive
                     ? isPaused

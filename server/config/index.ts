@@ -79,6 +79,8 @@ export const config = {
 
   // AI — must be the Google AI Studio / Gemini API key (server .env only, not VITE_)
   geminiApiKey: sanitizeGeminiApiKey(process.env.GEMINI_API_KEY),
+  /** Vision-capable model for wound/scan Smart Context (override if your key prefers another ID). */
+  geminiVisionModel: (process.env.GEMINI_VISION_MODEL || 'gemini-2.0-flash').trim(),
   // Same trimming as Gemini (quotes/BOM from .env / Heroku dashboard pastes).
   deepgramApiKey: sanitizeGeminiApiKey(process.env.DEEPGRAM_API_KEY),
 
@@ -116,4 +118,12 @@ export const config = {
   smtpSecure: process.env.SMTP_SECURE === 'true',
   smtpUser: process.env.SMTP_USER || '',
   smtpPass: process.env.SMTP_PASS || '',
+
+  /**
+   * Filename for the cumulative clinical history PDF in each patient's "Patient Notes" folder.
+   * If that PDF already exists, Smart Context appends to it; if not, the first save creates it
+   * with this name (no second parallel "HALO" cumulative file).
+   */
+  /** Default filename when env unset — cumulative record is still created and merged. */
+  cumulativeHistoryPdfName: (process.env.CUMULATIVE_HISTORY_PDF_NAME || 'Cumulative clinical history.pdf').trim(),
 } as const;

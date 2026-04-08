@@ -503,6 +503,46 @@ export const consultContextFromUploadedFile = async (
   return data.summary ?? '';
 };
 
+/** After upload: vision / text extraction / fallback for any clinical file type. */
+export const consultContextSmartUpload = async (patientId: string, file: DriveFile): Promise<string> => {
+  const data = await request<{ summary: string }>('/api/ai/consult-context-smart', {
+    method: 'POST',
+    body: JSON.stringify({
+      patientId,
+      fileId: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+    }),
+  });
+  return data.summary ?? '';
+};
+
+export type LongitudinalAppendAttachment = {
+  base64: string;
+  mimeType: string;
+  fileName?: string;
+};
+
+/** Append context text (optional images) into cumulative history PDF in Patient Notes. */
+export const appendLongitudinalContextPdf = async (
+  patientId: string,
+  text: string,
+  attachments?: LongitudinalAppendAttachment[]
+): Promise<DriveFile> => {
+  const data = await request<{ ok?: boolean; file: DriveFile }>(
+    `/api/drive/patients/${patientId}/longitudinal-append`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        text,
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      }),
+    }
+  );
+  if (!data.file) throw new Error('Longitudinal save did not return a file.');
+  return data.file;
+};
+
 /** Save billing / demographics extension as HALO_patient_profile.json in the patient folder. */
 export async function uploadPatientHaloProfile(
   patientId: string,

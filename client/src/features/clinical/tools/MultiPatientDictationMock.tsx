@@ -148,7 +148,7 @@ export const MultiPatientDictationMock: React.FC<Props> = ({ onToast }) => {
           <button
             type="button"
             onClick={startRecognition}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold"
           >
             <Mic size={16} />
             Round dictation
@@ -181,7 +181,7 @@ export const MultiPatientDictationMock: React.FC<Props> = ({ onToast }) => {
         <button
           type="button"
           onClick={flushManual}
-          className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold shrink-0"
+          className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold shrink-0"
         >
           Add
         </button>

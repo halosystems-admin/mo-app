@@ -44,7 +44,7 @@ const markdownDocumentComponents: Components = {
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="text-violet-600 underline underline-offset-2 hover:text-violet-800"
+      className="text-teal-600 underline underline-offset-2 hover:text-teal-800"
     >
       {children}
     </a>
@@ -276,7 +276,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
     if (loading) {
       return (
         <div className="flex flex-col items-center justify-center h-full gap-4">
-          <Loader2 className="w-10 h-10 text-violet-500 animate-spin" />
+          <Loader2 className="w-10 h-10 text-teal-500 animate-spin" />
           <p className="text-slate-500 text-sm font-medium">Loading preview...</p>
         </div>
       );
@@ -291,7 +291,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
             href={fileUrl}
             target="_blank"
             rel="noreferrer"
-            className="text-sm text-violet-600 hover:text-violet-700 underline"
+            className="text-sm text-teal-600 hover:text-teal-700 underline"
           >
             Open in storage instead
           </a>
@@ -309,7 +309,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
             href={fileUrl}
             target="_blank"
             rel="noreferrer"
-            className="mt-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition flex items-center gap-2 text-sm font-semibold"
+            className="mt-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition flex items-center gap-2 text-sm font-semibold"
           >
             <ExternalLink size={16} /> Open in New Tab
           </a>
@@ -351,7 +351,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       return (
         <div className="h-full overflow-auto px-8 py-8">
           <article
-            className="docx-preview max-w-3xl mx-auto bg-white rounded-xl border border-slate-200/80 shadow-sm px-8 py-10 text-[15px] text-slate-800 [&_p]:mb-3 [&_p]:leading-relaxed [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-6 [&_h1]:mb-2 [&_h1:first-child]:mt-0 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:ml-5 [&_ul]:my-3 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:ml-5 [&_ol]:my-3 [&_ol]:space-y-1 [&_table]:w-full [&_table]:text-sm [&_table]:my-4 [&_td]:border [&_td]:border-slate-200 [&_td]:px-2 [&_td]:py-1.5 [&_td]:align-top [&_th]:border [&_th]:border-slate-200 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold [&_th]:bg-slate-50 [&_a]:text-violet-600 [&_strong]:font-semibold"
+            className="docx-preview max-w-3xl mx-auto bg-white rounded-xl border border-slate-200/80 shadow-sm px-8 py-10 text-[15px] text-slate-800 [&_p]:mb-3 [&_p]:leading-relaxed [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-6 [&_h1]:mb-2 [&_h1:first-child]:mt-0 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:ml-5 [&_ul]:my-3 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:ml-5 [&_ol]:my-3 [&_ol]:space-y-1 [&_table]:w-full [&_table]:text-sm [&_table]:my-4 [&_td]:border [&_td]:border-slate-200 [&_td]:px-2 [&_td]:py-1.5 [&_td]:align-top [&_th]:border [&_th]:border-slate-200 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold [&_th]:bg-slate-50 [&_a]:text-teal-600 [&_strong]:font-semibold"
             dangerouslySetInnerHTML={{ __html: docxHtml }}
           />
         </div>
@@ -383,7 +383,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50 rounded-t-2xl shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <FileText size={18} className="text-violet-600 shrink-0" />
+            <FileText size={18} className="text-teal-600 shrink-0" />
             <h3 className="font-semibold text-slate-800 truncate">{fileName}</h3>
             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
               {effectiveMime.split('/').pop()?.toUpperCase() || 'FILE'}
@@ -394,7 +394,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
               href={fileUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-violet-700 hover:bg-violet-50 rounded-lg transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition"
               title="Open in new tab"
             >
               <ExternalLink size={15} /> New Tab

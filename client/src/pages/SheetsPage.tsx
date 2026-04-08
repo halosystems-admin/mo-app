@@ -1,0 +1,34 @@
+import React from 'react';
+import type { Patient, UserSettings } from '../../../shared/types';
+import { ClinicalDashboard } from '../features/clinical/ClinicalDashboard';
+
+interface SheetsPageProps {
+  patients: Patient[];
+  userSettings?: UserSettings | null;
+  onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onOpenPatient: (patientId: string) => void;
+}
+
+/** Hospital sheets / workflows — same dashboard as before, without ward board. */
+export const SheetsPage: React.FC<SheetsPageProps> = ({
+  patients,
+  userSettings,
+  onToast,
+  onOpenPatient,
+}) => {
+  return (
+    <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-slate-50/80 px-4 py-5 md:px-8 md:py-6">
+      <div className="w-full max-w-none mx-auto space-y-4">
+        <header>
+          <h1 className="text-xl md:text-2xl font-semibold text-slate-900 tracking-tight">Sheets</h1>
+        </header>
+        <ClinicalDashboard
+          userSettings={userSettings}
+          onToast={onToast}
+          patients={patients}
+          onOpenPatient={onOpenPatient}
+        />
+      </div>
+    </div>
+  );
+};

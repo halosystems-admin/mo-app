@@ -19,62 +19,20 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   const [isLive, setIsLive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const isPausedRef = useRef(false);
-  const [audioLevel, setAudioLevel] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const rafRef = useRef<number | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingMimeTypeRef = useRef<string>('audio/webm');
   const transcriptRef = useRef<string>('');
   const timerRef = useRef<number | null>(null);
 
-  const stopAudioVisualization = () => {
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
-    analyserRef.current = null;
-    setAudioLevel(0);
-  };
+  const stopAudioVisualization = () => {};
 
-  const startAudioVisualization = (stream: MediaStream) => {
-    try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 512;
-      const source = audioContext.createMediaStreamSource(stream);
-      source.connect(analyser);
-      audioContextRef.current = audioContext;
-      analyserRef.current = analyser;
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      const tick = () => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getByteTimeDomainData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          const v = (dataArray[i] - 128) / 128;
-          sum += v * v;
-        }
-        const rms = Math.sqrt(sum / dataArray.length);
-        setAudioLevel(rms);
-        rafRef.current = requestAnimationFrame(tick);
-      };
-
-      rafRef.current = requestAnimationFrame(tick);
-    } catch {
-      // Visualization is best-effort only
-    }
+  const startAudioVisualization = (_stream: MediaStream) => {
+    /* Level meter removed — minimal header UI */
   };
 
   const stopTimer = () => {
@@ -296,20 +254,13 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
     .padStart(2, '0')}`;
 
   return (
-    <div className="flex items-center gap-3">
-      <div className="hidden md:flex flex-col items-end mr-1">
-        {isLive && (
-          <span className="text-[11px] font-medium text-slate-500">
-            Recording consultation · {displayTime}
-          </span>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5">
         {isLive && (
           <button
             type="button"
             onClick={togglePause}
-            className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-full border border-red-100 bg-white text-[11px] font-medium text-slate-700 hover:bg-red-50 transition"
+            className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-100/80 bg-white text-[10px] font-semibold text-slate-700 hover:bg-red-50/80 transition"
           >
             {isPaused ? (
               <>
@@ -326,37 +277,16 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
           type="button"
           onClick={isLive ? () => void stopLive() : () => void startLive()}
           disabled={isBusy}
-          className={`flex items-center gap-3 rounded-full px-4 py-2 text-sm font-semibold shadow-md transition-all ${
+          className={`inline-flex items-center gap-1.5 rounded-[10px] px-2.5 py-1 text-[11px] font-semibold shadow-[var(--shadow-halo-soft)] transition-all ${
             isLive
-              ? 'bg-red-600 hover:bg-red-700 text-white shadow-red-500/30'
-              : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/30'
+              ? 'bg-rose-500/95 hover:bg-rose-500 text-white'
+              : 'bg-halo-primary hover:bg-halo-primary-hover text-white'
           } ${isBusy ? 'opacity-70 cursor-not-allowed' : ''}`}
         >
-          <div className="flex items-center justify-center w-7 h-7 rounded-full bg-white/10">
-            <Mic className="w-4 h-4 text-white" />
-          </div>
-          <div className="flex flex-col items-start">
-            <span className="text-xs uppercase tracking-wide">
-              {isLive ? 'Recording' : 'Record consultation'}
-            </span>
-            <span className="text-[11px] font-normal opacity-80">
-              {isLive ? displayTime : 'Dictate while you examine'}
-            </span>
-          </div>
-          <div className="hidden md:flex items-end gap-[2px] h-4">
-            {Array.from({ length: 8 }).map((_, i) => {
-              const intensity = Math.max(0.2, Math.min(1, audioLevel * 5 + i * 0.05));
-              const height = 4 + intensity * 10;
-              return (
-                <span
-                  // eslint-disable-next-line react/no-array-index-key
-                  key={i}
-                  className="w-[3px] rounded-full bg-white/80"
-                  style={{ height }}
-                />
-              );
-            })}
-          </div>
+          <Mic className={`w-3.5 h-3.5 shrink-0 ${isLive ? 'text-white' : 'text-white'}`} />
+          <span className="tabular-nums">
+            {isBusy ? '…' : isLive ? displayTime : 'Record'}
+          </span>
         </button>
       </div>
     </div>

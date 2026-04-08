@@ -473,7 +473,7 @@ export function clinicalWardToBoardColumn(w: ClinicalWard): WardBoardColumnId {
     case 'labour ward':
       return 'labour';
     default:
-      return 'other';
+      return 'm';
   }
 }
 

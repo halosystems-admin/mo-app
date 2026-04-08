@@ -6,7 +6,7 @@ import { MessageCircle, Pencil, Phone, X } from 'lucide-react';
 
 const SURGEONS: SurgeonName[] = ['Hoosain', 'Stanley', 'de Beer', 'Strydom'];
 const inp =
-  'w-full px-2 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400';
+  'w-full px-2 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400';
 
 interface Props {
   row: SurgeonRoundRow;
@@ -83,7 +83,7 @@ export const SurgeonRoundDetailPanel: React.FC<Props> = ({ row: r, onClose, onSa
                   type="button"
                   disabled={saving}
                   onClick={() => void save()}
-                  className="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold disabled:opacity-60"
+                  className="px-3 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold disabled:opacity-60"
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>
@@ -92,7 +92,7 @@ export const SurgeonRoundDetailPanel: React.FC<Props> = ({ row: r, onClose, onSa
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-violet-100"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-teal-100"
                 aria-label="Edit round"
               >
                 <Pencil size={16} /> Edit
@@ -270,7 +270,7 @@ export const SurgeonRoundDetailPanel: React.FC<Props> = ({ row: r, onClose, onSa
           ) : (
             <>
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Location & review</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Location & review</h3>
                 <Field label="Ward" value={formatWardDisplay(r.ward)} />
                 <Field label="Bed" value={r.bed} />
                 <Field label="Date of Review" value={r.dateOfReview} />
@@ -278,7 +278,7 @@ export const SurgeonRoundDetailPanel: React.FC<Props> = ({ row: r, onClose, onSa
               </section>
 
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Patient</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Patient</h3>
                 <Field label="Surname" value={r.surname} />
                 <Field label="First Name" value={r.firstName} />
                 <Field label="Date of Birth" value={r.dateOfBirth} />
@@ -287,7 +287,7 @@ export const SurgeonRoundDetailPanel: React.FC<Props> = ({ row: r, onClose, onSa
               </section>
 
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Clinical</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Clinical</h3>
                 <Field label="Diagnosis" value={r.diagnosis} />
                 <Field label="Complications" value={r.complications} />
                 <Field label="Surgeon Plan" value={r.surgeonPlan} />
@@ -295,7 +295,7 @@ export const SurgeonRoundDetailPanel: React.FC<Props> = ({ row: r, onClose, onSa
               </section>
 
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Team & aid</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Team & aid</h3>
                 <Field label="Surgeon" value={r.surgeon} />
                 <Field label="Medical Aid" value={r.medicalAid} />
                 <Field label="Medical Aid Number" value={r.medicalAidNumber} />
@@ -307,13 +307,13 @@ export const SurgeonRoundDetailPanel: React.FC<Props> = ({ row: r, onClose, onSa
                       <>
                         <a
                           href={`tel:${tel}`}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-50 text-violet-800 text-xs font-medium hover:bg-violet-100"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 text-teal-800 text-xs font-medium hover:bg-teal-100"
                         >
                           <Phone size={14} /> Call
                         </a>
                         <a
                           href={`sms:${tel}`}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-50 text-violet-800 text-xs font-medium hover:bg-violet-100"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 text-teal-800 text-xs font-medium hover:bg-teal-100"
                         >
                           <MessageCircle size={14} /> SMS
                         </a>

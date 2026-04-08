@@ -202,8 +202,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 key={note.noteId}
                 type="button"
                 onClick={() => onActiveIndexChange(i)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  i === activeIndex ? 'bg-violet-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  i === activeIndex ? 'bg-teal-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200/90'
                 }`}
               >
                 {note.title || `Note ${i + 1}`}
@@ -278,7 +278,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           ) : (
             <div className="flex flex-col items-center justify-center h-full min-h-[320px] text-slate-400 gap-2">
               <p className="text-sm">No PDF preview yet.</p>
-              <p className="text-xs">Click <span className="font-semibold text-violet-600">Regenerate PDF</span> to generate one.</p>
+              <p className="text-xs">Click <span className="font-semibold text-teal-600">Regenerate PDF</span> to generate one.</p>
             </div>
           )}
         </div>
@@ -291,7 +291,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             type="button"
             onClick={() => onSaveAsDocx(activeIndex)}
             disabled={busy || !displayContent.trim()}
-            className="flex items-center gap-1.5 bg-violet-600 text-white px-3 py-2 rounded-lg hover:bg-violet-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
+            className="flex items-center gap-1.5 bg-teal-600 text-white px-3 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
           >
             {savingNoteIndex === activeIndex ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
             Save as DOCX
@@ -318,7 +318,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               type="button"
               onClick={onSaveAll}
               disabled={busy}
-              className="flex items-center gap-1.5 bg-violet-700 text-white px-3 py-2 rounded-lg hover:bg-violet-800 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
+              className="flex items-center gap-1.5 bg-teal-700 text-white px-3 py-2 rounded-lg hover:bg-teal-800 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
             >
               {status === AppStatus.SAVING ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Save All

@@ -17,6 +17,7 @@
     "@fullcalendar/interaction": "^6.1.17",
     "@fullcalendar/react": "^6.1.17",
     "@fullcalendar/timegrid": "^6.1.17",
+    "@supabase/supabase-js": "^2.102.1",
     "dompurify": "^3.3.3",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.563.0",

@@ -7,7 +7,7 @@ import { formatWardDisplay } from './clinicalDisplay';
 import { MessageCircle, Pencil, Phone, X } from 'lucide-react';
 
 const inp =
-  'w-full px-2 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400';
+  'w-full px-2 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400';
 
 interface Props {
   record: InpatientRecord;
@@ -116,7 +116,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               Full admission detail —{' '}
               <button
                 type="button"
-                className="text-violet-600 font-semibold hover:underline"
+                className="text-teal-600 font-semibold hover:underline"
                 onClick={() => (editing ? cancelEdit() : setEditing(true))}
               >
                 {editing ? 'Cancel editing' : 'tap pencil to edit (mock)'}
@@ -137,7 +137,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                   type="button"
                   disabled={saving}
                   onClick={() => void save()}
-                  className="inline-flex items-center px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 disabled:opacity-60"
+                  className="inline-flex items-center px-3 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 disabled:opacity-60"
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>
@@ -146,7 +146,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-violet-100 hover:text-violet-900"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-teal-100 hover:text-teal-900"
                 aria-label="Edit record"
               >
                 <Pencil size={16} /> Edit
@@ -166,7 +166,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
           {editing ? (
             <div className="space-y-4 text-sm">
               <section className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600">Identity & bed</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600">Identity & bed</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <label className="block">
                     <span className="text-xs font-semibold text-slate-600">First name</span>
@@ -280,7 +280,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600">Admission</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600">Admission</h3>
                 <label className="block">
                   <span className="text-xs font-semibold text-slate-600">Admission diagnosis</span>
                   <textarea
@@ -319,7 +319,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600">Medical aid</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600">Medical aid</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <label className="block">
                     <span className="text-xs font-semibold text-slate-600">Scheme</span>
@@ -350,7 +350,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600">Procedure</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600">Procedure</h3>
                 <div className="grid grid-cols-1 gap-2">
                   <label className="block">
                     <span className="text-xs font-semibold text-slate-600">Procedure</span>
@@ -389,7 +389,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600">
                   Discharge & long-term follow-up
                 </h3>
                 <p className="text-[11px] text-slate-500">
@@ -427,7 +427,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600">Notes</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600">Notes</h3>
                 <label className="block">
                   <span className="text-xs font-semibold text-slate-600">Inpatient notes</span>
                   <textarea
@@ -449,7 +449,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
           ) : (
             <>
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Identity & bed</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Identity & bed</h3>
                 <Field label="Bed" value={record.bed} />
                 <Field label="Folder Number" value={record.folderNumber} />
                 <Field label="Surname" value={record.surname} />
@@ -467,7 +467,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Admission</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Admission</h3>
                 <Field label="Admission Diagnosis" value={record.admissionDiagnosis} />
                 <Field label="Date of Admission" value={record.dateOfAdmission} />
                 <Field label="ICD-10" value={record.icd10Diagnoses} />
@@ -475,7 +475,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Medical aid</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Medical aid</h3>
                 <Field label="Scheme" value={record.medicalAid} />
                 <Field label="Member Number" value={record.medicalAidNumber} />
                 <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-1 text-sm border-b border-slate-100 py-2 items-center">
@@ -486,14 +486,14 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                       <>
                         <a
                           href={`tel:${tel}`}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-50 text-violet-800 text-xs font-medium hover:bg-violet-100"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 text-teal-800 text-xs font-medium hover:bg-teal-100"
                           aria-label="Call"
                         >
                           <Phone size={14} /> Call
                         </a>
                         <a
                           href={sms}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-50 text-violet-800 text-xs font-medium hover:bg-violet-100"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 text-teal-800 text-xs font-medium hover:bg-teal-100"
                           aria-label="SMS"
                         >
                           <MessageCircle size={14} /> SMS
@@ -505,7 +505,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Procedure</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Procedure</h3>
                 <Field label="Procedure" value={record.procedure} />
                 <Field label="Procedure Codes" value={record.procedureCodes} />
                 <Field label="Date of Procedure" value={record.dateOfProcedure} />
@@ -513,7 +513,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">
                   Discharge & long-term follow-up
                 </h3>
                 <Field label="Date of Discharge" value={record.dateOfDischarge || '—'} />
@@ -522,7 +522,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Notes</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Notes</h3>
                 <Field label="Inpatient Notes" value={record.inpatientNotes} />
                 <Field label="Further Comment" value={record.furtherComment} />
               </section>
@@ -531,7 +531,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={onStartConsultation}
-                  className="inline-flex items-center justify-center min-h-[44px] px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-sm"
+                  className="inline-flex items-center justify-center min-h-[44px] px-4 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold shadow-sm"
                 >
                   Start consultation (mock)
                 </button>
@@ -539,7 +539,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={onRequestDischarge}
-                    className="inline-flex items-center justify-center min-h-[44px] px-3 py-2 rounded-lg text-[11px] font-bold tracking-tight text-emerald-800 bg-emerald-100 border border-emerald-300 hover:bg-emerald-200"
+                    className="inline-flex items-center justify-center min-h-[44px] px-3 py-2 rounded-lg text-[11px] font-bold tracking-tight text-teal-800 bg-teal-100 border border-teal-300 hover:bg-teal-200"
                     title="Discharge — updates Hospital sheet and ward board"
                   >
                     D/C

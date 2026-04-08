@@ -42,10 +42,6 @@ export const SurgeonRoundsSection: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">
-        Filter surgeon rounds (mock). <strong className="text-slate-800">Click a row</strong> for the full plan and
-        management detail.
-      </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white rounded-xl border border-slate-200 p-4">
         <div>
           <label className="text-xs font-semibold text-slate-600">Start date</label>
@@ -153,10 +149,10 @@ export const SurgeonRoundsSection: React.FC = () => {
                     {r.contactNumber ? (
                       <span className="inline-flex items-center gap-2 flex-wrap tabular-nums">
                         <span className="text-slate-800">{r.contactNumber}</span>
-                        <span className="inline-flex gap-0.5 text-violet-600">
+                        <span className="inline-flex gap-0.5 text-teal-600">
                           <a
                             href={`tel:${r.contactNumber.replace(/\s/g, '')}`}
-                            className="p-1 rounded-md hover:bg-violet-100"
+                            className="p-1 rounded-md hover:bg-teal-100"
                             aria-label="Call"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -164,7 +160,7 @@ export const SurgeonRoundsSection: React.FC = () => {
                           </a>
                           <a
                             href={`sms:${r.contactNumber.replace(/\s/g, '')}`}
-                            className="p-1 rounded-md hover:bg-violet-100"
+                            className="p-1 rounded-md hover:bg-teal-100"
                             aria-label="Message"
                             onClick={(e) => e.stopPropagation()}
                           >

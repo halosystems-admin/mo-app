@@ -105,7 +105,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
     return (
       <>
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">List summary</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">List summary</h3>
           <Field label="Display Name" value={row.patientDisplayName} />
           <Field label="Procedure" value={row.procedure} />
           <Field label="Scheduled Date" value={row.scheduledDate ?? ''} />
@@ -115,7 +115,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
         </section>
         {b ? (
           <section>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Theatre booking</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Theatre booking</h3>
             {THEATRE_BOOKING_DETAIL_KEY_ORDER.map((key) => {
               if (key === 'contactNumber') {
                 const tel = b.contactNumber?.replace(/\s/g, '') ?? '';
@@ -131,14 +131,14 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                         <>
                           <a
                             href={`tel:${tel}`}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-violet-100"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-teal-100"
                             onClick={(ev) => ev.stopPropagation()}
                           >
                             <Phone size={14} /> Call
                           </a>
                           <a
                             href={`sms:${tel}`}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-violet-100"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-teal-100"
                             onClick={(ev) => ev.stopPropagation()}
                           >
                             <MessageCircle size={14} /> SMS
@@ -227,7 +227,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
     return (
       <>
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">List summary</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">List summary</h3>
           <Field label="Display Name" value={row.patientDisplayName} />
           <Field label="Procedure" value={row.procedure} />
           <Field label="Scheduled Date" value={row.scheduledDate ?? ''} />
@@ -238,7 +238,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
         </section>
         {e ? (
           <section>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Endoscopy sheet</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Endoscopy sheet</h3>
             {textKeys.map((key) => (
               <Field key={key} label={CLINICAL_DEMO_FIELD_LABELS[key] ?? key} value={String(e[key] ?? '')} />
             ))}
@@ -251,14 +251,14 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                   <span className="text-slate-900">{e.contactNumber}</span>
                   <a
                     href={`tel:${tel}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-violet-100"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-teal-100"
                     onClick={(ev) => ev.stopPropagation()}
                   >
                     <Phone size={14} /> Call
                   </a>
                   <a
                     href={`sms:${tel}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-violet-100"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-teal-100"
                     onClick={(ev) => ev.stopPropagation()}
                   >
                     <MessageCircle size={14} /> SMS
@@ -303,14 +303,14 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
     return (
       <>
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">List summary</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">List summary</h3>
           <Field label="Display Name" value={row.patientDisplayName} />
           <Field label="Procedure" value={row.procedure} />
           <Field label="Claim / Process" value={row.claimStatus ?? ''} />
         </section>
         {v ? (
           <section>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Vericlaim</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Vericlaim</h3>
             {vericlaimTextKeys.map((key) => (
               <Field key={key} label={CLINICAL_DEMO_FIELD_LABELS[key] ?? key} value={String(v[key] ?? '')} />
             ))}
@@ -332,14 +332,14 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                   <span className="text-slate-900">{v.contactNumber}</span>
                   <a
                     href={`tel:${tel}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-50 text-violet-800 text-xs font-medium hover:bg-violet-100"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 text-teal-800 text-xs font-medium hover:bg-teal-100"
                     onClick={(ev) => ev.stopPropagation()}
                   >
                     <Phone size={14} /> Call
                   </a>
                   <a
                     href={`sms:${tel}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-50 text-violet-800 text-xs font-medium hover:bg-violet-100"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 text-teal-800 text-xs font-medium hover:bg-teal-100"
                     onClick={(ev) => ev.stopPropagation()}
                   >
                     <MessageCircle size={14} /> SMS
@@ -376,13 +376,13 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
     return (
       <>
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">List summary</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">List summary</h3>
           <Field label="Display Name" value={row.patientDisplayName} />
           <Field label="Procedure" value={row.procedure} />
         </section>
         {a ? (
           <section>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">A-slip summary</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">A-slip summary</h3>
             {aslipTextKeys.map((key) => (
               <Field key={key} label={CLINICAL_DEMO_FIELD_LABELS[key] ?? key} value={String(a[key] ?? '')} />
             ))}
@@ -397,14 +397,14 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                   <span className="text-slate-900">{a.contactNumber}</span>
                   <a
                     href={`tel:${tel}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-violet-100"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-teal-100"
                     onClick={(ev) => ev.stopPropagation()}
                   >
                     <Phone size={14} /> Call
                   </a>
                   <a
                     href={`sms:${tel}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-violet-100"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs hover:bg-teal-100"
                     onClick={(ev) => ev.stopPropagation()}
                   >
                     <MessageCircle size={14} /> SMS
@@ -413,9 +413,9 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
               </div>
             ) : null}
             <div className="pt-6 space-y-3">
-              <div className="rounded-2xl border border-violet-200/80 bg-gradient-to-b from-violet-50/90 to-white p-6 space-y-3 shadow-sm">
+              <div className="rounded-2xl border border-teal-200/80 bg-gradient-to-b from-teal-50/90 to-white p-6 space-y-3 shadow-sm">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-violet-100 p-2 text-violet-700 shrink-0">
+                  <div className="rounded-lg bg-teal-100 p-2 text-teal-700 shrink-0">
                     <FileDown size={22} aria-hidden />
                   </div>
                   <div className="min-w-0 space-y-1">
@@ -428,7 +428,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                 </div>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-violet-600 text-white text-sm font-semibold shadow-md hover:bg-violet-700"
+                  className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-teal-600 text-white text-sm font-semibold shadow-md hover:bg-teal-700"
                   onClick={() => {
                     downloadAslipPdf(a, userSettings);
                     onToast?.('Downloaded A-slip PDF.', 'success');
@@ -491,7 +491,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                   type="button"
                   disabled={saving}
                   onClick={() => void save()}
-                  className="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold disabled:opacity-60"
+                  className="px-3 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold disabled:opacity-60"
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>
@@ -500,7 +500,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-violet-100"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-teal-100"
                 aria-label="Edit row"
               >
                 <Pencil size={16} /> Edit

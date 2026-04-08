@@ -16,6 +16,10 @@ export function mimeFromFilename(fileName: string): string | null {
       return 'image/gif';
     case 'webp':
       return 'image/webp';
+    case 'heic':
+      return 'image/heic';
+    case 'heif':
+      return 'image/heif';
     case 'svg':
       return 'image/svg+xml';
     case 'pdf':

@@ -23,22 +23,25 @@ import { DischargePatientModal } from "../shared/DischargePatientModal";
 import { buildDischargeClinicalContext } from "../shared/dischargeContext";
 import { InpatientDetailPanel } from "../shared/InpatientDetailPanel";
 import { ClinicalTableScroll } from "../shared/ClinicalTableScroll";
-import { CLINICAL_TABLE_TH, CLINICAL_TABLE_TBODY_TR, CLINICAL_TABLE_THEAD } from "../shared/tableScrollClasses";
-import { FolderOpen, LayoutDashboard, Plus, Upload, X } from "lucide-react";
+import {
+  CLINICAL_BTN_PRIMARY,
+  CLINICAL_BTN_SECONDARY,
+  CLINICAL_TABLE_TH,
+  CLINICAL_TABLE_TBODY_TR,
+  CLINICAL_TABLE_THEAD,
+} from "../shared/tableScrollClasses";
+import { FolderOpen, Plus, Upload, X } from "lucide-react";
 
 interface Props {
   onToast?: (msg: string, type?: "success" | "error" | "info") => void;
   patients?: Patient[];
   onOpenPatient?: (patientId: string) => void;
-  /** Opens Ward → Ward board & diary (single ward Trello + Pull from Hospital). */
-  onOpenWardBoard?: () => void;
 }
 
 export const InpatientsSection: React.FC<Props> = ({
   onToast,
   patients = [],
   onOpenPatient,
-  onOpenWardBoard,
 }) => {
   const [rows, setRows] = useState<InpatientRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -177,14 +180,14 @@ export const InpatientsSection: React.FC<Props> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1.5">
         <button
           type="button"
           onClick={() => setSub("admitted")}
           className={
             sub === "admitted"
-              ? "px-3 py-1.5 rounded-lg text-sm font-semibold bg-violet-600 text-white"
-              : "px-3 py-1.5 rounded-lg text-sm font-semibold bg-slate-100 text-slate-700"
+              ? "px-2 py-1 rounded-md text-[11px] font-semibold bg-teal-500 text-white shadow-sm"
+              : "px-2 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200/90"
           }
         >
           Currently admitted
@@ -194,8 +197,8 @@ export const InpatientsSection: React.FC<Props> = ({
           onClick={() => setSub("other")}
           className={
             sub === "other"
-              ? "px-3 py-1.5 rounded-lg text-sm font-semibold bg-violet-600 text-white"
-              : "px-3 py-1.5 rounded-lg text-sm font-semibold bg-slate-100 text-slate-700"
+              ? "px-2 py-1 rounded-md text-[11px] font-semibold bg-teal-500 text-white shadow-sm"
+              : "px-2 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200/90"
           }
         >
           Other surgeons inpatients
@@ -204,30 +207,11 @@ export const InpatientsSection: React.FC<Props> = ({
 
       {sub === "admitted" && (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-slate-600 min-w-[200px]">
-              Click a row for the full profile. Scroll sideways for every column.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={openAddAdmissionModal}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 text-white hover:bg-violet-700 shadow-sm"
-              >
-                <Plus size={18} />
-                New admission
-              </button>
-              {onOpenWardBoard ? (
-                <button
-                  type="button"
-                  onClick={onOpenWardBoard}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
-                >
-                  <LayoutDashboard size={16} />
-                  Open ward board
-                </button>
-              ) : null}
-            </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button type="button" onClick={openAddAdmissionModal} className={`${CLINICAL_BTN_PRIMARY} gap-1.5`}>
+              <Plus size={14} />
+              New admission
+            </button>
           </div>
 
           {loading ? (
@@ -323,8 +307,8 @@ export const InpatientsSection: React.FC<Props> = ({
       {sub === "other" && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
           <div className="flex items-center gap-3 flex-wrap">
-            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-violet-300 bg-violet-50/40 cursor-pointer hover:bg-violet-50 text-sm font-medium text-slate-800">
-              <Upload size={16} className="text-violet-600" />
+            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-teal-300 bg-teal-50/40 cursor-pointer hover:bg-teal-50 text-sm font-medium text-slate-800">
+              <Upload size={16} className="text-teal-500" />
               {stickerBusy ? "Extracting…" : "Add sticker — browse image"}
               <input
                 type="file"
@@ -351,7 +335,7 @@ export const InpatientsSection: React.FC<Props> = ({
                     );
                 }}
               >
-                <FolderOpen size={16} className="text-violet-600" />
+                <FolderOpen size={16} className="text-teal-500" />
                 Open patient folder in HALO
               </button>
             ) : null}
@@ -420,11 +404,7 @@ export const InpatientsSection: React.FC<Props> = ({
             </div>
           ))}
 
-          <button
-            type="button"
-            className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold"
-            onClick={() => onToast?.("Mock form saved (local only).", "success")}
-          >
+          <button type="button" className={CLINICAL_BTN_PRIMARY} onClick={() => onToast?.("Mock form saved (local only).", "success")}>
             Save (mock)
           </button>
         </div>
@@ -477,9 +457,6 @@ export const InpatientsSection: React.FC<Props> = ({
               </button>
             </div>
             <div className="p-4 space-y-3 text-sm">
-              <p className="text-xs text-slate-600">
-                Link a HALO folder and/or copy fields from a demo row. You can edit everything after save in the profile.
-              </p>
               <div>
                 <label className="text-xs font-semibold text-slate-600">HALO patient folder (autofill name, DOB, link)</label>
                 <select
@@ -540,9 +517,6 @@ export const InpatientsSection: React.FC<Props> = ({
                 <label className="text-xs font-semibold text-slate-600">
                   Long-term / outpatient follow-up plan
                 </label>
-                <p className="text-[11px] text-slate-500 mt-0.5 mb-1">
-                  GP or clinic follow-up after discharge — not the same as ward tasks.
-                </p>
                 <textarea
                   className="mt-1 w-full px-2 py-2 rounded-lg border border-slate-200 min-h-[72px]"
                   value={newAdmission.followUpPlan}
@@ -565,15 +539,11 @@ export const InpatientsSection: React.FC<Props> = ({
                   type="button"
                   onClick={() => void saveNewAdmission()}
                   disabled={addSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white font-semibold disabled:opacity-50"
+                  className={`${CLINICAL_BTN_PRIMARY} flex-1 justify-center`}
                 >
                   {addSaving ? "Saving…" : "Add to sheet"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowAddAdmission(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700"
-                >
+                <button type="button" onClick={() => setShowAddAdmission(false)} className={CLINICAL_BTN_SECONDARY}>
                   Cancel
                 </button>
               </div>

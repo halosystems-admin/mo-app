@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { HaloMark } from './components/HaloMark';
 import { PatientWorkspace } from './pages/PatientWorkspace';
 import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
@@ -14,20 +15,17 @@ import {
   loadSettings,
   saveSettings,
   ApiError,
-  fetchTodayEvents,
   extractPatientFromStickerFile,
   uploadFile,
   uploadPatientHaloProfile,
 } from './services/api';
-import type { Patient, UserSettings, CalendarEvent } from '../../shared/types';
+import type { Patient, UserSettings } from '../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, Menu, Camera, Upload } from 'lucide-react';
-import { CalendarPage } from './pages/CalendarPage';
 import { WardPage } from './pages/WardPage';
+import { SheetsPage } from './pages/SheetsPage';
 import { StickerCameraModal } from './components/StickerCameraModal';
-
-const ENABLE_EXPANDED_CALENDAR =
-  import.meta.env.VITE_ENABLE_EXPANDED_CALENDAR !== 'false';
+import type { MainNavSection } from './components/Sidebar';
 
 type AuthProvider = 'google' | 'microsoft';
 type MicrosoftStorageMode = 'onedrive' | 'sharepoint';
@@ -81,11 +79,7 @@ export const App = () => {
     }
   );
 
-  // Calendar / bookings
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
-  const [calendarLoading, setCalendarLoading] = useState(false);
-  const [calendarPrepEvent, setCalendarPrepEvent] = useState<CalendarEvent | null>(null);
-  const [activeMainView, setActiveMainView] = useState<'workspace' | 'calendar' | 'ward'>('workspace');
+  const [mainNav, setMainNav] = useState<MainNavSection>('folders');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Auth provider selection (Google vs Microsoft)
@@ -111,7 +105,7 @@ export const App = () => {
 
   const openPatientWorkspace = useCallback((id: string) => {
     selectPatient(id);
-    setActiveMainView('workspace');
+    setMainNav('folders');
   }, [selectPatient]);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -183,34 +177,6 @@ export const App = () => {
             if (res.settings) setUserSettings(res.settings);
           }).catch(() => {});
 
-          // Load today\u2019s calendar events in background
-          setCalendarLoading(true);
-          fetchTodayEvents()
-            .then(({ events }) => {
-              // Best-effort name match here so sidebar calendar gets patientId
-              const normalize = (name: string) => name.trim().toLowerCase();
-              const mapped = events.map((ev) => {
-                const title = ev.title?.trim().toLowerCase() || '';
-                let patientId: string | undefined;
-                if (title) {
-                  const byExact = loadedPatients.find(p => normalize(p.name) === title);
-                  if (byExact) {
-                    patientId = byExact.id;
-                  } else if (title.includes(',')) {
-                    const [last, first] = title.split(',').map(s => s.trim());
-                    const reordered = `${first} ${last}`.toLowerCase();
-                    const byReordered = loadedPatients.find(p => normalize(p.name) === reordered);
-                    if (byReordered) patientId = byReordered.id;
-                  }
-                }
-                return { ...ev, patientId };
-              });
-              setCalendarEvents(mapped);
-            })
-            .catch(() => {
-              setCalendarEvents([]);
-            })
-            .finally(() => setCalendarLoading(false));
         }
       } catch (error) {
         console.error('Session check failed:', error);
@@ -245,7 +211,7 @@ export const App = () => {
     await logout();
     setIsSignedIn(false);
     selectPatient(null);
-    setActiveMainView('workspace');
+    setMainNav('folders');
   };
 
   const openCreateModal = () => {
@@ -357,13 +323,6 @@ export const App = () => {
     setPatientToDelete(patient);
   };
 
-  const handleSelectCalendarEvent = (event: CalendarEvent) => {
-    if (!event.patientId) return;
-    selectPatient(event.patientId);
-    setCalendarPrepEvent(event);
-    setActiveMainView('workspace');
-  };
-
   const confirmDelete = async () => {
     if (!patientToDelete) return;
     setLoading(true);
@@ -399,10 +358,11 @@ export const App = () => {
 
   if (!isReady) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-4">
-          <Loader className="animate-spin text-violet-600" size={32} />
-          <p className="text-sm text-slate-400 font-medium">Loading HALO...</p>
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50/80">
+        <div className="flex flex-col items-center gap-3">
+          <HaloMark size={36} className="text-teal-500" />
+          <Loader className="animate-spin text-teal-500/90" size={24} />
+          <p className="text-xs text-slate-500 font-medium">Loading…</p>
         </div>
       </div>
     );
@@ -428,7 +388,7 @@ export const App = () => {
                 onClick={() => setAuthProvider('google')}
                 className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
                   authProvider === 'google'
-                    ? 'bg-violet-50 border-violet-300 text-violet-700'
+                    ? 'bg-teal-50 border-teal-300 text-teal-700'
                     : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                 }`}
               >
@@ -439,7 +399,7 @@ export const App = () => {
                 onClick={() => setAuthProvider('microsoft')}
                 className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
                   authProvider === 'microsoft'
-                    ? 'bg-violet-50 border-violet-300 text-violet-700'
+                    ? 'bg-teal-50 border-teal-300 text-teal-700'
                     : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                 }`}
               >
@@ -462,7 +422,7 @@ export const App = () => {
           <button
             type="button"
             onClick={() => void handleSignIn()}
-            className="w-full flex items-center justify-center gap-3 bg-violet-600 hover:bg-violet-700 text-white px-6 py-4 rounded-xl transition-all shadow-md hover:shadow-lg font-semibold text-lg active:scale-[0.98]"
+            className="w-full flex items-center justify-center gap-3 bg-teal-600 hover:bg-teal-700 text-white px-6 py-4 rounded-xl transition-all shadow-md hover:shadow-lg font-semibold text-lg active:scale-[0.98]"
           >
             {loading ? <Loader className="animate-spin" /> : <LogIn size={20} />}
             {loading ? 'Connecting...' : `Sign In with ${authProvider === 'microsoft' ? 'Microsoft' : 'Google'}`}
@@ -502,12 +462,16 @@ export const App = () => {
           />
           <div className="absolute left-0 top-0 bottom-0 w-80">
             <Sidebar
+              mainNav={mainNav}
+              onMainNav={(section) => {
+                setMainNav(section);
+                setMobileSidebarOpen(false);
+              }}
               patients={patients}
               selectedPatientId={selectedPatientId}
               recentPatientIds={recentPatientIds}
               onSelectPatient={(id) => {
-                selectPatient(id);
-                setActiveMainView('workspace');
+                openPatientWorkspace(id);
                 setMobileSidebarOpen(false);
               }}
               onCreatePatient={() => {
@@ -526,26 +490,7 @@ export const App = () => {
                 setMobileSidebarOpen(false);
                 setShowSettings(true);
               }}
-              onOpenWard={() => {
-                setMobileSidebarOpen(false);
-                setActiveMainView('ward');
-              }}
               userEmail={userEmail}
-              userSettings={userSettings}
-              calendarEvents={calendarEvents}
-              calendarLoading={calendarLoading}
-              onSelectCalendarEvent={(ev) => {
-                setMobileSidebarOpen(false);
-                handleSelectCalendarEvent(ev);
-              }}
-              onOpenFullCalendar={
-                ENABLE_EXPANDED_CALENDAR
-                  ? () => {
-                      setMobileSidebarOpen(false);
-                      setActiveMainView('calendar');
-                    }
-                  : undefined
-              }
             />
           </div>
         </div>
@@ -553,6 +498,8 @@ export const App = () => {
 
       <div className="hidden md:flex h-full shrink-0 z-20">
         <Sidebar
+          mainNav={mainNav}
+          onMainNav={setMainNav}
           patients={patients}
           selectedPatientId={selectedPatientId}
           recentPatientIds={recentPatientIds}
@@ -561,42 +508,27 @@ export const App = () => {
           onDeletePatient={handleDeleteRequest}
           onLogout={handleLogout}
           onOpenSettings={() => setShowSettings(true)}
-          onOpenWard={() => setActiveMainView('ward')}
           userEmail={userEmail}
-          userSettings={userSettings}
-          calendarEvents={calendarEvents}
-          calendarLoading={calendarLoading}
-          onSelectCalendarEvent={handleSelectCalendarEvent}
-          onOpenFullCalendar={
-            ENABLE_EXPANDED_CALENDAR ? () => setActiveMainView('calendar') : undefined
-          }
         />
       </div>
 
       <div
-        className={`flex-1 flex flex-col min-w-0 h-screen relative overscroll-x-none overflow-x-hidden ${activeMainView === 'workspace' && !selectedPatientId ? 'hidden md:flex' : 'flex'}`}
+        className={`flex-1 flex flex-col min-w-0 h-screen relative overscroll-x-none overflow-x-hidden ${mainNav === 'folders' && !selectedPatientId ? 'hidden md:flex' : 'flex'}`}
       >
-        {ENABLE_EXPANDED_CALENDAR && activeMainView === 'calendar' ? (
-          <CalendarPage
-            patients={patients}
-            onSelectPatientFromEvent={(id) => {
-              selectPatient(id);
-              setActiveMainView('workspace');
-            }}
-            onClose={() => setActiveMainView('workspace')}
-          />
-        ) : activeMainView === 'ward' ? (
+        {mainNav === 'ward' ? (
           <WardPage
             patients={patients}
             onOpenPatient={(id) => {
               openPatientWorkspace(id);
             }}
+            onToast={showToast}
+          />
+        ) : mainNav === 'sheets' ? (
+          <SheetsPage
+            patients={patients}
             userSettings={userSettings}
             onToast={showToast}
-            onBackToPatientList={() => {
-              selectPatient(null);
-              setActiveMainView('workspace');
-            }}
+            onOpenPatient={(id) => openPatientWorkspace(id)}
           />
         ) : activePatient ? (
           <PatientWorkspace
@@ -606,11 +538,7 @@ export const App = () => {
             onDataChange={refreshPatients}
             onToast={showToast}
             templateId={userSettings?.templateId || DEFAULT_HALO_TEMPLATE_ID}
-            calendarPrepEvent={
-              calendarPrepEvent && calendarPrepEvent.patientId === activePatient.id
-                ? calendarPrepEvent
-                : null
-            }
+            calendarPrepEvent={null}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-300 relative overflow-hidden">
@@ -661,7 +589,7 @@ export const App = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 my-4 max-h-[min(92vh,900px)] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserPlus className="text-violet-600" size={24}/> New Patient Folder</h2>
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserPlus className="text-teal-600" size={24}/> New Patient Folder</h2>
               <button
                 onClick={() => {
                   setShowCreateModal(false);
@@ -687,7 +615,7 @@ export const App = () => {
                     type="button"
                     disabled={stickerBusy || loading}
                     onClick={() => createStickerInputRef.current?.click()}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-violet-200 bg-violet-50 text-sm font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-teal-200 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-50"
                   >
                     {stickerBusy ? <Loader className="animate-spin w-4 h-4" /> : <Upload className="w-4 h-4" />}
                     {stickerBusy ? 'Scanning…' : 'Gallery / file'}
@@ -714,23 +642,23 @@ export const App = () => {
                 </p>
                 <div>
                   <label className="block text-sm font-semibold text-slate-600 mb-1.5">Full Name</label>
-                  <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition" />
+                  <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
                 </div>
                 <div className="flex gap-4">
                   <div className="flex-1">
                     <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Calendar size={14} /> Date of Birth</label>
-                    <input type="date" value={newPatientDob} onChange={(e) => setNewPatientDob(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition" />
+                    <input type="date" value={newPatientDob} onChange={(e) => setNewPatientDob(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
                   </div>
                   <div className="w-1/3">
                     <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Users size={14} /> Sex</label>
                     <div className="flex bg-slate-100 p-1 rounded-xl">
-                      <button type="button" onClick={() => setNewPatientSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'M' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
-                      <button type="button" onClick={() => setNewPatientSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'F' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
+                      <button type="button" onClick={() => setNewPatientSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'M' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
+                      <button type="button" onClick={() => setNewPatientSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'F' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
                     </div>
                   </div>
                 </div>
                 <div className="border-t border-slate-200 pt-4 space-y-3">
-                  <p className="text-xs font-bold uppercase tracking-wide text-violet-800">Hospital ID &amp; billing</p>
+                  <p className="text-xs font-bold uppercase tracking-wide text-teal-800">Hospital ID &amp; billing</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">ID / hospital number</label>
@@ -778,7 +706,7 @@ export const App = () => {
                   >
                     Cancel
                   </button>
-                  <button type="submit" disabled={!newPatientName.trim() || loading} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-violet-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
+                  <button type="submit" disabled={!newPatientName.trim() || loading} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
                     {loading ? <Loader className="animate-spin" size={18}/> : 'Create Folder'}
                   </button>
                 </div>

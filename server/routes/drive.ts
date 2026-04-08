@@ -16,6 +16,7 @@ import {
 // Scheduler disabled; run-scheduler and scheduler-status kept for optional manual use
 import { runSchedulerNow, getSchedulerStatus } from '../jobs/scheduler';
 import type { ScribeSession } from '../../shared/types';
+import { buildContextSectionPdf, mergePdfBuffers } from '../services/longitudinalPdf';
 
 const router = Router();
 router.use(requireAuth);
@@ -349,6 +350,129 @@ router.post('/patients/:id/upload', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Upload error:', err);
     res.status(500).json({ error: 'Failed to upload file.' });
+  }
+});
+
+function findCumulativeHistoryPdf(
+  files: Array<{ id: string; name: string; mimeType: string }>,
+  configuredName: string
+): { id: string; name: string; mimeType: string } | undefined {
+  const want = configuredName.trim().toLowerCase();
+  const pdf = files.filter(
+    (f) => f.mimeType === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+  );
+  return pdf.find((f) => f.name.trim().toLowerCase() === want);
+}
+
+/** Canonical upload name from env (ensure .pdf). */
+function cumulativeHistoryTargetFileName(configuredName: string): string {
+  let n = configuredName.trim();
+  if (!n.toLowerCase().endsWith('.pdf')) {
+    n = `${n}.pdf`;
+  }
+  return n.slice(0, 255);
+}
+
+// POST /patients/:id/longitudinal-append — merge into existing cumulative PDF in Patient Notes, or create it if absent
+router.post('/patients/:id/longitudinal-append', async (req: Request, res: Response) => {
+  try {
+    const token = req.session.accessToken!;
+    const patientFolderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const textRaw = req.body?.text;
+    if (typeof textRaw !== 'string' || !textRaw.trim()) {
+      res.status(400).json({ error: 'text is required.' });
+      return;
+    }
+    const text = textRaw.trim().slice(0, 50_000);
+
+    const configuredName = config.cumulativeHistoryPdfName;
+
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const notesFolderId = await adapter.getOrCreatePatientNotesFolder({
+      token,
+      patientFolderId,
+      microsoftStorageMode,
+    });
+
+    const { files } = await adapter.listFolderFiles({
+      token,
+      folderId: notesFolderId,
+      pageSize: 100,
+      microsoftStorageMode,
+    });
+
+    const existing = findCumulativeHistoryPdf(files, configuredName);
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const sectionTitle = `Smart context — ${stamp}`;
+
+    const attRaw = req.body?.attachments;
+    const images: { data: Uint8Array; mimeType: string; label?: string }[] = [];
+    if (Array.isArray(attRaw)) {
+      for (const a of attRaw.slice(0, 4)) {
+        if (!a || typeof a.base64 !== 'string') continue;
+        try {
+          const b64 = a.base64.includes(',') ? a.base64.split(',')[1] || '' : a.base64;
+          const buf = Buffer.from(b64, 'base64');
+          if (!buf.length || buf.length > 12 * 1024 * 1024) continue;
+          const mimeType = typeof a.mimeType === 'string' && a.mimeType ? a.mimeType : 'image/jpeg';
+          const label = typeof a.fileName === 'string' ? a.fileName : 'Context image';
+          images.push({ data: new Uint8Array(buf), mimeType, label });
+        } catch {
+          /* skip */
+        }
+      }
+    }
+
+    const sectionPdf = await buildContextSectionPdf(sectionTitle, text, images);
+
+    let outBytes: Uint8Array;
+    let outName: string;
+
+    if (existing) {
+      const proxy = await adapter.proxyFile({
+        token,
+        fileId: existing.id,
+        microsoftStorageMode,
+      });
+      try {
+        outBytes = await mergePdfBuffers(proxy.data, sectionPdf);
+      } catch (mergeErr) {
+        console.error('[longitudinal-append] merge failed', mergeErr);
+        res.status(500).json({
+          error: 'Could not merge into the cumulative history PDF.',
+          detail: mergeErr instanceof Error ? mergeErr.message : String(mergeErr),
+        });
+        return;
+      }
+      await adapter.trashFile({
+        token,
+        fileId: existing.id,
+        microsoftStorageMode,
+      });
+      outName = existing.name;
+    } else {
+      outBytes = sectionPdf;
+      outName = cumulativeHistoryTargetFileName(configuredName);
+    }
+
+    const b64 = Buffer.from(outBytes).toString('base64');
+    const uploaded = await adapter.uploadFile({
+      token,
+      parentFolderId: notesFolderId,
+      fileName: outName,
+      fileType: 'application/pdf',
+      base64Data: b64,
+      microsoftStorageMode,
+    });
+
+    res.json({ ok: true, file: uploaded, created: !existing });
+  } catch (err) {
+    console.error('longitudinal-append error:', err);
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: 'Failed to save to cumulative history.', detail });
   }
 });
 

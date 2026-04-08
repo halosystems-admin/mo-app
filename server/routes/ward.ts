@@ -134,7 +134,6 @@ router.post('/kanban', async (req: Request, res: Response) => {
       'paeds',
       'ed',
       'labour',
-      'other',
     ]);
 
     const safe: AdmittedPatientKanban[] = kanban
@@ -142,7 +141,8 @@ router.post('/kanban', async (req: Request, res: Response) => {
       .map((p) => {
         const patientId = typeof p.patientId === 'string' ? p.patientId : '';
         const admitted = Boolean((p as any).admitted);
-        const bcRaw = (p as any).boardColumn;
+        let bcRaw = (p as any).boardColumn;
+        if (bcRaw === 'other') bcRaw = 'm';
         const boardColumn =
           typeof bcRaw === 'string' && validBoardColumns.has(bcRaw) ? bcRaw : undefined;
         const todosRaw = Array.isArray((p as any).todos) ? (p as any).todos : [];

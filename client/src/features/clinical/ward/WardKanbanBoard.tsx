@@ -16,20 +16,15 @@ import {
 import type { AdmittedPatientKanban, Patient, WardBoardColumnId } from '../../../../../shared/types';
 import type { InpatientRecord } from '../../../types/clinical';
 import { clinicalWardToBoardColumn, findInpatientMatchingHaloPatient } from '../../../services/clinicalData';
+import { CLINICAL_HEADER_BAND } from '../shared/tableScrollClasses';
+import {
+  WARD_BOARD_COLUMNS,
+  WARD_BOARD_COLUMN_IDS,
+  emptyWardColumnMap,
+} from '../shared/wardBoardColumns';
 import { ExternalLink, GripVertical, Plus, X } from 'lucide-react';
 
-const BOARD_COLS: { id: WardBoardColumnId; label: string; bar: string }[] = [
-  { id: 'icu', label: 'ICU', bar: 'bg-rose-200/90 border-rose-300' },
-  { id: 'f', label: 'F ward', bar: 'bg-amber-200/90 border-amber-300' },
-  { id: 's', label: 'S ward', bar: 'bg-orange-200/90 border-orange-300' },
-  { id: 'm', label: 'Medical', bar: 'bg-emerald-200/90 border-emerald-300' },
-  { id: 'paeds', label: 'Paediatrics', bar: 'bg-sky-200/90 border-sky-300' },
-  { id: 'ed', label: 'Emergency', bar: 'bg-fuchsia-200/90 border-fuchsia-300' },
-  { id: 'labour', label: 'Labour', bar: 'bg-violet-200/90 border-violet-300' },
-  { id: 'other', label: 'Other', bar: 'bg-slate-200/90 border-slate-300' },
-];
-
-const VALID_COLUMN_IDS = new Set<WardBoardColumnId>(BOARD_COLS.map((c) => c.id));
+const VALID_COLUMN_IDS = WARD_BOARD_COLUMN_IDS;
 
 const DROPPABLE_PREFIX = 'ward-col:';
 
@@ -61,19 +56,6 @@ const wardBoardCollision: CollisionDetection = (args) => {
   return rectIntersection(args);
 };
 
-function emptyColumnMap<T>(): Record<WardBoardColumnId, T[]> {
-  return {
-    icu: [],
-    f: [],
-    s: [],
-    m: [],
-    paeds: [],
-    ed: [],
-    labour: [],
-    other: [],
-  };
-}
-
 function sortName(a: string, b: string): number {
   return a.toLowerCase().localeCompare(b.toLowerCase());
 }
@@ -91,21 +73,23 @@ type Props = {
 };
 
 type ColumnProps = {
-  col: (typeof BOARD_COLS)[number];
+  col: (typeof WARD_BOARD_COLUMNS)[number];
+  ptCount: number;
   children: React.ReactNode;
 };
 
-const WardColumnDropZone = memo(function WardColumnDropZone({ col, children }: ColumnProps) {
+const WardColumnDropZone = memo(function WardColumnDropZone({ col, ptCount, children }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: droppableId(col.id) });
   return (
     <div
       ref={setNodeRef}
-      className={`min-w-[min(88vw,220px)] w-[220px] sm:w-[240px] shrink-0 snap-start rounded-xl border bg-slate-50/90 flex flex-col max-h-[min(82vh,800px)] ${
-        isOver ? 'border-violet-500 ring-2 ring-violet-400/50 shadow-md' : 'border-slate-200'
+      className={`flex-1 basis-0 min-w-[min(100%,180px)] sm:min-w-[200px] md:min-w-[220px] max-w-full snap-start rounded-xl border bg-white flex flex-col min-h-0 h-full shadow-sm ${
+        isOver ? 'border-teal-400 ring-2 ring-teal-300/50 shadow-md' : 'border-slate-200/90'
       }`}
     >
-      <div className={`px-2.5 py-1.5 rounded-t-xl border-b ${col.bar}`}>
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-900">{col.label}</div>
+      <div className={`px-2.5 py-1.5 rounded-t-xl ${CLINICAL_HEADER_BAND}`}>
+        <div className="text-[9px] font-bold uppercase tracking-wide text-white/95 leading-tight">{col.label}</div>
+        <div className="text-[9px] font-medium text-white/80 tabular-nums mt-0.5">{ptCount} pts</div>
       </div>
       {children}
     </div>
@@ -128,11 +112,11 @@ function WardDragOverlayCard({
   const doctor = ip?.assignedDoctor ?? '—';
   return (
     <div
-      className="w-[200px] sm:w-[220px] rounded-lg border-2 border-violet-500 bg-white px-2 py-2 shadow-xl cursor-grabbing select-none will-change-transform"
+      className="w-[200px] sm:w-[220px] rounded-lg border-2 border-teal-500 bg-white px-2 py-2 shadow-xl cursor-grabbing select-none will-change-transform"
       style={{ touchAction: 'none' }}
     >
       <div className="flex items-center gap-1.5">
-        <GripVertical size={14} className="text-violet-500 shrink-0" />
+        <GripVertical size={14} className="text-teal-500 shrink-0" />
         <div className="min-w-0">
           <div className="text-sm font-semibold text-slate-900 truncate">{name}</div>
           <div className="text-[10px] text-slate-600 truncate">
@@ -172,15 +156,15 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
   return (
     <div
       ref={setNodeRef}
-      className={`flex items-stretch gap-0 border-b border-slate-100 bg-white/95 last:border-b-0 ${
-        isDragging ? 'opacity-35' : ''
+      className={`flex items-stretch gap-0 rounded-xl border border-slate-200/90 bg-white shadow-sm mx-3 my-2 ${
+        isDragging ? 'opacity-0 pointer-events-none' : ''
       }`}
     >
       <button
         type="button"
         {...listeners}
         {...attributes}
-        className="flex items-center justify-center w-9 shrink-0 cursor-grab active:cursor-grabbing touch-none text-slate-400 hover:text-violet-600 hover:bg-violet-50/60"
+        className="flex items-center justify-center w-9 shrink-0 cursor-grab active:cursor-grabbing touch-none text-slate-400 hover:text-teal-500 hover:bg-teal-50/60"
         style={{ touchAction: 'none' }}
         title="Drag to another ward"
         aria-label={`Drag ${name} to another ward`}
@@ -190,7 +174,7 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
       <button
         type="button"
         onClick={onOpenTasks}
-        className="min-w-0 flex-1 text-left py-2 pr-1 pl-0 hover:bg-violet-50/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-inset"
+        className="min-w-0 flex-1 text-left py-3 pr-2 pl-0 hover:bg-slate-50/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-inset"
         aria-label={`Open ward tasks for ${name}`}
       >
         <div className="text-sm font-semibold text-slate-900 leading-tight truncate">{name}</div>
@@ -201,7 +185,7 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
       <div className="flex items-center pr-1.5 shrink-0">
         {openCount > 0 ? (
           <span
-            className="min-w-[1.25rem] text-center text-[10px] font-bold tabular-nums px-1 py-0.5 rounded-full bg-violet-100 text-violet-900"
+            className="min-w-[1.25rem] text-center text-[10px] font-bold tabular-nums px-1 py-0.5 rounded-full bg-teal-100 text-teal-900"
             title={`${openCount} open task(s)`}
           >
             {openCount}
@@ -337,7 +321,7 @@ function WardPatientDetailSheet({
                   type="button"
                   disabled={kanbanSaving}
                   onClick={() => setAdding((v) => !v)}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-violet-600 text-xs font-semibold hover:bg-violet-50 disabled:opacity-50"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-slate-200 bg-white text-teal-500 text-[11px] font-semibold hover:bg-teal-50/80 disabled:opacity-50"
                 >
                   <Plus size={14} strokeWidth={2.5} /> Add
                 </button>
@@ -365,7 +349,7 @@ function WardPatientDetailSheet({
                       type="button"
                       disabled={kanbanSaving || !newTitle.trim()}
                       onClick={submitNew}
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-violet-600 text-white disabled:opacity-50"
+                      className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-teal-500 text-white disabled:opacity-50"
                     >
                       Add task
                     </button>
@@ -391,7 +375,7 @@ function WardPatientDetailSheet({
                         checked={done}
                         disabled={kanbanSaving}
                         onChange={() => onToggleTodoDone(row.patientId, t.id, !done)}
-                        className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600"
+                        className="mt-1 h-4 w-4 rounded border-slate-300 text-teal-500"
                       />
                       <span
                         className={`text-sm leading-snug min-w-0 flex-1 ${
@@ -431,7 +415,7 @@ function WardPatientDetailSheet({
                 onOpenPatient(row.patientId);
                 onClose();
               }}
-              className="inline-flex items-center justify-center gap-2 min-h-[44px] flex-1 px-4 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700"
+              className="inline-flex items-center justify-center gap-1.5 min-h-[36px] flex-1 px-3 py-1.5 rounded-lg bg-teal-500 text-white text-[11px] font-semibold hover:bg-teal-500/90"
             >
               <ExternalLink size={16} /> Open HALO workspace
             </button>
@@ -467,7 +451,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
     (row: AdmittedPatientKanban): WardBoardColumnId => {
       const p = patientsById.get(row.patientId);
       const ip = findInpatientMatchingHaloPatient(p, inpatients);
-      const inferred = ip ? clinicalWardToBoardColumn(ip.ward) : 'other';
+      const inferred = ip ? clinicalWardToBoardColumn(ip.ward) : 'm';
       if (row.boardColumn && VALID_COLUMN_IDS.has(row.boardColumn)) return row.boardColumn;
       return inferred;
     },
@@ -475,11 +459,11 @@ export const WardKanbanBoard: React.FC<Props> = ({
   );
 
   const grouped = useMemo(() => {
-    const m = emptyColumnMap<AdmittedPatientKanban>();
+    const m = emptyWardColumnMap<AdmittedPatientKanban>();
     for (const r of admittedKanban) {
       m[resolveColumn(r)].push(r);
     }
-    for (const col of BOARD_COLS) {
+    for (const col of WARD_BOARD_COLUMNS) {
       m[col.id].sort((a, b) => {
         const na = patientsById.get(a.patientId)?.name || a.patientId;
         const nb = patientsById.get(b.patientId)?.name || b.patientId;
@@ -490,11 +474,11 @@ export const WardKanbanBoard: React.FC<Props> = ({
   }, [admittedKanban, resolveColumn, patientsById]);
 
   const unlinkedGrouped = useMemo(() => {
-    const m = emptyColumnMap<InpatientRecord>();
+    const m = emptyWardColumnMap<InpatientRecord>();
     for (const r of unlinkedAdmittedInpatients) {
       m[clinicalWardToBoardColumn(r.ward)].push(r);
     }
-    for (const col of BOARD_COLS) {
+    for (const col of WARD_BOARD_COLUMNS) {
       m[col.id].sort((a, b) => sortName(`${a.surname} ${a.firstName}`, `${b.surname} ${b.firstName}`));
     }
     return m;
@@ -528,27 +512,29 @@ export const WardKanbanBoard: React.FC<Props> = ({
   const overlayPatientId = activeDragId ? parseDragPatientId(activeDragId) : null;
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={wardBoardCollision}
-      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-      autoScroll={false}
-      onDragStart={({ active }) => setActiveDragId(String(active.id))}
-      onDragEnd={handleDragEnd}
-      onDragCancel={() => setActiveDragId(null)}
-    >
+    <div className="flex flex-1 min-h-0 h-full min-w-0 flex-col">
+      <DndContext
+        sensors={sensors}
+        collisionDetection={wardBoardCollision}
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+        autoScroll={false}
+        onDragStart={({ active }) => setActiveDragId(String(active.id))}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveDragId(null)}
+      >
       <div
-        className="flex gap-2 sm:gap-3 overflow-x-auto pb-2 max-w-full min-w-0 -mx-1 px-1 snap-x snap-mandatory touch-pan-x"
+        className="flex gap-3 sm:gap-4 md:gap-5 w-full h-full min-h-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden pb-2 pt-1 max-w-full min-w-0 -mx-0.5 px-0.5 snap-x snap-mandatory touch-pan-x"
         style={{ WebkitOverflowScrolling: 'touch' }}
         role="region"
         aria-label="Ward board — compact list; tap a name for tasks"
       >
-        {BOARD_COLS.map((col) => (
-          <WardColumnDropZone key={col.id} col={col}>
-            <div className="text-[10px] text-slate-600 px-2 py-1 border-b border-slate-200/80 bg-white/60 tabular-nums">
-              {grouped[col.id].length + unlinkedGrouped[col.id].length} pts
-            </div>
-            <div className="flex-1 min-h-[120px] max-h-[min(70vh,720px)] overflow-y-auto overscroll-contain bg-slate-100/50">
+        {WARD_BOARD_COLUMNS.map((col) => (
+          <WardColumnDropZone
+            key={col.id}
+            col={col}
+            ptCount={grouped[col.id].length + unlinkedGrouped[col.id].length}
+          >
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50/40 px-2 pb-2">
               <div className="flex flex-col">
                 {grouped[col.id].map((row) => (
                   <KanbanCompactRow
@@ -564,9 +550,9 @@ export const WardKanbanBoard: React.FC<Props> = ({
                     key={`unlinked-${record.id}`}
                     type="button"
                     onClick={() => setDetailTarget({ kind: 'unlinked', recordId: record.id })}
-                    className="w-full text-left border-b border-amber-100 bg-amber-50/90 hover:bg-amber-100/90 px-2 py-2 pl-3"
+                    className="w-full text-left rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/90 mx-3 my-2 px-3 py-2.5 shadow-sm"
                   >
-                    <div className="text-[9px] font-bold uppercase text-amber-900/80">No HALO link</div>
+                    <div className="text-[9px] font-bold uppercase text-teal-600">No HALO link</div>
                     <div className="text-sm font-semibold text-slate-900 truncate">
                       {record.firstName} {record.surname}
                     </div>
@@ -600,6 +586,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
         onToggleTodoDone={onToggleTodoDone}
         onAddTodo={onAddTodo}
       />
-    </DndContext>
+      </DndContext>
+    </div>
   );
 };

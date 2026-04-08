@@ -318,7 +318,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
               <td className="px-2 py-2 text-xs">{e?.dateOfProcedure || r.scheduledDate}</td>
               <td className="px-2 py-2">
                 {e?.contactNumber ? (
-                  <span className="inline-flex gap-1 text-violet-600">
+                  <span className="inline-flex gap-1 text-teal-600">
                     <a
                       href={`tel:${e.contactNumber.replace(/\s/g, '')}`}
                       onClick={(ev) => ev.stopPropagation()}
@@ -407,7 +407,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
             <td className="px-2 py-2">
               <button
                 type="button"
-                className="text-violet-600 text-xs font-semibold hover:underline"
+                className="text-teal-600 text-xs font-semibold hover:underline"
                 onClick={(ev) => {
                   ev.stopPropagation();
                   downloadAslipPdf(r.aslip, userSettings);
@@ -446,7 +446,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
         </button>
         <button
           type="button"
-          className="px-3 py-2 rounded-lg bg-violet-100 text-violet-800 text-sm font-semibold"
+          className="px-3 py-2 rounded-lg bg-teal-100 text-teal-800 text-sm font-semibold"
           onClick={applyNameMatch}
         >
           Autofill by surname + first name
@@ -741,7 +741,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
         <button type="button" className="px-3 py-2 rounded-lg bg-slate-100 text-sm font-semibold" onClick={applyPicker}>
           Apply
         </button>
-        <button type="button" className="px-3 py-2 rounded-lg bg-violet-100 text-sm font-semibold" onClick={applyNameMatch}>
+        <button type="button" className="px-3 py-2 rounded-lg bg-teal-100 text-sm font-semibold" onClick={applyNameMatch}>
           Match name
         </button>
         {onOpenPatient ? (
@@ -892,7 +892,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
         <button type="button" className="px-3 py-2 rounded-lg bg-slate-100 text-sm font-semibold" onClick={applyPicker}>
           Apply
         </button>
-        <button type="button" className="px-3 py-2 rounded-lg bg-violet-100 text-sm" onClick={applyNameMatch}>
+        <button type="button" className="px-3 py-2 rounded-lg bg-teal-100 text-sm" onClick={applyNameMatch}>
           Match name
         </button>
         {onOpenPatient ? (
@@ -978,7 +978,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
         <button type="button" className="px-3 py-2 rounded-lg bg-slate-100 text-sm font-semibold" onClick={applyPicker}>
           Apply
         </button>
-        <button type="button" className="px-3 py-2 rounded-lg bg-violet-100 text-sm" onClick={applyNameMatch}>
+        <button type="button" className="px-3 py-2 rounded-lg bg-teal-100 text-sm" onClick={applyNameMatch}>
           Match name
         </button>
         {onOpenPatient ? (
@@ -1075,10 +1075,6 @@ export const PendingProceduresSection: React.FC<Props> = ({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">
-        <strong className="text-slate-800">Click any row</strong> to open the full sheet (all fields for this category).
-        Use <strong>Download</strong> in the row or in the panel for A-slip PDFs.
-      </p>
       <div className="flex flex-wrap gap-2">
         {BUCKETS.map((b) => (
           <button
@@ -1087,7 +1083,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
             onClick={() => setBucket(b.id)}
             className={
               bucket === b.id
-                ? 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 text-white'
+                ? 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal-600 text-white'
                 : 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700'
             }
           >
@@ -1175,7 +1171,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
               </button>
               <button
                 type="button"
-                className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold"
+                className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold"
                 onClick={() => {
                   if (bucket === 'emergencies' || bucket === 'elective' || bucket === 'completed')
                     void submitTheatre();

@@ -1,39 +1,15 @@
 import type { ClinicalWard } from '../../../types/clinical';
 import type { Patient } from '../../../../../shared/types';
 
-/** Ward column heading strip on the inpatient board (distinct tints per ward). */
-export function wardHeadingStripClass(ward: ClinicalWard): string {
-  const m: Record<ClinicalWard, string> = {
-    ICU: 'bg-rose-100/95 border-rose-200 text-rose-950',
-    'F-ward (4th)': 'bg-amber-100/95 border-amber-200 text-amber-950',
-    'S-ward (5th)': 'bg-orange-100/95 border-orange-200 text-orange-950',
-    'medical ward': 'bg-emerald-100/95 border-emerald-200 text-emerald-950',
-    'paediatrics ward': 'bg-sky-100/95 border-sky-200 text-sky-950',
-    'emergency department': 'bg-fuchsia-100/95 border-fuchsia-200 text-fuchsia-950',
-    'labour ward': 'bg-violet-100/95 border-violet-200 text-violet-950',
-  };
-  return m[ward] ?? 'bg-slate-100 border-slate-200 text-slate-800';
+/** Ward board column strip — neutral (reference: no rainbow per ward). */
+export function wardHeadingStripClass(_ward: ClinicalWard): string {
+  return 'bg-slate-100 border-slate-200 text-slate-800';
 }
 
-/** Compact ward badge for tables (pill). */
+/** Compact ward badge for tables — same neutral pill for every ward. */
 export function wardBadgeClass(ward: ClinicalWard | '' | undefined): string {
   if (!ward) return 'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200';
-  const m: Record<ClinicalWard, string> = {
-    ICU: 'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-rose-100 text-rose-900 border border-rose-200',
-    'F-ward (4th)':
-      'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-100 text-amber-950 border border-amber-200',
-    'S-ward (5th)':
-      'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-orange-100 text-orange-950 border border-orange-200',
-    'medical ward':
-      'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-100 text-emerald-950 border border-emerald-200',
-    'paediatrics ward':
-      'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-sky-100 text-sky-950 border border-sky-200',
-    'emergency department':
-      'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-fuchsia-100 text-fuchsia-950 border border-fuchsia-200',
-    'labour ward':
-      'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-violet-100 text-violet-950 border border-violet-200',
-  };
-  return m[ward] ?? 'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200';
+  return 'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200';
 }
 
 /** Sentence-style ward labels (e.g. labour ward → Labour ward). */

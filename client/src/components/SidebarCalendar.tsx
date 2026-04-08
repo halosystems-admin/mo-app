@@ -62,7 +62,7 @@ const CalendarList: React.FC<CalendarListProps> = ({
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-10 text-slate-500 gap-2">
-        <Clock size={18} className="animate-spin text-violet-500" />
+        <Clock size={18} className="animate-spin text-teal-500" />
         <p className="text-xs font-medium">Loading calendar events…</p>
       </div>
     );
@@ -88,12 +88,12 @@ const CalendarList: React.FC<CalendarListProps> = ({
             onClick={() => canOpen && onSelectEvent({ ...ev, patientId: ev.patientId })}
             className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all flex flex-col gap-1 ${
               canOpen
-                ? 'bg-slate-900/30 border-slate-800 hover:bg-violet-900/40 hover:border-violet-700/60'
+                ? 'bg-slate-900/30 border-slate-800 hover:bg-teal-900/40 hover:border-teal-700/60'
                 : 'bg-slate-900/10 border-slate-800/60 cursor-default'
             }`}
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-violet-400">
+              <span className="text-xs font-semibold text-teal-400">
                 {formatTimeRange(ev.start, ev.end)}
               </span>
               {patient && (
@@ -207,7 +207,7 @@ const MiniMonthCalendar: React.FC<MiniMonthCalendarProps> = ({
                 'h-7 rounded-lg flex flex-col items-center justify-center text-[11px] font-medium transition-colors border',
                 inMonth ? 'border-transparent' : 'border-slate-800/60',
                 isSelected
-                  ? 'bg-violet-600 text-white border-violet-400'
+                  ? 'bg-teal-600 text-white border-teal-400'
                   : isToday
                   ? 'bg-slate-800 text-slate-100 border-slate-700'
                   : 'bg-slate-900/40 text-slate-400 hover:bg-slate-800 hover:text-slate-100',
@@ -215,7 +215,7 @@ const MiniMonthCalendar: React.FC<MiniMonthCalendarProps> = ({
             >
               <span>{date.getDate()}</span>
               {hasEvent && (
-                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-0.5" />
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 mt-0.5" />
               )}
             </button>
           );
@@ -246,7 +246,7 @@ export const SidebarCalendar: React.FC<SidebarCalendarProps> = ({
   return (
     <div className="flex-1 overflow-y-auto px-4 custom-scrollbar">
       <div className="flex items-center gap-2 px-2 mb-3">
-        <CalendarIcon size={14} className="text-violet-500" />
+        <CalendarIcon size={14} className="text-teal-500" />
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
           Bookings
         </h3>

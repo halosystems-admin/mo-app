@@ -1,5 +1,20 @@
 @import "tailwindcss";
 
+@theme {
+  --color-halo-primary: #4fb6b2;
+  --color-halo-primary-hover: #3fa6a2;
+  --color-halo-primary-muted: #e6f4f3;
+  --color-halo-bg: #f7f9fb;
+  --color-halo-card: #ffffff;
+  --color-halo-section: #f1f5f9;
+  --color-halo-text: #1f2937;
+  --color-halo-text-secondary: #6b7280;
+  --color-halo-muted: #9ca3af;
+  --color-halo-border: #e5e7eb;
+  --shadow-halo-soft: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --radius-halo: 0.625rem;
+}
+
 /* ─── Base Reset ─────────────────────────────────────────────── */
 /* Block horizontal overscroll from chaining to the browser (back/forward swipe, e.g. to OAuth login). */
 html {
@@ -15,6 +30,8 @@ body {
   /* Prevent text size adjustment on orientation change (iOS) */
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-x: none;
+  background-color: var(--color-halo-bg);
+  color: var(--color-halo-text);
 }
 
 #root {
@@ -36,10 +53,19 @@ label {
   touch-action: manipulation;
 }
 
-/* ─── Touch targets: 44×44px minimum (WCAG / Apple HIG) ─────── */
-button,
-[role="button"],
-a {
+/* Compact SaaS controls — avoid forcing 44px on every control (use padding + .halo-touch where needed). */
+button:not(.halo-touch-min),
+[role="button"]:not(.halo-touch-min) {
+  min-height: unset;
+  min-width: unset;
+}
+
+a:not(.halo-touch-min) {
+  min-height: unset;
+  min-width: unset;
+}
+
+.halo-touch-min {
   min-height: 44px;
   min-width: 44px;
 }

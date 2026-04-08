@@ -170,8 +170,8 @@ export const SettingsModal: React.FC<Props> = ({
         {/* Header */}
         <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-5 flex items-center justify-between rounded-t-2xl">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-violet-500/20 rounded-xl flex items-center justify-center">
-              <User size={20} className="text-violet-400" />
+            <div className="w-10 h-10 bg-teal-500/20 rounded-xl flex items-center justify-center">
+              <User size={20} className="text-teal-400" />
             </div>
             <div>
               <h2 className="text-white font-bold text-lg">Profile & Settings</h2>
@@ -182,7 +182,7 @@ export const SettingsModal: React.FC<Props> = ({
             {!editMode && (
               <button
                 onClick={() => setEditMode(true)}
-                className="p-2 rounded-lg text-slate-400 hover:text-violet-400 hover:bg-slate-700 transition-all"
+                className="p-2 rounded-lg text-slate-400 hover:text-teal-400 hover:bg-slate-700 transition-all"
                 title="Edit Profile"
               >
                 <Pencil size={16} />
@@ -200,7 +200,7 @@ export const SettingsModal: React.FC<Props> = ({
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Session Info */}
           <div className="flex items-center gap-3 bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
-            <Clock size={16} className="text-violet-600 shrink-0" />
+            <Clock size={16} className="text-teal-600 shrink-0" />
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Session Duration</p>
               <p className="text-sm font-mono font-bold text-slate-700">{elapsed}</p>
@@ -223,7 +223,7 @@ export const SettingsModal: React.FC<Props> = ({
                       value={form.firstName}
                       onChange={e => setForm(prev => ({ ...prev, firstName: e.target.value }))}
                       placeholder="e.g. Sarah"
-                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition ${!form.firstName.trim() ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition ${!form.firstName.trim() ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}
                     />
                   </div>
                   <div>
@@ -233,7 +233,7 @@ export const SettingsModal: React.FC<Props> = ({
                       value={form.lastName}
                       onChange={e => setForm(prev => ({ ...prev, lastName: e.target.value }))}
                       placeholder="e.g. Connor"
-                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition ${!form.lastName.trim() ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition ${!form.lastName.trim() ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}
                     />
                   </div>
                 </div>
@@ -244,7 +244,7 @@ export const SettingsModal: React.FC<Props> = ({
                     value={form.profession}
                     onChange={e => setForm(prev => ({ ...prev, profession: e.target.value }))}
                     placeholder="e.g. Physiotherapist, General Practitioner"
-                    className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition ${!form.profession.trim() ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}
+                    className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition ${!form.profession.trim() ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}
                   />
                 </div>
                 <div>
@@ -254,7 +254,7 @@ export const SettingsModal: React.FC<Props> = ({
                     value={form.department}
                     onChange={e => setForm(prev => ({ ...prev, department: e.target.value }))}
                     placeholder="e.g. Orthopaedics, Cardiology, General Practice"
-                    className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition ${!form.department.trim() ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}
+                    className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition ${!form.department.trim() ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -265,7 +265,7 @@ export const SettingsModal: React.FC<Props> = ({
                       value={form.city}
                       onChange={e => setForm(prev => ({ ...prev, city: e.target.value }))}
                       placeholder="e.g. Cape Town"
-                      className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition"
+                      className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
                     />
                   </div>
                   <div>
@@ -275,7 +275,7 @@ export const SettingsModal: React.FC<Props> = ({
                       value={form.postalCode}
                       onChange={e => setForm(prev => ({ ...prev, postalCode: e.target.value }))}
                       placeholder="e.g. 8001"
-                      className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition"
+                      className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
                     />
                   </div>
                 </div>
@@ -286,7 +286,7 @@ export const SettingsModal: React.FC<Props> = ({
                     value={form.university}
                     onChange={e => setForm(prev => ({ ...prev, university: e.target.value }))}
                     placeholder="e.g. University of Cape Town"
-                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none transition"
+                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
                   />
                 </div>
                 {requiredFieldsMissing && (
@@ -298,12 +298,12 @@ export const SettingsModal: React.FC<Props> = ({
                 {hasProfile ? (
                   <div className="divide-y divide-slate-100">
                     <div className="px-4 py-3 flex items-center gap-3">
-                      <div className="w-9 h-9 bg-violet-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                      <div className="w-9 h-9 bg-teal-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
                         {(form.firstName?.[0] || '').toUpperCase()}{(form.lastName?.[0] || '').toUpperCase()}
                       </div>
                       <div>
                         <p className="font-semibold text-slate-800 text-sm">{displayName}</p>
-                        {form.profession && <p className="text-xs text-violet-600 font-medium">{form.profession}</p>}
+                        {form.profession && <p className="text-xs text-teal-600 font-medium">{form.profession}</p>}
                         {form.department && <p className="text-xs text-slate-500">{form.department}</p>}
                       </div>
                     </div>
@@ -325,7 +325,7 @@ export const SettingsModal: React.FC<Props> = ({
                     <p className="text-sm text-slate-400">No profile information set</p>
                     <button
                       onClick={() => setEditMode(true)}
-                      className="mt-2 text-xs font-semibold text-violet-600 hover:text-violet-700"
+                      className="mt-2 text-xs font-semibold text-teal-600 hover:text-teal-700"
                     >
                       Set up your profile
                     </button>
@@ -358,7 +358,7 @@ export const SettingsModal: React.FC<Props> = ({
             <select
               value={form.templateId || DEFAULT_HALO_TEMPLATE_ID}
               onChange={(e) => setForm(prev => ({ ...prev, templateId: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none shadow-sm"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none shadow-sm"
             >
               {HALO_TEMPLATE_OPTIONS.map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>
@@ -369,7 +369,7 @@ export const SettingsModal: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setShowRequestForm(true)}
-                className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-violet-200 transition shadow-sm"
+                className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-teal-200 transition shadow-sm"
               >
                 <Plus size={16} /> Request new template
               </button>
@@ -382,7 +382,7 @@ export const SettingsModal: React.FC<Props> = ({
                   onChange={(e) => setRequestDescription(e.target.value)}
                   placeholder="Describe the template contents / structure (e.g. sections, fields)..."
                   rows={4}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 placeholder-slate-400 focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none resize-none"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 placeholder-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none resize-none"
                 />
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Example documents (optional)</label>
@@ -422,7 +422,7 @@ export const SettingsModal: React.FC<Props> = ({
                     type="button"
                     onClick={handleRequestTemplateSubmit}
                     disabled={requestSending || !requestDescription.trim()}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 transition"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 transition"
                   >
                     {requestSending ? 'Sending…' : <><Send size={14} /> Send request</>}
                   </button>
@@ -449,7 +449,7 @@ export const SettingsModal: React.FC<Props> = ({
             <button
               onClick={handleSave}
               disabled={saving || (editMode && requiredFieldsMissing)}
-              className="flex-1 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-violet-600/20 transition text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+              className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-teal-600/20 transition text-sm flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <Save size={14} /> {saving ? 'Saving...' : 'Save Changes'}
             </button>

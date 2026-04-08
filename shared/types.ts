@@ -201,7 +201,7 @@ export interface KanbanTodoItem {
   updatedAt?: string;
 }
 
-/** Ward board columns — one per clinical ward + Other for unknown. */
+/** Ward board columns — one per clinical ward (no “Other”; unmapped → Medical). */
 export type WardBoardColumnId =
   | 'icu'
   | 'f'
@@ -209,8 +209,7 @@ export type WardBoardColumnId =
   | 'm'
   | 'paeds'
   | 'ed'
-  | 'labour'
-  | 'other';
+  | 'labour';
 
 export interface AdmittedPatientKanban {
   patientId: string;

@@ -4,10 +4,10 @@ import type { AslipSummaryFields, ClinicalWard } from '../../../types/clinical';
 import { formatWardDisplay } from '../shared/clinicalDisplay';
 import aslipBrandmark from '../../../assets/aslip-mp-brandmark.png';
 
-/** Brand violet (matches HALO UI accents). */
+/** Brand teal (matches HALO UI accents). */
 const V: [number, number, number] = [124, 58, 237];
 const V_LIGHT: [number, number, number] = [237, 233, 254];
-/** violet-50 — header band like app surfaces */
+/** teal-50 — header band like app surfaces */
 const V_BAND: [number, number, number] = [250, 245, 255];
 const V_BAND_BORDER: [number, number, number] = [233, 213, 255];
 const SLATE_HEADER: [number, number, number] = [51, 65, 85];

@@ -177,14 +177,14 @@ export const DischargePatientModal: React.FC<DischargePatientModalProps> = ({
           onChange={(e) => setSummaryText(e.target.value)}
           disabled={busy}
           placeholder="Type or use Draft with AI."
-          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/30 resize-y min-h-[140px]"
+          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/30 resize-y min-h-[140px]"
         />
         <div className="flex flex-col gap-2 mt-4">
           <button
             type="button"
             onClick={() => void handleDraft()}
             disabled={busy}
-            className="min-h-[44px] px-4 py-2 rounded-lg text-sm font-semibold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+            className="min-h-[44px] px-4 py-2 rounded-lg text-sm font-semibold bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
           >
             {busy ? 'Working…' : 'Draft with AI'}
           </button>

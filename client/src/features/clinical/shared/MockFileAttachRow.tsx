@@ -41,16 +41,16 @@ export const MockFileAttachRow: React.FC<MockFileAttachRowProps> = ({
             <button
               type="button"
               onClick={openFolderAction.onClick}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-violet-50 hover:border-violet-200"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-teal-50 hover:border-teal-200"
             >
-              <FolderOpen size={14} className="text-violet-600" />
+              <FolderOpen size={14} className="text-teal-600" />
               {openFolderAction.label}
             </button>
           ) : null}
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-semibold hover:bg-teal-700"
           >
             <FileUp size={14} />
             {summary ? 'Replace file' : 'Browse…'}

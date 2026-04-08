@@ -101,21 +101,52 @@ Use empty strings for missing string fields. If the image has no patient text, r
 
 /** Vision: clinical scan / photo / diagram for note-generation context. */
 export function consultContextImagePrompt(fileName: string): string {
-  return `You are assisting a doctor preparing clinical documentation. They uploaded an image for CONTEXT (not diagnosis): ${fileName}
+  return `You are assisting a specialist doctor preparing clinical documentation. They attached an image for CONTEXT ONLY (filename: ${fileName}). Your output will be pasted into a note-generation panel — it must be complete and concrete.
 
-Examine the image and write plain clinical note context for downstream documentation.
+CRITICAL — you must actually look at the pixels:
+- Never refuse or leave the description empty because you are "not a doctor". You describe only what is visible; you do NOT state a definitive diagnosis, but you MUST still document appearance, location, Devices, and text.
+- If this is a wound, ulcer, rash, surgical site, erythema, swelling, bruising, or skin break: say so explicitly. Describe approximate size (relative clues if no ruler), colour, edges, depth if visible, exudate, slough, granulation, surrounding skin, dressings, staples, sutures, packing, drains (colour, bag fill), stoma, tubing, and any obvious foreign material. Use neutral clinical wording ("appears", "suggests" acceptable).
+- If this is a clinical photo of a body region without an obvious lesion: describe the view, anatomical region if inferable, surface, dressings, and anything notable.
+- If this is radiology, CT/MRI/X-ray screenshot, or photo of a monitor: describe modality if known, orientation, key structures, obvious focal findings in lay radiology terms (e.g. "dense opacity", "lucent area", "line visible") without inventing measurements you cannot see.
+- If this is handwriting, ward stationery, or paper notes: transcribe all legible text line by line; summarise intent at the end.
+- If there are diagrams, flowcharts, ECG strips, or sketches: narrate axes, labels, arrows, and what relationship they depict so someone without the image could document it.
 
-Formatting rules (strict):
-- You may use at most a few ## section headings (e.g. ## Extracted text, ## Diagrams, ## Summary). Do not use ### or deeper.
-- Do NOT use **bold**, *italics*, __underline__, or markdown asterisk/bullet lists. Use simple line breaks; if you need a list, each line can start with a hyphen and space (- like this).
-- Avoid decorative punctuation clusters. Keep prose readable and calm.
+Formatting (strict):
+- Use up to these ## headings only when they add clarity: ## Extracted text, ## Visible findings, ## Summary. No ### depth.
+- No **bold** or *italics*. Use "- " at line start for lists if needed.
 
-Content:
-1. Extracted text — transcribe readable printed or handwritten text (labs, vitals, labels, dates, names if clearly patient-related).
-2. Diagrams and figures — for charts, ECGs, imaging screenshots, sketches, ward boards, device displays: describe layout, labels, trends, and what a clinician would need without the image.
-3. Short summary — a few plain lines on what matters for documentation (no new diagnoses beyond the image; do not invent data).
+If the image is truly blank, pure noise, or completely unreadable, say exactly one sentence stating that. Otherwise always produce at least one filled section with multiple sentences. Plain text — no JSON.`;
+}
 
-If the image is blank or illegible, say so in one short line. Plain text and optional ## headings only (no JSON).`;
+/** Second pass when the model returns an empty or useless summary for a clinical image. */
+export function consultContextImageRetryPrompt(fileName: string): string {
+  return `You MUST describe this clinical image in detail for a doctor's notes. Filename hint: ${fileName}
+
+Write 6–12 sentences minimum, in plain text with optional ## Visible findings and ## Summary headings.
+Cover: what type of image this is; anatomical region or view; all visible clinical details (wounds, devices, dressings, skin, fluid, swelling, colour); any readable text or labels; and what should be documented for the chart.
+
+Do not output apologies or disclaimers about being an AI. Do not refuse. If uncertain, still describe what you see tentatively.`;
+}
+
+/** Third pass — shortest possible instruction (some models behave better). */
+export function consultContextImageLastResortPrompt(fileName: string): string {
+  return `Look at the image. Write a detailed clinical description for the medical record (wound, scan, device, or document photo). File: ${fileName}
+Use ## Visible findings and ## Summary. Minimum 8 sentences. Describe only what you see.`;
+}
+
+/** When no text could be extracted from a non-image upload (e.g. binary, scan PDF). */
+export function consultContextBinaryFallbackPrompt(fileName: string, mimeType: string): string {
+  return `A doctor uploaded a file for clinical documentation context.
+
+File name: "${fileName}"
+Reported type: ${mimeType || 'unknown'}
+
+No text could be extracted automatically. Write 4–8 short bullet lines (plain text, each starting with "- ") suggesting:
+- What clinical information this type of file might hold
+- What the doctor should document or verify manually
+- Any obvious documentation pitfalls (illegible scans, wrong patient, etc.)
+
+Do not invent patient-specific facts. No JSON.`;
 }
 
 /** Text extracted from PDF/DOCX etc. → consult context for notes. */

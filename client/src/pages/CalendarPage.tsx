@@ -324,8 +324,8 @@ export const CalendarPage: React.FC<Props> = ({
     <div className="flex flex-col h-full bg-white">
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-violet-100 flex items-center justify-center">
-            <CalendarIcon className="text-violet-600" size={18} />
+          <div className="h-9 w-9 rounded-xl bg-teal-100 flex items-center justify-center">
+            <CalendarIcon className="text-teal-600" size={18} />
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-800 tracking-tight">
@@ -339,7 +339,7 @@ export const CalendarPage: React.FC<Props> = ({
         <div className="flex items-center gap-3">
           {loading && (
             <div className="flex items-center gap-2 text-xs text-slate-500">
-              <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
+              <Loader2 className="w-4 h-4 animate-spin text-teal-500" />
               <span>Refreshing events…</span>
             </div>
           )}
@@ -367,7 +367,7 @@ export const CalendarPage: React.FC<Props> = ({
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 h-full flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                <Users className="w-3.5 h-3.5 text-violet-500" />
+                <Users className="w-3.5 h-3.5 text-teal-500" />
                 <span>Day / Week / Month</span>
               </div>
               <div className="flex items-center gap-3">
@@ -381,7 +381,7 @@ export const CalendarPage: React.FC<Props> = ({
                   <select
                     value={selectedTheatre}
                     onChange={(e) => setSelectedTheatre(e.target.value)}
-                    className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400"
+                    className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400"
                   >
                     <option value="">All theatres</option>
                     {theatreOptions.map((t) => (
@@ -465,7 +465,7 @@ export const CalendarPage: React.FC<Props> = ({
                       prev ? { ...prev, title: e.target.value } : prev
                     )
                   }
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400"
+                  className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400"
                   placeholder="e.g. Sarah Connor – follow-up"
                   autoFocus
                 />
@@ -485,7 +485,7 @@ export const CalendarPage: React.FC<Props> = ({
                           : prev
                       )
                     }
-                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400"
+                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400"
                   />
                 </div>
                 <div>
@@ -502,7 +502,7 @@ export const CalendarPage: React.FC<Props> = ({
                           : prev
                       )
                     }
-                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400"
+                    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400"
                   />
                 </div>
               </div>
@@ -520,7 +520,7 @@ export const CalendarPage: React.FC<Props> = ({
                       );
                     }
                   }
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400"
+                  className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400"
                 >
                   <option value="" disabled={Boolean(editorState.requirePatient)}>
                     Unlinked booking
@@ -547,7 +547,7 @@ export const CalendarPage: React.FC<Props> = ({
                       prev ? { ...prev, location: e.target.value } : prev
                     )
                   }
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400"
+                  className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400"
                   placeholder="e.g. Rooms 3B, telehealth"
                 />
               </div>
@@ -563,7 +563,7 @@ export const CalendarPage: React.FC<Props> = ({
                     )
                   }
                   rows={3}
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400 resize-none"
+                  className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 resize-none"
                   placeholder="Internal notes for this booking…"
                 />
               </div>
@@ -584,7 +584,7 @@ export const CalendarPage: React.FC<Props> = ({
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-slate-100 text-[11px] text-slate-700 hover:bg-slate-200"
                           >
-                            <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
                             <span className="truncate max-w-[120px]">
                               {att.name || att.fileId}
                             </span>
@@ -641,7 +641,7 @@ export const CalendarPage: React.FC<Props> = ({
                     !editorState.title.trim() ||
                     (editorState.requirePatient && !editorState.patientId)
                   }
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-violet-600 text-white hover:bg-violet-700 shadow-sm shadow-violet-500/30 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-teal-600 text-white hover:bg-teal-700 shadow-sm shadow-teal-500/30 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                 >
                   {saving ? (
                     <>
@@ -685,7 +685,7 @@ export const CalendarPage: React.FC<Props> = ({
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {attachmentLoading ? (
                 <div className="flex items-center justify-center py-8 text-slate-500 gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
+                  <Loader2 className="w-4 h-4 animate-spin text-teal-500" />
                   <span className="text-sm">Loading patient files…</span>
                 </div>
               ) : attachmentFiles.length === 0 ? (
@@ -704,14 +704,14 @@ export const CalendarPage: React.FC<Props> = ({
                         onClick={() => toggleAttachmentSelection(file.id)}
                         className={`flex items-center justify-between px-3 py-2 rounded-xl border text-left text-sm transition-colors ${
                           selected
-                            ? 'border-violet-500 bg-violet-50 text-violet-800'
+                            ? 'border-teal-500 bg-teal-50 text-teal-800'
                             : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
                         }`}
                       >
                         <span className="truncate mr-2">{file.name}</span>
                         <span
                           className={`w-2.5 h-2.5 rounded-full ${
-                            selected ? 'bg-violet-500' : 'bg-slate-300'
+                            selected ? 'bg-teal-500' : 'bg-slate-300'
                           }`}
                         />
                       </button>
@@ -738,7 +738,7 @@ export const CalendarPage: React.FC<Props> = ({
                   type="button"
                   onClick={saveAttachments}
                   disabled={attachmentLoading}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-violet-600 text-white hover:bg-violet-700 shadow-sm shadow-violet-500/30 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-teal-600 text-white hover:bg-teal-700 shadow-sm shadow-teal-500/30 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                 >
                   {attachmentLoading ? (
                     <>

@@ -84,7 +84,7 @@ export const StickerCameraModal: React.FC<Props> = ({ isOpen, onClose, onCapture
       <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <Camera className="w-4 h-4 text-violet-600" />
+            <Camera className="w-4 h-4 text-teal-600" />
             Capture sticker
           </h3>
           <button
@@ -110,7 +110,7 @@ export const StickerCameraModal: React.FC<Props> = ({ isOpen, onClose, onCapture
               type="button"
               disabled={!ready || !!error}
               onClick={snap}
-              className="flex-1 py-3 rounded-xl bg-violet-600 text-white font-semibold text-sm disabled:opacity-50"
+              className="flex-1 py-3 rounded-xl bg-teal-600 text-white font-semibold text-sm disabled:opacity-50"
             >
               Capture &amp; use
             </button>

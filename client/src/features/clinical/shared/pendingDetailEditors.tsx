@@ -21,7 +21,7 @@ export type FileAttachExtras = {
 };
 
 const inp =
-  'w-full px-2 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400';
+  'w-full px-2 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400';
 
 const WARDS = getClinicalWards();
 
@@ -747,14 +747,14 @@ export function AslipSheetEditor({
         </select>
       </label>
       <div className="sm:col-span-2 pt-3">
-        <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4 space-y-2">
-          <p className="text-xs font-semibold text-violet-900">Download authorization slip</p>
+        <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-4 space-y-2">
+          <p className="text-xs font-semibold text-teal-900">Download authorization slip</p>
           <p className="text-xs text-slate-600 max-w-lg">
             PDF includes your doctor details from Settings (name, department, location). Generated locally for the demo.
           </p>
           <button
             type="button"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-semibold shadow hover:bg-violet-700"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-semibold shadow hover:bg-teal-700"
             onClick={() => downloadAslipPdf(a, userSettings)}
           >
             Download A-slip PDF
@@ -799,30 +799,30 @@ export function PendingEditBody({
   return (
     <div className="space-y-6">
       <section>
-        <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">List summary</h3>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">List summary</h3>
         <ListSummaryEditor draft={draft} setDraft={setDraft} bucket={bucket} />
       </section>
       {bucket === 'emergencies' || bucket === 'elective' || bucket === 'completed' ? (
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Theatre booking</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Theatre booking</h3>
           <TheatreBlockEditor draft={draft} setDraft={setDraft} fileAttachExtras={fileAttachExtras} />
         </section>
       ) : null}
       {bucket === 'endoscopy' ? (
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Endoscopy sheet</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Endoscopy sheet</h3>
           <EndoscopySheetEditor draft={draft} setDraft={setDraft} />
         </section>
       ) : null}
       {bucket === 'vericlaim' ? (
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">Vericlaim</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Vericlaim</h3>
           <VericlaimSheetEditor draft={draft} setDraft={setDraft} fileAttachExtras={fileAttachExtras} />
         </section>
       ) : null}
       {bucket === 'aslip' ? (
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2">A-slip</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">A-slip</h3>
           <AslipSheetEditor draft={draft} setDraft={setDraft} userSettings={userSettings} />
         </section>
       ) : null}

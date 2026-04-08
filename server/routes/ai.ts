@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/requireAuth';
 import { generateText, generateTextStream, analyzeImage, transcribeAudio, safeJsonParse } from '../services/gemini';
 import { isDeepgramAvailable, transcribeWithDeepgram } from '../services/deepgram';
 import { fetchAllFilesInFolder, extractTextFromFile } from '../services/drive';
+import { getStorageAdapter } from '../services/storage';
 import {
   summaryPrompt,
   labAlertsPrompt,
@@ -13,13 +14,28 @@ import {
   fileDescriptionPrompt,
   patientStickerExtractionPrompt,
   consultContextImagePrompt,
+  consultContextImageRetryPrompt,
   consultContextDocumentPrompt,
+  consultContextBinaryFallbackPrompt,
   dischargeSummaryPrompt,
 } from '../utils/prompts';
 import type { ExtractedPatientSticker } from '../../shared/types';
 
 const router = Router();
 router.use(requireAuth);
+
+/** Vision path for Smart Context: primary prompt + retry if output too thin (wound photos, etc.). */
+async function summarizeConsultContextImage(
+  base64: string,
+  mimeType: string,
+  fileLabel: string
+): Promise<string> {
+  let summary = (await analyzeImage(consultContextImagePrompt(fileLabel), base64, mimeType)).trim();
+  if (summary.length < 28) {
+    summary = (await analyzeImage(consultContextImageRetryPrompt(fileLabel), base64, mimeType)).trim();
+  }
+  return summary;
+}
 
 // POST /summary — enhanced: reads actual file content (PDF, DOCX, TXT, Google Docs)
 router.post('/summary', async (req: Request, res: Response) => {
@@ -404,7 +420,7 @@ router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
     }
 
     const cleanBase64 = base64Image.split(',')[1] || base64Image;
-    const mime = mimeType && /^image\/(jpeg|png|gif|webp)$/i.test(mimeType) ? mimeType : 'image/jpeg';
+    const mime = mimeType && /^image\/(jpeg|png|gif|webp|bmp)$/i.test(mimeType) ? mimeType : 'image/jpeg';
 
     const raw = await analyzeImage(patientStickerExtractionPrompt(), cleanBase64, mime);
     const fallback: ExtractedPatientSticker = {
@@ -444,6 +460,83 @@ router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
   }
 });
 
+// POST /consult-context-smart — any uploaded clinical file: vision or text extraction + fallbacks
+router.post('/consult-context-smart', async (req: Request, res: Response) => {
+  try {
+    const { patientId, fileId, name, mimeType } = req.body as {
+      patientId?: string;
+      fileId?: string;
+      name?: string;
+      mimeType?: string;
+    };
+
+    if (!patientId || !fileId) {
+      res.status(400).json({ error: 'patientId and fileId are required.' });
+      return;
+    }
+
+    const token = req.session.accessToken;
+    if (!token) {
+      res.status(401).json({ error: 'Not authenticated.' });
+      return;
+    }
+
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const proxy = await adapter.proxyFile({ token, fileId, microsoftStorageMode });
+    const fname = (typeof name === 'string' && name.trim() ? name.trim() : proxy.filename) || 'upload';
+    const mimeRaw = (mimeType || proxy.mimeType || '').split(';')[0].trim().toLowerCase();
+    const lower = fname.toLowerCase();
+    const isImage =
+      mimeRaw.startsWith('image/') ||
+      /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)$/i.test(lower);
+
+    if (isImage) {
+      const buf = proxy.data;
+      if (!buf.length) {
+        res.status(500).json({ error: 'Downloaded image was empty.' });
+        return;
+      }
+      const b64 = buf.toString('base64');
+      let gm = mimeRaw.startsWith('image/') ? mimeRaw : 'image/jpeg';
+      if (!/^image\/(jpeg|png|gif|webp|bmp|heic|heif|svg\+xml)$/i.test(gm)) {
+        gm = 'image/jpeg';
+      }
+      const summary = await summarizeConsultContextImage(b64, gm, fname);
+      res.json({ summary });
+      return;
+    }
+
+    const dummyFile = {
+      id: fileId,
+      name: fname,
+      mimeType: mimeType || proxy.mimeType || 'application/octet-stream',
+    };
+
+    const extracted = await adapter.extractTextFromFile({
+      token,
+      file: dummyFile,
+      maxChars: 8000,
+      microsoftStorageMode,
+    });
+
+    if (extracted.trim()) {
+      const raw = await generateText(consultContextDocumentPrompt(fname, extracted));
+      res.json({ summary: (raw || '').trim() });
+      return;
+    }
+
+    const fb = await generateText(
+      consultContextBinaryFallbackPrompt(fname, dummyFile.mimeType || mimeRaw || 'unknown')
+    );
+    res.json({ summary: (fb || '').trim() });
+  } catch (err) {
+    console.error('[ai/consult-context-smart] error:', err);
+    res.status(500).json({ error: 'Could not build context from this upload.' });
+  }
+});
+
 // POST /consult-context-from-image — vision: scans/diagrams → Markdown for note context
 router.post('/consult-context-from-image', async (req: Request, res: Response) => {
   try {
@@ -459,12 +552,13 @@ router.post('/consult-context-from-image', async (req: Request, res: Response) =
     }
 
     const cleanBase64 = base64Image.split(',')[1] || base64Image;
-    const mime = mimeType && /^image\/(jpeg|png|gif|webp)$/i.test(mimeType) ? mimeType : 'image/jpeg';
+    const mime =
+      mimeType && /^image\/(jpeg|png|gif|webp|bmp|heic|heif)$/i.test(mimeType) ? mimeType : 'image/jpeg';
     const fname =
       typeof fileName === 'string' && fileName.trim() ? fileName.trim() : 'consult-context-image';
 
-    const summary = await analyzeImage(consultContextImagePrompt(fname), cleanBase64, mime);
-    res.json({ summary: (summary || '').trim() });
+    const summary = await summarizeConsultContextImage(cleanBase64, mime, fname);
+    res.json({ summary });
   } catch (err) {
     console.error('[ai/consult-context-from-image] error:', err);
     res.status(500).json({ error: 'Could not analyse image for context. Check GEMINI_API_KEY and try again.' });

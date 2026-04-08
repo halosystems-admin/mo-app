@@ -1,14 +1,13 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config';
 
-// Using gemini-flash-latest - this model has free tier access (15 RPM)
-// Alternative: 'gemini-pro-latest' (also has free tier, but slower)
 const TEXT_MODEL = 'gemini-flash-latest';
-const VISION_MODEL = 'gemini-flash-latest';
 const MAX_RETRIES = 2;
 const BASE_RETRY_DELAY_MS = 2000;
-/** Timeout for Gemini API calls (15–50s typical; allow up to 90s including retries) */
+/** Timeout for Gemini text (15–90s typical) */
 export const GEMINI_TIMEOUT_MS = 90_000;
+/** Shorter cap for single vision calls — faster UX for Smart Context */
+const GEMINI_VISION_TIMEOUT_MS = 55_000;
 
 function getGenAI(): GoogleGenerativeAI {
   return new GoogleGenerativeAI(config.geminiApiKey);
@@ -49,8 +48,8 @@ export function safeJsonParse<T>(text: string, fallback: T): T {
   }
 }
 
-/** Request options for Gemini calls with extended timeout for slow responses */
 const geminiRequestOptions = { timeout: GEMINI_TIMEOUT_MS };
+const geminiVisionRequestOptions = { timeout: GEMINI_VISION_TIMEOUT_MS };
 
 /**
  * Generate text content using the Gemini text model.
@@ -63,6 +62,22 @@ function wrapGeminiError(err: unknown, context: string): Error {
     );
   }
   return err instanceof Error ? err : new Error(String(err));
+}
+
+/** Prefer response.text(); fall back to concatenating candidate parts (vision often needs this). */
+function extractTextFromResult(result: { response: { text: () => string; candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> } }): string {
+  try {
+    const t = result.response.text();
+    if (t?.trim()) return t.trim();
+  } catch {
+    /* blocked finish / no text part */
+  }
+  const parts = result.response.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return '';
+  return parts
+    .map((p) => (typeof p?.text === 'string' ? p.text : ''))
+    .join('')
+    .trim();
 }
 
 export async function generateText(prompt: string): Promise<string> {
@@ -104,19 +119,38 @@ export async function analyzeImage(prompt: string, base64Data: string, mimeType:
   if (!config.geminiApiKey) {
     throw new Error('GEMINI_API_KEY is empty after trim — check .env and restart the server.');
   }
-  try {
-    const genAI = getGenAI();
-    const model = genAI.getGenerativeModel({ model: VISION_MODEL });
+  if (!base64Data?.trim()) {
+    throw new Error('analyzeImage: empty image data');
+  }
+  const genAI = getGenAI();
+  const primary = config.geminiVisionModel || 'gemini-2.0-flash';
+  const secondary = 'gemini-1.5-flash';
+
+  const runModel = async (modelId: string): Promise<string> => {
+    const model = genAI.getGenerativeModel({ model: modelId });
     const result = await withRetry(() =>
       model.generateContent(
         [prompt, { inlineData: { data: base64Data, mimeType } }],
-        geminiRequestOptions
+        geminiVisionRequestOptions
       )
     );
-    return result.response.text();
-  } catch (e) {
-    throw wrapGeminiError(e, 'analyzeImage');
+    return extractTextFromResult(result).trim();
+  };
+
+  let lastErr: unknown;
+  const seen = new Set<string>();
+  for (const modelId of [primary, secondary]) {
+    if (!modelId || seen.has(modelId)) continue;
+    seen.add(modelId);
+    try {
+      const t = await runModel(modelId);
+      if (t) return t;
+    } catch (e) {
+      lastErr = e;
+    }
   }
+  if (lastErr) throw wrapGeminiError(lastErr, 'analyzeImage');
+  return '';
 }
 
 /**
