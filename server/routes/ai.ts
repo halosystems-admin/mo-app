@@ -13,29 +13,13 @@ import {
   geminiTranscriptionPrompt,
   fileDescriptionPrompt,
   patientStickerExtractionPrompt,
-  consultContextImagePrompt,
-  consultContextImageRetryPrompt,
-  consultContextDocumentPrompt,
-  consultContextBinaryFallbackPrompt,
   dischargeSummaryPrompt,
 } from '../utils/prompts';
 import type { ExtractedPatientSticker } from '../../shared/types';
+import { processSmartContextFile } from '../services/smartContextPipeline';
 
 const router = Router();
 router.use(requireAuth);
-
-/** Vision path for Smart Context: primary prompt + retry if output too thin (wound photos, etc.). */
-async function summarizeConsultContextImage(
-  base64: string,
-  mimeType: string,
-  fileLabel: string
-): Promise<string> {
-  let summary = (await analyzeImage(consultContextImagePrompt(fileLabel), base64, mimeType)).trim();
-  if (summary.length < 28) {
-    summary = (await analyzeImage(consultContextImageRetryPrompt(fileLabel), base64, mimeType)).trim();
-  }
-  return summary;
-}
 
 // POST /summary — enhanced: reads actual file content (PDF, DOCX, TXT, Google Docs)
 router.post('/summary', async (req: Request, res: Response) => {
@@ -144,6 +128,8 @@ router.post('/describe-file', async (req: Request, res: Response) => {
       fileId?: string;
       name?: string;
       mimeType?: string;
+      inlineBase64?: string;
+      inlineMimeType?: string;
     };
 
     if (!patientId || !fileId) {
@@ -475,6 +461,15 @@ router.post('/consult-context-smart', async (req: Request, res: Response) => {
       return;
     }
 
+    console.log('[ai/consult-context-smart] file received', {
+      patientId,
+      fileId,
+      name: name || null,
+      mimeType: mimeType || null,
+      hasInlineBase64: typeof req.body.inlineBase64 === 'string' && req.body.inlineBase64.trim().length > 0,
+      inlineMimeType: typeof req.body.inlineMimeType === 'string' ? req.body.inlineMimeType : null,
+    });
+
     const token = req.session.accessToken;
     if (!token) {
       res.status(401).json({ error: 'Not authenticated.' });
@@ -483,129 +478,23 @@ router.post('/consult-context-smart', async (req: Request, res: Response) => {
 
     const adapter = getStorageAdapter(req.session.provider);
     const microsoftStorageMode = req.session.microsoftStorageMode;
-
-    const proxy = await adapter.proxyFile({ token, fileId, microsoftStorageMode });
-    const fname = (typeof name === 'string' && name.trim() ? name.trim() : proxy.filename) || 'upload';
-    const mimeRaw = (mimeType || proxy.mimeType || '').split(';')[0].trim().toLowerCase();
-    const lower = fname.toLowerCase();
-    const isImage =
-      mimeRaw.startsWith('image/') ||
-      /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)$/i.test(lower);
-
-    if (isImage) {
-      const buf = proxy.data;
-      if (!buf.length) {
-        res.status(500).json({ error: 'Downloaded image was empty.' });
-        return;
-      }
-      const b64 = buf.toString('base64');
-      let gm = mimeRaw.startsWith('image/') ? mimeRaw : 'image/jpeg';
-      if (!/^image\/(jpeg|png|gif|webp|bmp|heic|heif|svg\+xml)$/i.test(gm)) {
-        gm = 'image/jpeg';
-      }
-      const summary = await summarizeConsultContextImage(b64, gm, fname);
-      res.json({ summary });
-      return;
-    }
-
-    const dummyFile = {
-      id: fileId,
-      name: fname,
-      mimeType: mimeType || proxy.mimeType || 'application/octet-stream',
-    };
-
-    const extracted = await adapter.extractTextFromFile({
+    const result = await processSmartContextFile({
+      adapter,
       token,
-      file: dummyFile,
-      maxChars: 8000,
+      patientId,
+      fileId,
+      fileName: name,
+      mimeType,
+      inlineBase64: typeof req.body.inlineBase64 === 'string' ? req.body.inlineBase64 : undefined,
+      inlineMimeType: typeof req.body.inlineMimeType === 'string' ? req.body.inlineMimeType : undefined,
       microsoftStorageMode,
     });
 
-    if (extracted.trim()) {
-      const raw = await generateText(consultContextDocumentPrompt(fname, extracted));
-      res.json({ summary: (raw || '').trim() });
-      return;
-    }
-
-    const fb = await generateText(
-      consultContextBinaryFallbackPrompt(fname, dummyFile.mimeType || mimeRaw || 'unknown')
-    );
-    res.json({ summary: (fb || '').trim() });
+    res.json({ summary: result.summaryMarkdown, structured: result.structured ?? undefined });
   } catch (err) {
     console.error('[ai/consult-context-smart] error:', err);
-    res.status(500).json({ error: 'Could not build context from this upload.' });
-  }
-});
-
-// POST /consult-context-from-image — vision: scans/diagrams → Markdown for note context
-router.post('/consult-context-from-image', async (req: Request, res: Response) => {
-  try {
-    const { base64Image, mimeType, fileName } = req.body as {
-      base64Image?: string;
-      mimeType?: string;
-      fileName?: string;
-    };
-
-    if (!base64Image || typeof base64Image !== 'string') {
-      res.status(400).json({ error: 'base64Image is required.' });
-      return;
-    }
-
-    const cleanBase64 = base64Image.split(',')[1] || base64Image;
-    const mime =
-      mimeType && /^image\/(jpeg|png|gif|webp|bmp|heic|heif)$/i.test(mimeType) ? mimeType : 'image/jpeg';
-    const fname =
-      typeof fileName === 'string' && fileName.trim() ? fileName.trim() : 'consult-context-image';
-
-    const summary = await summarizeConsultContextImage(cleanBase64, mime, fname);
-    res.json({ summary });
-  } catch (err) {
-    console.error('[ai/consult-context-from-image] error:', err);
-    res.status(500).json({ error: 'Could not analyse image for context. Check GEMINI_API_KEY and try again.' });
-  }
-});
-
-// POST /consult-context-from-file — extracted text from PDF/DOCX → Markdown context
-router.post('/consult-context-from-file', async (req: Request, res: Response) => {
-  try {
-    const { patientId, fileId, name, mimeType } = req.body as {
-      patientId?: string;
-      fileId?: string;
-      name?: string;
-      mimeType?: string;
-    };
-
-    if (!patientId || !fileId) {
-      res.status(400).json({ error: 'patientId and fileId are required.' });
-      return;
-    }
-
-    const token = req.session.accessToken;
-    if (!token) {
-      res.status(401).json({ error: 'Not authenticated.' });
-      return;
-    }
-
-    const dummyFile = {
-      id: fileId,
-      name: name || 'Uploaded file',
-      mimeType: mimeType || 'application/octet-stream',
-    };
-
-    const extracted = await extractTextFromFile(token, dummyFile, 8000);
-    if (!extracted.trim()) {
-      res.json({
-        summary:
-          '_No extractable text in this file. If it is a scan or photo, upload it as an image (JPG/PNG) from Context → Upload._',
-      });
-      return;
-    }
-
-    const raw = await generateText(consultContextDocumentPrompt(dummyFile.name, extracted));
-    res.json({ summary: (raw || '').trim() });
-  } catch (err) {
-    console.error('[ai/consult-context-from-file] error:', err);
-    res.status(500).json({ error: 'Could not build context from file.' });
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: `Could not build context from this upload. ${detail}` });
   }
 });
 

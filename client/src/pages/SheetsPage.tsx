@@ -17,10 +17,10 @@ export const SheetsPage: React.FC<SheetsPageProps> = ({
   onOpenPatient,
 }) => {
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-slate-50/80 px-4 py-5 md:px-8 md:py-6">
-      <div className="w-full max-w-none mx-auto space-y-4">
+    <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-halo-bg px-4 py-5 md:px-8 md:py-6">
+      <div className="w-full max-w-none mx-auto space-y-5">
         <header>
-          <h1 className="text-xl md:text-2xl font-semibold text-slate-900 tracking-tight">Sheets</h1>
+          <h1 className="text-xl md:text-2xl font-semibold text-halo-text tracking-tight">Sheets</h1>
         </header>
         <ClinicalDashboard
           userSettings={userSettings}

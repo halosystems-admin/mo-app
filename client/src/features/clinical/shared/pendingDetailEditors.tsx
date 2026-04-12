@@ -755,7 +755,7 @@ export function AslipSheetEditor({
           <button
             type="button"
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-semibold shadow hover:bg-teal-700"
-            onClick={() => downloadAslipPdf(a, userSettings)}
+            onClick={() => void downloadAslipPdf(a, userSettings)}
           >
             Download A-slip PDF
           </button>

@@ -18,3 +18,10 @@ export function emptyWardColumnMap<T>(): Record<WardBoardColumnId, T[]> {
   for (const { id } of WARD_BOARD_COLUMNS) m[id] = [];
   return m;
 }
+
+/** Dynamic board columns from Supabase (or any source) — same shape as WARD_BOARD_COLUMNS rows. */
+export function emptyWardColumnMapForColumns<T>(cols: Array<{ id: string }>): Record<string, T[]> {
+  const m: Record<string, T[]> = {};
+  for (const { id } of cols) m[id] = [];
+  return m;
+}

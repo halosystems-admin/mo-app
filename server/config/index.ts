@@ -79,8 +79,10 @@ export const config = {
 
   // AI — must be the Google AI Studio / Gemini API key (server .env only, not VITE_)
   geminiApiKey: sanitizeGeminiApiKey(process.env.GEMINI_API_KEY),
-  /** Vision-capable model for wound/scan Smart Context (override if your key prefers another ID). */
-  geminiVisionModel: (process.env.GEMINI_VISION_MODEL || 'gemini-2.0-flash').trim(),
+  /** Vision-capable multimodal model for Smart Context image/document understanding. */
+  geminiVisionModel: (process.env.GEMINI_VISION_MODEL || 'gemini-2.5-flash').trim(),
+  /** Optional secondary multimodal model if you want an explicit backup. Leave blank to disable. */
+  geminiVisionFallbackModel: (process.env.GEMINI_VISION_FALLBACK_MODEL || '').trim(),
   // Same trimming as Gemini (quotes/BOM from .env / Heroku dashboard pastes).
   deepgramApiKey: sanitizeGeminiApiKey(process.env.DEEPGRAM_API_KEY),
 
@@ -126,4 +128,11 @@ export const config = {
    */
   /** Default filename when env unset — cumulative record is still created and merged. */
   cumulativeHistoryPdfName: (process.env.CUMULATIVE_HISTORY_PDF_NAME || 'Cumulative clinical history.pdf').trim(),
+
+  /**
+   * Supabase (optional). Browser: VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY.
+   * Server admin/tasks: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (never expose service role to Vite).
+   */
+  supabaseUrl: (process.env.SUPABASE_URL || '').trim(),
+  supabaseServiceRoleKey: (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
 } as const;

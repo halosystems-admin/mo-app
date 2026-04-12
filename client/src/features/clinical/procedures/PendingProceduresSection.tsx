@@ -410,7 +410,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
                 className="text-teal-600 text-xs font-semibold hover:underline"
                 onClick={(ev) => {
                   ev.stopPropagation();
-                  downloadAslipPdf(r.aslip, userSettings);
+                  void downloadAslipPdf(r.aslip, userSettings);
                   onToast?.('Downloaded A-slip PDF.', 'success');
                 }}
               >

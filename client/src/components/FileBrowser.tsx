@@ -4,7 +4,7 @@ import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 import {
   FileText, ChevronLeft, ChevronRight, Home, FolderOpen, FolderPlus,
   Pencil, Trash2, Eye, ExternalLink, CloudUpload,
-  FileSpreadsheet, FileImage, File, Layers,
+  FileSpreadsheet, FileImage, File, Layers, Upload,
 } from 'lucide-react';
 import { getFriendlyFileType } from '../utils/formatting';
 
@@ -21,6 +21,9 @@ interface FileBrowserProps {
   onCreateFolder: () => void;
   /** Opens Editor → Smart Context (scan/photo for note generation). */
   onOpenSmartContext?: () => void;
+  /** Opens upload picker for files into the current patient folder tree. */
+  onPatientUpload?: () => void;
+  uploadBusy?: boolean;
 }
 
 const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
@@ -48,6 +51,8 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
   onNavigateToFolder, onNavigateBack, onNavigateToBreadcrumb,
   onStartEditFile, onDeleteFile, onViewFile, onCreateFolder,
   onOpenSmartContext,
+  onPatientUpload,
+  uploadBusy = false,
 }) => {
   const isAtRoot = breadcrumbs.length <= 1;
   const folders = files.filter(isFolder);
@@ -85,19 +90,30 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           ))}
         </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {onPatientUpload && isAtRoot ? (
+            <button
+              type="button"
+              onClick={onPatientUpload}
+              disabled={uploadBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-halo-primary/35 bg-halo-primary px-2.5 py-1.5 text-[12px] font-semibold text-white shadow-[var(--shadow-halo-soft)] transition hover:bg-halo-primary-hover disabled:opacity-60"
+            >
+              <Upload size={14} className="shrink-0" />
+              Upload
+            </button>
+          ) : null}
           {onOpenSmartContext && isAtRoot ? (
             <button
               type="button"
               onClick={onOpenSmartContext}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-teal-700 bg-teal-500/8 hover:bg-teal-500/12 border border-teal-500/20 rounded-md transition-colors"
+              className="flex items-center gap-1.5 rounded-lg border border-teal-500/25 bg-teal-500/10 px-2.5 py-1.5 text-[12px] font-semibold text-teal-800 transition hover:bg-teal-500/15"
             >
-              <Layers size={13} className="shrink-0 opacity-90" />
+              <Layers size={14} className="shrink-0 opacity-90" />
               Smart context
             </button>
           ) : null}
           <button
             onClick={onCreateFolder}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-teal-800 bg-teal-500/8 hover:bg-teal-500/12 border border-teal-500/20 rounded-md transition-colors"
+            className="flex items-center gap-1.5 rounded-lg border border-teal-500/25 bg-teal-500/8 px-2.5 py-1.5 text-[12px] font-semibold text-teal-800 transition hover:bg-teal-500/12"
           >
             <FolderPlus size={14} /> New folder
           </button>

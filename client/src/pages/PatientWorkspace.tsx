@@ -10,7 +10,6 @@ import type {
   CalendarEvent,
   ScribeSession,
 } from '../../../shared/types';
-import { mimeFromFilename } from '../../../shared/mimeFromFilename';
 import { DEFAULT_HALO_TEMPLATE_ID, HALO_TEMPLATE_OPTIONS, HOSPITALS, type HospitalKey } from '../../../shared/haloTemplates';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 
@@ -36,12 +35,11 @@ import {
   generatePrepNote,
   getHaloTemplates,
   describeFile,
-  consultContextSmartUpload,
-  extractConsultContextFromImage,
   appendLongitudinalContextPdf,
   fetchPatientSessions,
   savePatientSession,
 } from '../services/api';
+import { uploadAndExtractSmartContext } from '../services/smartContext';
 import {
   Upload, CheckCircle2, ChevronLeft, Loader2,
   CloudUpload, Pencil, X, Trash2, FolderOpen, MessageCircle,
@@ -98,6 +96,19 @@ function getNoteText(note: HaloNote): string {
       .join('\n\n');
   }
   return '';
+}
+
+function buildNoteGenerationInput(transcript: string, consultContext: string): string {
+  const cleanTranscript = transcript.trim();
+  const cleanContext = consultContext.trim();
+  if (!cleanContext) return cleanTranscript;
+  return [
+    'Additional clinical context for note generation:',
+    cleanContext,
+    '',
+    'Transcript:',
+    cleanTranscript,
+  ].join('\n');
 }
 
 /** Fallback when Halo get_templates fails or returns empty (must match shared/haloTemplates). */
@@ -424,59 +435,31 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const isAccepted =
+      file.type.startsWith('image/') ||
+      file.type === 'application/pdf' ||
+      /\.(jpe?g|png|gif|webp|bmp|heic|heif|svg|pdf)$/i.test(file.name);
+    if (!isAccepted) {
+      onToast('Please choose an image (scan/photo) or PDF.', 'info');
+      return;
+    }
     setContextEnrichBusy(true);
     try {
-      const safeName = `consult_context_${Date.now()}_${file.name.replace(/[^\w.-]/g, '_')}`;
-      const uploaded = await uploadFile(patient.id, file, safeName);
-      const isImageFile =
-        file.type.startsWith('image/') ||
-        /\.(jpe?g|png|gif|webp|bmp|heic|heif|svg)$/i.test(file.name);
-
-      const readDataUrlBody = (): Promise<string> =>
-        new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const r = reader.result as string;
-            resolve(r.includes(',') ? r.split(',')[1] || '' : r);
-          };
-          reader.onerror = () => reject(new Error('Could not read file'));
-          reader.readAsDataURL(file);
+      const result = await uploadAndExtractSmartContext(patient.id, file);
+      setConsultContext((prev) => {
+        const next = prev ? `${prev}\n\n${result.panelBlock}` : result.panelBlock;
+        console.log('[smart-context-client] context panel updated', {
+          patientId: patient.id,
+          panelLength: next.length,
         });
-
-      let summary: string;
-      let imageForRecord: { base64: string; mimeType: string; fileName: string } | null = null;
-      try {
-        if (isImageFile) {
-          const b64 = await readDataUrlBody();
-          let mime = (file.type || '').split(';')[0].trim().toLowerCase();
-          if (!/^image\//i.test(mime)) {
-            mime = mimeFromFilename(uploaded.name) || mimeFromFilename(file.name) || 'image/jpeg';
-          }
-          if (!/^image\/(jpeg|png|gif|webp|bmp|heic|heif|svg\+xml)$/i.test(mime)) {
-            mime = 'image/jpeg';
-          }
-          imageForRecord = { base64: b64, mimeType: mime, fileName: uploaded.name };
-          try {
-            summary = await extractConsultContextFromImage(b64, mime, uploaded.name);
-          } catch (directErr) {
-            console.warn('[Smart context] direct image API failed, retrying via Drive:', directErr);
-            summary = await consultContextSmartUpload(patient.id, uploaded);
-          }
-        } else {
-          summary = await consultContextSmartUpload(patient.id, uploaded);
-        }
-      } catch (aiErr) {
-        console.error(aiErr);
-        onToast('File saved. AI summary unavailable — add context manually.', 'info');
-        summary = '';
-      }
-      const block = `## Context from: ${uploaded.name}\n\n${summary.trim() || '_No AI summary — add detail manually._'}`;
-      setConsultContext((prev) => (prev ? `${prev}\n\n${block}` : block));
-      setPendingLongitudinalImage(isImageFile && imageForRecord ? imageForRecord : null);
+        return next;
+      });
+      setPendingLongitudinalImage(result.imageAttachment);
       onToast('Saved to folder and context panel.', 'success');
       await loadFolderContents(currentFolderId);
       onDataChange();
     } catch (err) {
+      console.error('[smart-context-client] upload flow failed', err);
       onToast(getErrorMessage(err), 'error');
     } finally {
       setContextEnrichBusy(false);
@@ -801,6 +784,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const generateNotesFromTranscript = useCallback(
     async (transcriptToUse: string, isAddNote: boolean) => {
       const trimmedTranscript = transcriptToUse.trim();
+      const noteInput = buildNoteGenerationInput(trimmedTranscript, consultContext);
       if (selectedTemplatesForGenerate.length !== 1) {
         onToast('Choose exactly one template.', 'info');
         return;
@@ -825,12 +809,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               const [noteResult, pdfResult] = await Promise.all([
                 generateNotePreview({
                   template_id: id,
-                  text: trimmedTranscript,
+                  text: noteInput,
                   user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
                 }),
                 generateNotePreviewPdf({
                   template_id: id,
-                  text: trimmedTranscript,
+                  text: noteInput,
                   user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
                 }),
               ]);
@@ -1317,30 +1301,42 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           </div>
         </div>
 
-        <div className="flex flex-col items-stretch md:items-end gap-1 w-full md:w-auto">
+        <div className="flex w-full flex-col items-stretch gap-1.5 md:w-auto md:items-end">
           {status === AppStatus.UPLOADING ? (
             <div className="w-44">
-              <div className="flex justify-between text-[10px] font-semibold text-teal-700/90 mb-0.5">
-                <span>Uploading</span><span>{uploadProgress}%</span>
+              <div className="mb-0.5 flex justify-between text-[10px] font-semibold text-teal-700/90">
+                <span>Uploading</span>
+                <span>{uploadProgress}%</span>
               </div>
-              <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                <div className="bg-teal-500/90 h-1.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div className="h-1.5 rounded-full bg-teal-500/90 transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
               </div>
             </div>
           ) : (
             <>
-              <div className="flex flex-row flex-wrap items-center justify-end gap-1.5">
+              <div className="flex flex-row flex-wrap items-center justify-end gap-2">
                 <HeaderConsultationRecorder
                   onLiveTranscriptUpdate={handleLiveTranscriptUpdate}
                   onLiveStopped={handleLiveStopped}
                   onError={(msg: string) => onToast(msg, 'error')}
                 />
                 <button
-                  onClick={openUploadPicker}
-                  className="inline-flex justify-center items-center gap-1.5 bg-halo-primary hover:bg-halo-primary-hover text-white px-2.5 py-1 rounded-[10px] cursor-pointer transition-colors shadow-[var(--shadow-halo-soft)] text-[11px] font-semibold"
+                  type="button"
+                  onClick={handleGenerateAiInsights}
+                  disabled={aiLoading || status === AppStatus.LOADING}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/20 bg-teal-500/10 px-3 py-1.5 text-xs font-semibold text-teal-800 transition hover:bg-teal-500/14 disabled:opacity-50"
                 >
-                  <Upload className="w-3.5 h-3.5" /> Upload
+                  {aiLoading ? '…' : 'AI insights'}
                 </button>
+                {hasAiContent ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAiPanel((prev) => !prev)}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-200/90 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    {showAiPanel ? 'Hide' : 'Show'}
+                  </button>
+                ) : null}
               </div>
               <input
                 ref={fileInputRef}
@@ -1359,27 +1355,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </>
           )}
           {uploadMessage && status !== AppStatus.UPLOADING && (
-            <div className="w-full sm:w-auto flex items-center gap-1.5 text-[10px] font-medium text-teal-800 bg-teal-500/8 border border-teal-500/15 px-2 py-1 rounded-md">
-              <CheckCircle2 className="w-3 h-3 shrink-0" /> <span className="truncate">{uploadMessage}</span>
+            <div className="flex w-full items-center gap-1.5 rounded-md border border-teal-500/15 bg-teal-500/8 px-2 py-1 text-[10px] font-medium text-teal-800 sm:w-auto">
+              <CheckCircle2 className="h-3 w-3 shrink-0" /> <span className="truncate">{uploadMessage}</span>
             </div>
           )}
-          <div className="w-full md:w-auto flex items-center justify-end gap-1.5 flex-wrap">
-            <button
-              onClick={handleGenerateAiInsights}
-              disabled={aiLoading || status === AppStatus.LOADING}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-teal-500/8 hover:bg-teal-500/12 border border-teal-500/18 text-[10px] font-semibold text-teal-800 transition disabled:opacity-50"
-            >
-              {aiLoading ? '…' : 'AI insights'}
-            </button>
-            {hasAiContent && (
-              <button
-                onClick={() => setShowAiPanel(prev => !prev)}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white hover:bg-slate-50 border border-slate-200/90 text-[10px] font-semibold text-slate-600 transition"
-              >
-                {showAiPanel ? 'Hide' : 'Show'}
-              </button>
-            )}
-          </div>
         </div>
       </div>
 
@@ -1421,14 +1400,14 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           {/* CTA to generate insights (only when not yet generated) */}
           {/* Tabs */}
           <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-b border-halo-border mb-2">
-            <div className="flex gap-2 md:gap-3 overflow-x-auto items-center min-w-0">
-              <button onClick={() => setActiveTab('overview')} className={`py-1.5 text-[10px] font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>Files</button>
-              <button onClick={() => setActiveTab('notes')} className={`py-1.5 text-[10px] font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>Editor</button>
-              <button onClick={() => setActiveTab('chat')} className={`py-1.5 text-[10px] font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1 ${activeTab === 'chat' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>
-              <MessageCircle size={12} /> Ask HALO
+            <div className="flex gap-2 md:gap-4 overflow-x-auto items-center min-w-0">
+              <button onClick={() => setActiveTab('overview')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>Files</button>
+              <button onClick={() => setActiveTab('notes')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>Editor</button>
+              <button onClick={() => setActiveTab('chat')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>
+              <MessageCircle size={14} className="shrink-0" /> Ask HALO
               </button>
-              <button onClick={() => setActiveTab('sessions')} className={`py-1.5 text-[10px] font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1 ${activeTab === 'sessions' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>
-              <History size={12} /> Sessions
+              <button onClick={() => setActiveTab('sessions')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'sessions' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>
+              <History size={14} className="shrink-0" /> Sessions
               </button>
               {patient.webUrl ? (
                 <a
@@ -1476,6 +1455,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               onDeleteFile={setFileToDelete}
               onViewFile={setViewingFile}
               onCreateFolder={() => setShowCreateFolderModal(true)}
+              onPatientUpload={openUploadPicker}
+              uploadBusy={status === AppStatus.UPLOADING}
               onOpenSmartContext={() => {
                 setActiveTab('notes');
                 setConsultSubTab('context');

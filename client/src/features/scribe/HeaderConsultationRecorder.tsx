@@ -260,7 +260,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
           <button
             type="button"
             onClick={togglePause}
-            className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-100/80 bg-white text-[10px] font-semibold text-slate-700 hover:bg-red-50/80 transition"
+            className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-red-100/80 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-red-50/80 transition"
           >
             {isPaused ? (
               <>
@@ -277,13 +277,13 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
           type="button"
           onClick={isLive ? () => void stopLive() : () => void startLive()}
           disabled={isBusy}
-          className={`inline-flex items-center gap-1.5 rounded-[10px] px-2.5 py-1 text-[11px] font-semibold shadow-[var(--shadow-halo-soft)] transition-all ${
+          className={`inline-flex items-center gap-2 rounded-[10px] px-3 py-1.5 text-xs font-semibold shadow-[var(--shadow-halo-soft)] transition-all ${
             isLive
               ? 'bg-rose-500/95 hover:bg-rose-500 text-white'
               : 'bg-halo-primary hover:bg-halo-primary-hover text-white'
           } ${isBusy ? 'opacity-70 cursor-not-allowed' : ''}`}
         >
-          <Mic className={`w-3.5 h-3.5 shrink-0 ${isLive ? 'text-white' : 'text-white'}`} />
+          <Mic className={`h-4 w-4 shrink-0 ${isLive ? 'text-white' : 'text-white'}`} />
           <span className="tabular-nums">
             {isBusy ? '…' : isLive ? displayTime : 'Record'}
           </span>

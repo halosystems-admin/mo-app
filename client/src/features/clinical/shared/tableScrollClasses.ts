@@ -18,9 +18,16 @@ export const CLINICAL_HEADER_BAND =
 /** Table thead — same token as ward column strip. */
 export const CLINICAL_TABLE_THEAD = CLINICAL_HEADER_BAND;
 
-/** Minimal header cells — compact, not a thick bar. */
+/** Sheets / clinical table header cells — one consistent scale with ward strips. */
 export const CLINICAL_TABLE_TH =
-  'px-2.5 py-1.5 text-left font-semibold uppercase tracking-wide text-[9px] leading-tight text-white/95';
+  'px-3 py-2 text-left font-semibold uppercase tracking-wider text-[10px] leading-tight text-white/95';
+
+/** Primary Sheets tab / filter chip shape (sentence or caps — add `uppercase tracking-wider` for main dashboard tabs only). */
+export const SHEETS_TAB_ACTIVE =
+  'px-2.5 py-1.5 rounded-[10px] text-[11px] font-semibold bg-halo-primary text-white shadow-[var(--shadow-halo-soft)]';
+
+export const SHEETS_TAB_IDLE =
+  'px-2.5 py-1.5 rounded-[10px] text-[11px] font-semibold bg-halo-section text-halo-text-secondary hover:bg-halo-border/40';
 
 /**
  * Body rows: light zebra striping + clearer line under each row + hover.

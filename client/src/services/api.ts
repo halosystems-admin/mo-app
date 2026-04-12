@@ -11,6 +11,7 @@ import type {
   AdmittedPatientKanban,
   ExtractedPatientSticker,
   HaloPatientProfile,
+  ClinicalContextStructured,
 } from '../../../shared/types';
 import { mimeFromFilename } from '../../../shared/mimeFromFilename';
 
@@ -59,8 +60,7 @@ export class ApiError extends Error {
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${path}`;
-  console.log(`[API] Making request to: ${url}`);
-  
+
   let res: Response;
   try {
     res = await fetch(url, {
@@ -473,48 +473,34 @@ export const extractPatientFromSticker = async (
     body: JSON.stringify({ base64Image, mimeType }),
   });
 
-/** Vision: image → Markdown context for note generation (text + diagrams). */
-export const extractConsultContextFromImage = async (
-  base64Image: string,
-  mimeType: string,
-  fileName?: string
-): Promise<string> => {
-  const data = await request<{ summary: string }>('/api/ai/consult-context-from-image', {
-    method: 'POST',
-    body: JSON.stringify({ base64Image, mimeType, fileName }),
-  });
-  return data.summary ?? '';
+export type ConsultContextImageResult = {
+  summary: string;
+  structured?: ClinicalContextStructured;
 };
 
-/** Text-based file already on Drive → Markdown context. */
-export const consultContextFromUploadedFile = async (
-  patientId: string,
-  file: DriveFile
-): Promise<string> => {
-  const data = await request<{ summary: string }>('/api/ai/consult-context-from-file', {
-    method: 'POST',
-    body: JSON.stringify({
-      patientId,
-      fileId: file.id,
-      name: file.name,
-      mimeType: file.mimeType,
-    }),
-  });
-  return data.summary ?? '';
+export type SmartContextInlineFile = {
+  base64: string;
+  mimeType: string;
 };
 
 /** After upload: vision / text extraction / fallback for any clinical file type. */
-export const consultContextSmartUpload = async (patientId: string, file: DriveFile): Promise<string> => {
-  const data = await request<{ summary: string }>('/api/ai/consult-context-smart', {
+export const consultContextSmartUpload = async (
+  patientId: string,
+  file: DriveFile,
+  inlineFile?: SmartContextInlineFile
+): Promise<ConsultContextImageResult> => {
+  const data = await request<ConsultContextImageResult>('/api/ai/consult-context-smart', {
     method: 'POST',
     body: JSON.stringify({
       patientId,
       fileId: file.id,
       name: file.name,
       mimeType: file.mimeType,
+      inlineBase64: inlineFile?.base64,
+      inlineMimeType: inlineFile?.mimeType,
     }),
   });
-  return data.summary ?? '';
+  return { summary: data.summary ?? '', structured: data.structured };
 };
 
 export type LongitudinalAppendAttachment = {

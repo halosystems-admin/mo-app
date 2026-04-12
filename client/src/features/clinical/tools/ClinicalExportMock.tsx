@@ -2,85 +2,17 @@ import { jsPDF } from 'jspdf';
 import type { UserSettings } from '../../../../../shared/types';
 import type { AslipSummaryFields, ClinicalWard } from '../../../types/clinical';
 import { formatWardDisplay } from '../shared/clinicalDisplay';
-import aslipBrandmark from '../../../assets/aslip-mp-brandmark.png';
+import { applyDrPatelLetterheadJsPdf } from './documentLetterheadPdf';
 
-/** Brand teal (matches HALO UI accents). */
+/** Brand teal (section cards — body content). */
 const V: [number, number, number] = [124, 58, 237];
 const V_LIGHT: [number, number, number] = [237, 233, 254];
-/** teal-50 — header band like app surfaces */
-const V_BAND: [number, number, number] = [250, 245, 255];
-const V_BAND_BORDER: [number, number, number] = [233, 213, 255];
 const SLATE_HEADER: [number, number, number] = [51, 65, 85];
 const SLATE_MUTED: [number, number, number] = [100, 116, 139];
 const SLATE_BODY: [number, number, number] = [30, 41, 59];
 
 /** Horizontal offset (mm) from page margin to value column — matches reference A-slip gutter. */
 const ASLIP_LABEL_OFFSET = 48;
-
-/** Brandmark PNG is 690×438; height-driven size in mm (HALO MP + Dr Mohamed Patel artwork). */
-const BRANDMARK_W_MM = 42;
-const BRANDMARK_H_MM = BRANDMARK_W_MM * (438 / 690);
-
-/** Letterhead band — light background; brandmark + meta. */
-const ASLIP_HEADER_BAND_MM = 50;
-
-/** Shared HALO letterhead — same band + brandmark as A-slip; right column is document-specific. */
-function drawHaloPdfLetterhead(
-  doc: jsPDF,
-  margin: number,
-  pageW: number,
-  settings: UserSettings | null | undefined,
-  rightTitle: string,
-  rightSubtitle: string
-): void {
-  const imgY = 9;
-  doc.addImage(aslipBrandmark, 'PNG', margin, imgY, BRANDMARK_W_MM, BRANDMARK_H_MM);
-
-  const textX = margin + BRANDMARK_W_MM + 5;
-  let lineY = 14;
-
-  const displayName = settings?.firstName?.trim()
-    ? `Dr ${settings.firstName} ${settings.lastName ?? ''}`.trim()
-    : '';
-  if (displayName && !displayName.includes('Mohamed Patel')) {
-    doc.setTextColor(...SLATE_BODY);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text(displayName, textX, lineY);
-    lineY += 6;
-  }
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(...SLATE_MUTED);
-  const profDept = [settings?.profession, settings?.department].filter(Boolean).join(' · ');
-  const tagline = profDept || 'Clinical practice · HALO';
-  doc.text(tagline, textX, lineY);
-  lineY += 6;
-
-  const loc = [settings?.city, settings?.postalCode].filter(Boolean).join(' · ');
-  if (loc) {
-    doc.setFontSize(7.5);
-    doc.text(loc, textX, lineY);
-    lineY += 6;
-  }
-
-  doc.setFontSize(6.8);
-  doc.setTextColor(100, 116, 139);
-  doc.text('Secure Environment · POPIA Compliant', textX, ASLIP_HEADER_BAND_MM - 4);
-
-  doc.setTextColor(30, 41, 59);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12.5);
-  doc.text(rightTitle, pageW - margin, 14, { align: 'right' });
-  if (rightSubtitle?.trim()) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(71, 85, 105);
-    doc.text(rightSubtitle.trim(), pageW - margin, 22, { align: 'right' });
-  }
-  doc.setTextColor(...SLATE_BODY);
-}
 
 function drawSectionTitle(doc: jsPDF, x: number, y: number, w: number, title: string): number {
   doc.setFillColor(...V_LIGHT);
@@ -235,25 +167,21 @@ function drawClinicalNotesMarkdownBody(
   return y;
 }
 
-export function downloadClinicalNotesPdf(
+export async function downloadClinicalNotesPdf(
   patientName: string,
   notes: string,
   settings?: UserSettings | null
-): void {
+): Promise<void> {
   const doc = new jsPDF();
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 16;
   const contentW = pageW - margin * 2;
 
-  doc.setFillColor(...V_BAND);
-  doc.rect(0, 0, pageW, ASLIP_HEADER_BAND_MM, 'F');
-  doc.setDrawColor(...V_BAND_BORDER);
-  doc.setLineWidth(0.35);
-  doc.line(0, ASLIP_HEADER_BAND_MM, pageW, ASLIP_HEADER_BAND_MM);
-  drawHaloPdfLetterhead(doc, margin, pageW, settings ?? null, 'Clinical notes export', '');
-
-  let y = ASLIP_HEADER_BAND_MM + 8;
+  let y = await applyDrPatelLetterheadJsPdf(doc, margin, pageW, {
+    title: 'Clinical notes export',
+    subtitle: 'HALO · confidential',
+  });
   doc.setFontSize(8);
   doc.setTextColor(...SLATE_MUTED);
   doc.text(`Generated ${new Date().toLocaleString()}`, pageW - margin, y, { align: 'right' });
@@ -275,46 +203,47 @@ export function downloadClinicalNotesPdf(
   doc.save(`halo-clinical-notes-${safe}-mock.pdf`);
 }
 
-export function downloadTheatreListPdf(settings?: UserSettings | null): void {
+export async function downloadTheatreListPdf(settings?: UserSettings | null): Promise<void> {
   const doc = new jsPDF();
-  doc.setFontSize(14);
-  doc.text('Theatre list (mock)', 14, 16);
-  doc.setFontSize(10);
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 16;
+  let y = await applyDrPatelLetterheadJsPdf(doc, margin, pageW, {
+    title: 'Theatre list',
+    subtitle: 'Mock schedule export',
+  });
+  y += 2;
+  doc.setFontSize(9);
+  doc.setTextColor(...SLATE_MUTED);
   const who = settings
-    ? `${settings.firstName} ${settings.lastName} | ${settings.profession} | ${settings.department}`
-    : 'Dr Example | Department';
-  doc.text(who, 14, 26);
-  doc.text('Case 1 — Lap chole — OT1 — 08:00', 14, 36);
-  doc.text('Case 2 — Hernia — OT2 — 10:30', 14, 44);
+    ? `${settings.firstName} ${settings.lastName} · ${settings.profession} · ${settings.department}`
+    : '';
+  if (who) {
+    doc.text(who, margin, y);
+    y += 8;
+  }
+  doc.setTextColor(...SLATE_BODY);
+  doc.text('Case 1 — Lap chole — OT1 — 08:00', margin, y);
+  y += 7;
+  doc.text('Case 2 — Hernia — OT2 — 10:30', margin, y);
   doc.save('halo-theatre-list-mock.pdf');
 }
 
 /** Styled A-slip PDF — letterhead from Settings + card layout (mock). */
-export function downloadAslipPdf(
+export async function downloadAslipPdf(
   data?: Partial<AslipSummaryFields>,
   settings?: UserSettings | null
-): void {
+): Promise<void> {
   const doc = new jsPDF();
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 16;
   const contentW = pageW - margin * 2;
   const valueMaxW = contentW - ASLIP_LABEL_OFFSET - 2;
 
-  doc.setFillColor(...V_BAND);
-  doc.rect(0, 0, pageW, ASLIP_HEADER_BAND_MM, 'F');
-  doc.setDrawColor(...V_BAND_BORDER);
-  doc.setLineWidth(0.35);
-  doc.line(0, ASLIP_HEADER_BAND_MM, pageW, ASLIP_HEADER_BAND_MM);
-  drawHaloPdfLetterhead(
-    doc,
-    margin,
-    pageW,
-    settings ?? null,
-    'Authorization request (A-slip)',
-    'Clinical summary for funding / authorization (mock export)'
-  );
-
-  let y = ASLIP_HEADER_BAND_MM + 6;
+  let y = await applyDrPatelLetterheadJsPdf(doc, margin, pageW, {
+    title: 'Authorization request (A-slip)',
+    subtitle: 'Clinical summary for funding / authorization (mock export)',
+  });
+  y -= 2;
   const ref = data?.idNumber
     ? `Ref: ASL-${String(data.idNumber).slice(-6)}`
     : 'Ref: MOCK-ASLIP-2026';

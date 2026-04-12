@@ -1,17 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import type { Patient } from '../../../../../shared/types';
 import type { InpatientRecord } from '../../../types/clinical';
-import {
-  draftDischargeSummary,
-  fetchDoctorKanban,
-  saveDoctorKanban,
-  uploadFile,
-} from '../../../services/api';
+import { draftDischargeSummary, uploadFile } from '../../../services/api';
+import { fetchWardKanban, saveWardKanban } from '../../../services/wardBoardBackend';
 import { updateInpatientRecord } from '../../../services/clinicalData';
 
 export type DischargePatientModalProps = {
   open: boolean;
   onClose: () => void;
+  /** HALO folder patients — passed through when saving ward board via Supabase (names/dob). */
+  patients?: Patient[];
   /** HALO patient folder id — ward kanban + optional summary upload */
   haloPatientId: string | null;
   patientDisplayName: string;
@@ -26,6 +25,7 @@ export type DischargePatientModalProps = {
 export const DischargePatientModal: React.FC<DischargePatientModalProps> = ({
   open,
   onClose,
+  patients = [],
   haloPatientId,
   patientDisplayName,
   clinicalContext,
@@ -46,16 +46,15 @@ export const DischargePatientModal: React.FC<DischargePatientModalProps> = ({
   const removeFromKanbanIfLinked = useCallback(async () => {
     if (!haloPatientId) return;
     try {
-      const { kanban } = await fetchDoctorKanban();
-      const list = Array.isArray(kanban) ? kanban : [];
+      const list = await fetchWardKanban();
       const next = list.map((r) =>
         r.patientId === haloPatientId ? { ...r, admitted: false } : r
       );
-      await saveDoctorKanban(next);
+      await saveWardKanban(next, patients);
     } catch {
       onToast?.('Could not update ward board — check connection.', 'error');
     }
-  }, [haloPatientId, onToast]);
+  }, [haloPatientId, onToast, patients]);
 
   const markInpatientDischarged = useCallback(async () => {
     if (!inpatientRecord?.id) return;

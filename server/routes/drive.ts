@@ -59,6 +59,15 @@ function routeParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value;
 }
 
+function extensionFromMimeType(mimeType: string): string {
+  const mt = (mimeType || '').toLowerCase();
+  if (mt.includes('png')) return '.png';
+  if (mt.includes('gif')) return '.gif';
+  if (mt.includes('webp')) return '.webp';
+  if (mt.includes('svg')) return '.svg';
+  return '.jpg';
+}
+
 // --- Routes ---
 
 // GET /patients?page=<token>&pageSize=<number>
@@ -373,7 +382,7 @@ function cumulativeHistoryTargetFileName(configuredName: string): string {
   return n.slice(0, 255);
 }
 
-// POST /patients/:id/longitudinal-append — merge into existing cumulative PDF in Patient Notes, or create it if absent
+// POST /patients/:id/longitudinal-append — merge into existing cumulative PDF in Patient Notes
 router.post('/patients/:id/longitudinal-append', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
@@ -407,9 +416,11 @@ router.post('/patients/:id/longitudinal-append', async (req: Request, res: Respo
 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const sectionTitle = `Smart context — ${stamp}`;
+    const smartContextBaseName = `Smart_context_${stamp}`;
 
     const attRaw = req.body?.attachments;
     const images: { data: Uint8Array; mimeType: string; label?: string }[] = [];
+    const imageUploads: Array<{ base64Data: string; mimeType: string; fileName: string }> = [];
     if (Array.isArray(attRaw)) {
       for (const a of attRaw.slice(0, 4)) {
         if (!a || typeof a.base64 !== 'string') continue;
@@ -420,13 +431,57 @@ router.post('/patients/:id/longitudinal-append', async (req: Request, res: Respo
           const mimeType = typeof a.mimeType === 'string' && a.mimeType ? a.mimeType : 'image/jpeg';
           const label = typeof a.fileName === 'string' ? a.fileName : 'Context image';
           images.push({ data: new Uint8Array(buf), mimeType, label });
+          const safeName = sanitizeString(label, 120).replace(/\.[A-Za-z0-9]+$/, '') || 'source';
+          imageUploads.push({
+            base64Data: b64,
+            mimeType,
+            fileName: `${smartContextBaseName}_${safeName}${extensionFromMimeType(mimeType)}`,
+          });
         } catch {
           /* skip */
         }
       }
     }
 
+    for (const image of imageUploads) {
+      try {
+        await adapter.uploadFile({
+          token,
+          parentFolderId: notesFolderId,
+          fileName: image.fileName,
+          fileType: image.mimeType,
+          base64Data: image.base64Data,
+          microsoftStorageMode,
+        });
+      } catch (uploadErr) {
+        console.error('[longitudinal-append] failed to upload source image to Patient Notes', uploadErr);
+        res.status(500).json({
+          error: 'Could not save the uploaded context image into Patient Notes.',
+          detail: uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
+        });
+        return;
+      }
+    }
+
     const sectionPdf = await buildContextSectionPdf(sectionTitle, text, images);
+
+    try {
+      await adapter.uploadFile({
+        token,
+        parentFolderId: notesFolderId,
+        fileName: `${smartContextBaseName}.pdf`,
+        fileType: 'application/pdf',
+        base64Data: Buffer.from(sectionPdf).toString('base64'),
+        microsoftStorageMode,
+      });
+    } catch (uploadErr) {
+      console.error('[longitudinal-append] failed to upload Smart Context PDF to Patient Notes', uploadErr);
+      res.status(500).json({
+        error: 'Could not save the Smart Context PDF into Patient Notes.',
+        detail: uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
+      });
+      return;
+    }
 
     let outBytes: Uint8Array;
     let outName: string;
@@ -452,8 +507,13 @@ router.post('/patients/:id/longitudinal-append', async (req: Request, res: Respo
         fileId: existing.id,
         microsoftStorageMode,
       });
-      outName = existing.name;
+      outName = existing.name || cumulativeHistoryTargetFileName(configuredName);
     } else {
+      console.log('[longitudinal-append] creating new cumulative history pdf', {
+        patientFolderId,
+        notesFolderId,
+        configuredName,
+      });
       outBytes = sectionPdf;
       outName = cumulativeHistoryTargetFileName(configuredName);
     }

@@ -3,7 +3,7 @@ import type { ClinicalTaskIndicator, InpatientRecord } from '../types/clinical';
 import type { AdmittedPatientKanban, KanbanTodoItem } from '../../../shared/types';
 import { resolvePatientIdFromClinicalNames } from '../features/clinical/shared/clinicalDisplay';
 import { clinicalWardToBoardColumn, fetchCurrentInpatients } from './clinicalData';
-import { fetchDoctorKanban, saveDoctorKanban } from './api';
+import { fetchWardKanban, saveWardKanban } from './wardBoardBackend';
 
 /** Kanban column fed from Hospital admission "Tasks" field. */
 export const KANBAN_FROM_ADMISSION_COLUMN = 'To do';
@@ -67,8 +67,8 @@ export async function syncInpatientTasksToWardKanban(
     };
   }
   try {
-    const { kanban } = await fetchDoctorKanban();
-    const list: AdmittedPatientKanban[] = Array.isArray(kanban) ? [...kanban] : [];
+    const k = await fetchWardKanban();
+    const list: AdmittedPatientKanban[] = Array.isArray(k) ? [...k] : [];
     const idx = list.findIndex((r) => r.patientId === patientId);
     let row: AdmittedPatientKanban =
       idx >= 0 ? { ...list[idx], admitted: true } : { patientId, admitted: true, todos: [] };
@@ -76,7 +76,7 @@ export async function syncInpatientTasksToWardKanban(
     row = { ...row, boardColumn: row.boardColumn ?? clinicalWardToBoardColumn(record.ward) };
     if (idx >= 0) list[idx] = row;
     else list.push(row);
-    await saveDoctorKanban(list);
+    await saveWardKanban(list, patients);
     return { outcome: 'synced', patientId };
   } catch {
     return { outcome: 'error', message: 'Could not update Ward kanban — check your connection.' };
@@ -91,8 +91,8 @@ export async function syncAllHospitalWardTasksToKanban(
   patients: Patient[]
 ): Promise<{ linked: number; skippedNoHaloMatch: number }> {
   const rows = await fetchCurrentInpatients();
-  const { kanban } = await fetchDoctorKanban();
-  let list: AdmittedPatientKanban[] = Array.isArray(kanban) ? [...kanban] : [];
+  const k = await fetchWardKanban();
+  let list: AdmittedPatientKanban[] = Array.isArray(k) ? [...k] : [];
   let linked = 0;
   let skippedNoHaloMatch = 0;
 
@@ -118,6 +118,6 @@ export async function syncAllHospitalWardTasksToKanban(
     linked++;
   }
 
-  await saveDoctorKanban(list);
+  await saveWardKanban(list, patients);
   return { linked, skippedNoHaloMatch };
 }

@@ -430,7 +430,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                   type="button"
                   className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-teal-600 text-white text-sm font-semibold shadow-md hover:bg-teal-700"
                   onClick={() => {
-                    downloadAslipPdf(a, userSettings);
+                    void downloadAslipPdf(a, userSettings);
                     onToast?.('Downloaded A-slip PDF.', 'success');
                   }}
                 >

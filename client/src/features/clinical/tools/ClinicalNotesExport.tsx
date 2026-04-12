@@ -108,8 +108,9 @@ export const ClinicalNotesExport: React.FC<Props> = ({ patients, userSettings, o
       onToast?.('Select a patient.', 'info');
       return;
     }
-    downloadClinicalNotesPdf(patientLabel || 'Patient', buildBody(), userSettings);
-    onToast?.('PDF downloaded.', 'success');
+    void downloadClinicalNotesPdf(patientLabel || 'Patient', buildBody(), userSettings)
+      .then(() => onToast?.('PDF downloaded.', 'success'))
+      .catch(() => onToast?.('Could not generate PDF.', 'error'));
   };
 
   return (

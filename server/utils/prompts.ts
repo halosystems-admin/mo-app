@@ -99,41 +99,6 @@ Rules:
 Use empty strings for missing string fields. If the image has no patient text, return empty strings and null for sex.`;
 }
 
-/** Vision: clinical scan / photo / diagram for note-generation context. */
-export function consultContextImagePrompt(fileName: string): string {
-  return `You are assisting a specialist doctor preparing clinical documentation. They attached an image for CONTEXT ONLY (filename: ${fileName}). Your output will be pasted into a note-generation panel — it must be complete and concrete.
-
-CRITICAL — you must actually look at the pixels:
-- Never refuse or leave the description empty because you are "not a doctor". You describe only what is visible; you do NOT state a definitive diagnosis, but you MUST still document appearance, location, Devices, and text.
-- If this is a wound, ulcer, rash, surgical site, erythema, swelling, bruising, or skin break: say so explicitly. Describe approximate size (relative clues if no ruler), colour, edges, depth if visible, exudate, slough, granulation, surrounding skin, dressings, staples, sutures, packing, drains (colour, bag fill), stoma, tubing, and any obvious foreign material. Use neutral clinical wording ("appears", "suggests" acceptable).
-- If this is a clinical photo of a body region without an obvious lesion: describe the view, anatomical region if inferable, surface, dressings, and anything notable.
-- If this is radiology, CT/MRI/X-ray screenshot, or photo of a monitor: describe modality if known, orientation, key structures, obvious focal findings in lay radiology terms (e.g. "dense opacity", "lucent area", "line visible") without inventing measurements you cannot see.
-- If this is handwriting, ward stationery, or paper notes: transcribe all legible text line by line; summarise intent at the end.
-- If there are diagrams, flowcharts, ECG strips, or sketches: narrate axes, labels, arrows, and what relationship they depict so someone without the image could document it.
-
-Formatting (strict):
-- Use up to these ## headings only when they add clarity: ## Extracted text, ## Visible findings, ## Summary. No ### depth.
-- No **bold** or *italics*. Use "- " at line start for lists if needed.
-
-If the image is truly blank, pure noise, or completely unreadable, say exactly one sentence stating that. Otherwise always produce at least one filled section with multiple sentences. Plain text — no JSON.`;
-}
-
-/** Second pass when the model returns an empty or useless summary for a clinical image. */
-export function consultContextImageRetryPrompt(fileName: string): string {
-  return `You MUST describe this clinical image in detail for a doctor's notes. Filename hint: ${fileName}
-
-Write 6–12 sentences minimum, in plain text with optional ## Visible findings and ## Summary headings.
-Cover: what type of image this is; anatomical region or view; all visible clinical details (wounds, devices, dressings, skin, fluid, swelling, colour); any readable text or labels; and what should be documented for the chart.
-
-Do not output apologies or disclaimers about being an AI. Do not refuse. If uncertain, still describe what you see tentatively.`;
-}
-
-/** Third pass — shortest possible instruction (some models behave better). */
-export function consultContextImageLastResortPrompt(fileName: string): string {
-  return `Look at the image. Write a detailed clinical description for the medical record (wound, scan, device, or document photo). File: ${fileName}
-Use ## Visible findings and ## Summary. Minimum 8 sentences. Describe only what you see.`;
-}
-
 /** When no text could be extracted from a non-image upload (e.g. binary, scan PDF). */
 export function consultContextBinaryFallbackPrompt(fileName: string, mimeType: string): string {
   return `A doctor uploaded a file for clinical documentation context.
@@ -147,6 +112,78 @@ No text could be extracted automatically. Write 4–8 short bullet lines (plain 
 - Any obvious documentation pitfalls (illegible scans, wrong patient, etc.)
 
 Do not invent patient-specific facts. No JSON.`;
+}
+
+function smartContextInstructionBody(): string {
+  return `You are a clinical context extraction assistant.
+
+Inspect the uploaded file carefully. It may be a wound photo, stoma image, drain image, scan, handwritten note, printed note, form, diagram, or other clinical image.
+
+Your job is to produce clinically useful context for note generation.
+
+Please:
+- extract any visible text as accurately as possible
+- describe what is visibly present in concise clinical language
+- explain diagrams, labels, and annotations where present
+- summarise the important findings into practical note context
+- avoid inventing details that are not clearly visible
+- clearly state uncertainty where details are unclear
+
+For wound, stoma, or drain images, comment where possible on:
+- site/location
+- general appearance
+- edges/margins
+- visible surface/base
+- discharge/exudate if visible
+- surrounding skin
+- tubes, bags, dressings, drains, devices if present
+- visible signs that may suggest infection, leakage, inflammation, necrosis, breakdown, or bleeding
+
+For notes/forms/documents:
+- prioritise text extraction
+- preserve important structure where possible
+- summarise clinically relevant content
+
+For diagrams/scans:
+- describe what is shown
+- explain labels/annotations
+- summarise relevant findings where visible
+
+Return practical, concise output suitable for insertion into a clinical context panel.
+
+Do not return generic administrative advice or checklist-style cautions.
+Do not say what the file "may contain" if you can directly inspect it. Describe what is visible in this actual file.`;
+}
+
+export function smartContextGeminiPrompt(fileName: string): string {
+  return `${smartContextInstructionBody()}
+
+File name: ${fileName}
+
+Return plain text using these headings when helpful:
+## Summary
+## Extracted text
+## Findings
+
+If no visible text is present, say so clearly.`;
+}
+
+export function smartContextGeminiJsonPrompt(fileName: string): string {
+  return `${smartContextInstructionBody()}
+
+File name: ${fileName}
+
+Return JSON only with this flexible shape:
+{
+  "summary": "concise clinical summary",
+  "context": "practical note-generation context",
+  "clinical_summary": "optional clinical interpretation if visible",
+  "description": "optional visual description",
+  "extracted_text": "visible text if present",
+  "findings": ["short finding", "short finding"]
+}
+
+Use empty strings or an empty array when a field is not available.`;
 }
 
 /** Text extracted from PDF/DOCX etc. → consult context for notes. */

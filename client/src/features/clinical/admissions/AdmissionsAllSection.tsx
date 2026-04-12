@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { AdmittedPatientKanban, Patient } from '../../../../../shared/types';
 import type { InpatientRecord } from '../../../types/clinical';
 import { fetchAdmissionsAll, getInpatientById } from '../../../services/clinicalData';
-import { fetchDoctorKanban } from '../../../services/api';
+import { fetchWardKanban } from '../../../services/wardBoardBackend';
 import { DischargePatientModal } from '../shared/DischargePatientModal';
 import { buildDischargeClinicalContext } from '../shared/dischargeContext';
 import { InpatientDetailPanel } from '../shared/InpatientDetailPanel';
@@ -40,7 +40,7 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
       const hid = resolveHaloId(r);
       if (!hid) return;
       try {
-        const { kanban } = await fetchDoctorKanban();
+        const kanban = await fetchWardKanban();
         const row = (Array.isArray(kanban) ? kanban : []).find((k) => k.patientId === hid);
         setDischargeKanbanRow(row ?? null);
       } catch {
@@ -239,6 +239,7 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
       <DischargePatientModal
         open={Boolean(dischargeRecord)}
         onClose={closeDischargeModal}
+        patients={patients}
         haloPatientId={dischargeRecord ? resolveHaloId(dischargeRecord) : null}
         patientDisplayName={
           dischargeRecord ? `${dischargeRecord.firstName} ${dischargeRecord.surname}`.trim() : ''

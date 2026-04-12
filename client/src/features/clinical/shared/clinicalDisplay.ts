@@ -8,8 +8,10 @@ export function wardHeadingStripClass(_ward: ClinicalWard): string {
 
 /** Compact ward badge for tables — same neutral pill for every ward. */
 export function wardBadgeClass(ward: ClinicalWard | '' | undefined): string {
-  if (!ward) return 'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200';
-  return 'inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200';
+  const base =
+    'inline-flex px-2 py-0.5 rounded-md text-[11px] font-medium leading-tight bg-halo-section text-halo-text border border-halo-border';
+  if (!ward) return `${base} text-halo-text-secondary`;
+  return base;
 }
 
 /** Sentence-style ward labels (e.g. labour ward → Labour ward). */

@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { drawDrPatelLetterheadPdfLib, PAGE_W as LETTERHEAD_W } from './drPatelLetterheadPdfLib';
 
 const MAX_BODY_CHARS = 12_000;
 const PAGE_W = 612;
@@ -8,6 +9,15 @@ const FONT_SIZE = 9;
 const LINE_H = 11;
 
 export type ContextAppendImage = { data: Uint8Array; mimeType: string; label?: string };
+
+function normalizeContextPdfLine(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed) return '';
+  return trimmed
+    .replace(/^#{1,6}\s*/, '')
+    .replace(/^\*\*(.+)\*\*$/, '$1')
+    .replace(/^Context from:\s*/i, 'Context from: ');
+}
 
 /**
  * Text section + optional clinical images (e.g. Smart context photo) for the longitudinal PDF.
@@ -26,7 +36,7 @@ export async function buildContextSectionPdf(
   const maxW = PAGE_W - 2 * MARGIN;
 
   let page = doc.addPage([PAGE_W, PAGE_H]);
-  let y = PAGE_H - MARGIN;
+  let y = await drawDrPatelLetterheadPdfLib(doc, page, LETTERHEAD_W);
 
   page.drawText(sectionTitle.slice(0, 200), {
     x: MARGIN,
@@ -38,28 +48,7 @@ export async function buildContextSectionPdf(
   });
   y -= 20;
 
-  const paragraphs = safe.split(/\n/);
-  for (const para of paragraphs) {
-    const chunks = wrapToChunks(para, 92);
-    for (const line of chunks.length ? chunks : ['']) {
-      if (y < MARGIN + LINE_H) {
-        page = doc.addPage([PAGE_W, PAGE_H]);
-        y = PAGE_H - MARGIN;
-      }
-      if (line) {
-        page.drawText(line, {
-          x: MARGIN,
-          y,
-          size: FONT_SIZE,
-          font,
-          color: rgb(0.22, 0.22, 0.22),
-          maxWidth: maxW,
-        });
-      }
-      y -= LINE_H;
-    }
-  }
-
+  let firstImageDrawn = false;
   for (const img of images) {
     if (!img.data?.length) continue;
     const mt = (img.mimeType || '').toLowerCase();
@@ -76,8 +65,9 @@ export async function buildContextSectionPdf(
       continue;
     }
 
-    const ipage = doc.addPage([PAGE_W, PAGE_H]);
-    let iy = PAGE_H - MARGIN;
+    const useCurrentPage = !firstImageDrawn;
+    const ipage = useCurrentPage ? page : doc.addPage([PAGE_W, PAGE_H]);
+    let iy = useCurrentPage ? y : PAGE_H - MARGIN;
     const cap = (img.label || 'Attached image').slice(0, 200);
     ipage.drawText(cap, {
       x: MARGIN,
@@ -90,7 +80,7 @@ export async function buildContextSectionPdf(
     iy -= 18;
 
     const boxW = PAGE_W - 2 * MARGIN;
-    const boxH = Math.max(120, iy - MARGIN - 24);
+    const boxH = Math.max(120, iy - MARGIN - 120);
     const scale = Math.min(boxW / embedded.width, boxH / embedded.height, 1);
     const dw = embedded.width * scale;
     const dh = embedded.height * scale;
@@ -100,6 +90,35 @@ export async function buildContextSectionPdf(
       width: dw,
       height: dh,
     });
+    iy = iy - dh - 20;
+    firstImageDrawn = true;
+    if (useCurrentPage) {
+      page = ipage;
+      y = iy;
+    }
+  }
+
+  const paragraphs = safe.split(/\n/).map(normalizeContextPdfLine);
+  for (const para of paragraphs) {
+    const isSectionLabel = /^(Context from:|Summary|Findings|Extracted text|Clinical interpretation|Smart Context Debug|Raw Gemini Output Preview|Parsed Fields)$/i.test(para);
+    const chunks = wrapToChunks(para, 92);
+    for (const line of chunks.length ? chunks : ['']) {
+      if (y < MARGIN + LINE_H) {
+        page = doc.addPage([PAGE_W, PAGE_H]);
+        y = PAGE_H - MARGIN;
+      }
+      if (line) {
+        page.drawText(line, {
+          x: MARGIN,
+          y,
+          size: isSectionLabel ? 10 : FONT_SIZE,
+          font: isSectionLabel ? fontBold : font,
+          color: rgb(0.22, 0.22, 0.22),
+          maxWidth: maxW,
+        });
+      }
+      y -= LINE_H;
+    }
   }
 
   return doc.save();

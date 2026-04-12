@@ -78,6 +78,17 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+/**
+ * Structured Smart Context output from Gemini vision (wounds, scans, notes).
+ * Returned by /api/ai/consult-context-smart and /consult-context-from-image for images.
+ */
+export interface ClinicalContextStructured {
+  summary: string;
+  findings: string[];
+  extracted_text: string;
+  clinical_interpretation: string;
+}
+
 export enum AppStatus {
   IDLE = 'idle',
   LOADING = 'loading',

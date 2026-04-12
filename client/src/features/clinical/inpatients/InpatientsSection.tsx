@@ -18,7 +18,7 @@ import {
   resolvePatientIdFromClinicalNames,
   wardBadgeClass,
 } from "../shared/clinicalDisplay";
-import { fetchDoctorKanban } from "../../../services/api";
+import { fetchWardKanban } from "../../../services/wardBoardBackend";
 import { DischargePatientModal } from "../shared/DischargePatientModal";
 import { buildDischargeClinicalContext } from "../shared/dischargeContext";
 import { InpatientDetailPanel } from "../shared/InpatientDetailPanel";
@@ -29,6 +29,8 @@ import {
   CLINICAL_TABLE_TH,
   CLINICAL_TABLE_TBODY_TR,
   CLINICAL_TABLE_THEAD,
+  SHEETS_TAB_ACTIVE,
+  SHEETS_TAB_IDLE,
 } from "../shared/tableScrollClasses";
 import { FolderOpen, Plus, Upload, X } from "lucide-react";
 
@@ -75,7 +77,7 @@ export const InpatientsSection: React.FC<Props> = ({
       const hid = resolveHaloId(r);
       if (!hid) return;
       try {
-        const { kanban } = await fetchDoctorKanban();
+        const kanban = await fetchWardKanban();
         const row = (Array.isArray(kanban) ? kanban : []).find((k) => k.patientId === hid);
         setDischargeKanbanRow(row ?? null);
       } catch {
@@ -184,22 +186,14 @@ export const InpatientsSection: React.FC<Props> = ({
         <button
           type="button"
           onClick={() => setSub("admitted")}
-          className={
-            sub === "admitted"
-              ? "px-2 py-1 rounded-md text-[11px] font-semibold bg-teal-500 text-white shadow-sm"
-              : "px-2 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200/90"
-          }
+          className={sub === "admitted" ? SHEETS_TAB_ACTIVE : SHEETS_TAB_IDLE}
         >
           Currently admitted
         </button>
         <button
           type="button"
           onClick={() => setSub("other")}
-          className={
-            sub === "other"
-              ? "px-2 py-1 rounded-md text-[11px] font-semibold bg-teal-500 text-white shadow-sm"
-              : "px-2 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200/90"
-          }
+          className={sub === "other" ? SHEETS_TAB_ACTIVE : SHEETS_TAB_IDLE}
         >
           Other surgeons inpatients
         </button>
@@ -265,34 +259,40 @@ export const InpatientsSection: React.FC<Props> = ({
                       className={CLINICAL_TABLE_TBODY_TR}
                       onClick={() => setSelectedId(r.id)}
                     >
-                      <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap align-top">
+                      <td className="px-3 py-2.5 font-semibold text-[13px] text-halo-text whitespace-nowrap align-top leading-snug">
                         {r.firstName} {r.surname}
                       </td>
-                      <td className="px-3 py-2 text-slate-600 whitespace-nowrap align-top">{r.folderNumber}</td>
-                      <td className="px-3 py-2 whitespace-nowrap align-top">{r.bed}</td>
+                      <td className="px-3 py-2.5 text-[13px] text-halo-text-secondary whitespace-nowrap align-top leading-snug">
+                        {r.folderNumber}
+                      </td>
+                      <td className="px-3 py-2.5 text-[13px] text-halo-text-secondary whitespace-nowrap align-top leading-snug">
+                        {r.bed}
+                      </td>
                       <td className="px-3 py-2 align-top">
                         <span className={wardBadgeClass(r.ward)}>{formatWardDisplay(r.ward)}</span>
                       </td>
-                      <td className="px-3 py-2 text-xs align-top text-slate-800 break-words">
+                      <td className="px-3 py-2.5 text-[13px] align-top text-halo-text break-words leading-snug">
                         {r.procedure?.trim() ? r.procedure : "—"}
                       </td>
-                      <td className="px-3 py-2 text-xs align-top text-slate-800 break-words">
+                      <td className="px-3 py-2.5 text-[13px] align-top text-halo-text break-words leading-snug">
                         {r.taskIndicators?.length ? r.taskIndicators.map((t) => t.label).join(", ") : "—"}
                       </td>
-                      <td className="px-3 py-2 text-xs align-top whitespace-nowrap">{r.assignedDoctor}</td>
+                      <td className="px-3 py-2.5 text-[13px] align-top text-halo-text-secondary whitespace-nowrap leading-snug">
+                        {r.assignedDoctor}
+                      </td>
                       <td
-                        className="px-3 py-2 text-xs align-top text-slate-800 break-words"
+                        className="px-3 py-2.5 text-[13px] align-top text-halo-text break-words leading-snug"
                         title={r.admissionDiagnosis}
                       >
                         {r.admissionDiagnosis?.trim() ? r.admissionDiagnosis : "—"}
                       </td>
                       <td
-                        className="px-3 py-2 text-xs align-top text-slate-800 break-words"
+                        className="px-3 py-2.5 text-[13px] align-top text-halo-text break-words leading-snug"
                         title={r.followUpPlan}
                       >
                         {r.followUpPlan?.trim() ? r.followUpPlan : "—"}
                       </td>
-                      <td className="px-3 py-2 text-xs align-top text-slate-600 whitespace-nowrap">
+                      <td className="px-3 py-2.5 text-[13px] align-top text-halo-text-secondary whitespace-nowrap leading-snug">
                         {r.dateOfFollowUp?.trim() ? r.dateOfFollowUp : "—"}
                       </td>
                     </tr>
@@ -428,6 +428,7 @@ export const InpatientsSection: React.FC<Props> = ({
       <DischargePatientModal
         open={Boolean(dischargeRecord)}
         onClose={closeDischargeModal}
+        patients={patients}
         haloPatientId={dischargeRecord ? resolveHaloId(dischargeRecord) : null}
         patientDisplayName={
           dischargeRecord ? `${dischargeRecord.firstName} ${dischargeRecord.surname}`.trim() : ""

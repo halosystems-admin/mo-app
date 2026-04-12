@@ -3,8 +3,6 @@ import type { Patient } from '../../../shared/types';
 import { Plus, LogOut, Search, Trash2, ChevronRight, Users, Clock, Settings, LayoutGrid, FolderOpen, FileSpreadsheet } from 'lucide-react';
 import { searchPatientsByConcept } from '../services/api';
 import { patientAvatarClassWithSelection } from '../utils/patientAvatar';
-import { HaloMark } from './HaloMark';
-
 export type MainNavSection = 'ward' | 'sheets' | 'folders';
 
 interface SidebarProps {
@@ -138,19 +136,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   return (
-    <div className="w-72 md:w-80 bg-slate-50/40 h-full flex flex-col text-slate-800 border-r border-slate-200/80 shadow-sm">
-      <div className="p-4 border-b border-slate-100">
-        <div className="flex items-center justify-between gap-2 mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <HaloMark size={34} className="text-teal-500 shrink-0" />
-            <div className="min-w-0 leading-tight">
-              <h1 className="font-semibold text-slate-900 text-[15px] tracking-tight truncate">HALO</h1>
-              <p className="text-[10px] text-slate-500 font-medium tracking-wide truncate">Mo Patel</p>
+    <div className="w-72 md:w-80 bg-[#f7f9fb] h-full flex flex-col text-slate-800 border-r border-slate-200/70">
+      <div className="border-b border-slate-200/60 px-4 pb-4 pt-5">
+        <div className="flex items-center justify-between gap-3 pl-2.5">
+          <div className="flex min-w-0 flex-1 justify-center pr-3">
+            <div className="flex items-center gap-5">
+              <div className="flex flex-col items-center gap-0.5">
+                <div className="h-7 w-8 overflow-hidden">
+                  <img
+                    src="/halo-brand-lockup-transparent.png"
+                    alt="HALO icon"
+                    className="block h-7 w-auto max-w-none select-none"
+                    width={76}
+                    height={28}
+                    decoding="async"
+                    draggable={false}
+                  />
+                </div>
+                <span className="text-[0.82rem] font-semibold leading-none tracking-[0.16em] text-[#0f1c56]">HALO</span>
+              </div>
+              <div className="min-w-0 self-center pt-0.5">
+                <p className="truncate text-[0.92rem] font-semibold text-slate-500">Dr Mohamed Patel</p>
+              </div>
             </div>
           </div>
           <button
             onClick={onOpenSettings}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+            className="shrink-0 rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-200/40 hover:text-slate-700"
             title="Settings"
             type="button"
           >
@@ -158,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        <nav className="space-y-1">
+        <nav className="mt-5 space-y-1">
           <button type="button" className={`w-full text-left text-[13px] font-medium ${navItem(mainNav === 'ward')}`} onClick={() => onMainNav('ward')}>
             <LayoutGrid size={16} className="shrink-0 opacity-80" />
             Ward

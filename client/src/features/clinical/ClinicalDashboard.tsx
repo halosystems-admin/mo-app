@@ -4,6 +4,7 @@ import { InpatientsSection } from './inpatients/InpatientsSection';
 import { SurgeonRoundsSection } from './rounds/SurgeonRoundsSection';
 import { PendingProceduresSection } from './procedures/PendingProceduresSection';
 import { AdmissionsAllSection } from './admissions/AdmissionsAllSection';
+import { SHEETS_TAB_ACTIVE, SHEETS_TAB_IDLE } from './shared/tableScrollClasses';
 type Tab = 'inpatients' | 'rounds' | 'pending' | 'admissions';
 
 interface Props {
@@ -51,17 +52,13 @@ export const ClinicalDashboard: React.FC<Props> = ({
 
   return (
     <div className="space-y-4 min-w-0">
-      <div className="flex flex-wrap gap-1 border-b border-slate-200/90 pb-2">
+      <div className="flex flex-wrap gap-1.5 border-b border-halo-border pb-2.5">
         {TABS.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
-            className={
-              tab === t.id
-                ? 'px-2 py-1 rounded-md text-[10px] font-semibold tracking-wide bg-teal-500 text-white shadow-sm'
-                : 'px-2 py-1 rounded-md text-[10px] font-semibold tracking-wide bg-slate-100 text-slate-600 hover:bg-slate-200/90'
-            }
+            className={`${tab === t.id ? SHEETS_TAB_ACTIVE : SHEETS_TAB_IDLE} uppercase tracking-wider`}
           >
             {t.label}
           </button>

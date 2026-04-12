@@ -51,6 +51,16 @@ export function safeJsonParse<T>(text: string, fallback: T): T {
 const geminiRequestOptions = { timeout: GEMINI_TIMEOUT_MS };
 const geminiVisionRequestOptions = { timeout: GEMINI_VISION_TIMEOUT_MS };
 
+function getVisionModelCandidates(): string[] {
+  const ordered = [config.geminiVisionModel, config.geminiVisionFallbackModel].map((value) => value.trim()).filter(Boolean);
+  return Array.from(new Set(ordered));
+}
+
+function isModelNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /404|not found|model .* not found|is not found|not supported for generatecontent/i.test(message);
+}
+
 /**
  * Generate text content using the Gemini text model.
  */
@@ -115,31 +125,62 @@ export async function* generateTextStream(prompt: string): AsyncGenerator<string
 /**
  * Generate content from an image using the Gemini vision model.
  */
+/** Strip data-URL prefix if present; vision APIs expect raw base64. */
+export function stripBase64DataUrl(base64Data: string): string {
+  const s = base64Data.trim();
+  if (s.includes(',')) return s.split(',')[1] || '';
+  return s;
+}
+
 export async function analyzeImage(prompt: string, base64Data: string, mimeType: string): Promise<string> {
+  return analyzeInlineData(prompt, base64Data, mimeType);
+}
+
+export async function analyzeInlineData(
+  prompt: string,
+  base64Data: string,
+  mimeType: string
+): Promise<string> {
   if (!config.geminiApiKey) {
     throw new Error('GEMINI_API_KEY is empty after trim — check .env and restart the server.');
   }
-  if (!base64Data?.trim()) {
-    throw new Error('analyzeImage: empty image data');
+  const raw = stripBase64DataUrl(base64Data);
+  if (!raw) {
+    throw new Error('analyzeInlineData: empty file data');
   }
   const genAI = getGenAI();
-  const primary = config.geminiVisionModel || 'gemini-2.0-flash';
-  const secondary = 'gemini-1.5-flash';
+  const modelCandidates = getVisionModelCandidates();
+  if (!modelCandidates.length) {
+    throw new Error('analyzeInlineData: no Gemini vision model configured.');
+  }
 
   const runModel = async (modelId: string): Promise<string> => {
+    console.log('[gemini/vision] generateContent request', {
+      model: modelId,
+      mimeType,
+      hasInlineData: Boolean(raw),
+      bytes: Buffer.from(raw, 'base64').length,
+    });
     const model = genAI.getGenerativeModel({ model: modelId });
     const result = await withRetry(() =>
       model.generateContent(
-        [prompt, { inlineData: { data: base64Data, mimeType } }],
+        [prompt, { inlineData: { data: raw, mimeType } }],
         geminiVisionRequestOptions
       )
     );
-    return extractTextFromResult(result).trim();
+    const text = extractTextFromResult(result).trim();
+    console.log('[gemini/vision] generateContent response', {
+      model: modelId,
+      mimeType,
+      returnedText: Boolean(text),
+      textLength: text.length,
+    });
+    return text;
   };
 
   let lastErr: unknown;
   const seen = new Set<string>();
-  for (const modelId of [primary, secondary]) {
+  for (const modelId of modelCandidates) {
     if (!modelId || seen.has(modelId)) continue;
     seen.add(modelId);
     try {
@@ -147,6 +188,12 @@ export async function analyzeImage(prompt: string, base64Data: string, mimeType:
       if (t) return t;
     } catch (e) {
       lastErr = e;
+      console.error('[gemini/vision] model attempt failed', {
+        model: modelId,
+        mimeType,
+        modelNotFound: isModelNotFoundError(e),
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
   if (lastErr) throw wrapGeminiError(lastErr, 'analyzeImage');
@@ -154,14 +201,103 @@ export async function analyzeImage(prompt: string, base64Data: string, mimeType:
 }
 
 /**
+ * Vision + JSON output (enforced by API). Use for Smart Context structured extraction.
+ */
+export async function analyzeImageJsonResponse(
+  prompt: string,
+  base64Data: string,
+  mimeType: string
+): Promise<string> {
+  return analyzeInlineDataJsonResponse(prompt, base64Data, mimeType);
+}
+
+export async function analyzeInlineDataJsonResponse(
+  prompt: string,
+  base64Data: string,
+  mimeType: string
+): Promise<string> {
+  if (!config.geminiApiKey) {
+    throw new Error('GEMINI_API_KEY is empty after trim — check .env and restart the server.');
+  }
+  const raw = stripBase64DataUrl(base64Data);
+  if (!raw) {
+    throw new Error('analyzeInlineDataJsonResponse: empty file data');
+  }
+  const genAI = getGenAI();
+  const modelCandidates = getVisionModelCandidates();
+  if (!modelCandidates.length) {
+    throw new Error('analyzeInlineDataJsonResponse: no Gemini vision model configured.');
+  }
+
+  const runModel = async (modelId: string): Promise<string> => {
+    console.log('[gemini/vision-json] generateContent request', {
+      model: modelId,
+      mimeType,
+      hasInlineData: Boolean(raw),
+      bytes: Buffer.from(raw, 'base64').length,
+    });
+    const model = genAI.getGenerativeModel({ model: modelId });
+    const result = await withRetry(() =>
+      model.generateContent(
+        {
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }, { inlineData: { data: raw, mimeType } }],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json',
+          },
+        },
+        geminiVisionRequestOptions
+      )
+    );
+    const text = extractTextFromResult(result).trim();
+    console.log('[gemini/vision-json] generateContent response', {
+      model: modelId,
+      mimeType,
+      returnedText: Boolean(text),
+      textLength: text.length,
+    });
+    return text;
+  };
+
+  let lastErr: unknown;
+  const seen = new Set<string>();
+  for (const modelId of modelCandidates) {
+    if (!modelId || seen.has(modelId)) continue;
+    seen.add(modelId);
+    try {
+      const t = await runModel(modelId);
+      if (t) return t;
+    } catch (e) {
+      lastErr = e;
+      console.error('[gemini/vision-json] model attempt failed', {
+        model: modelId,
+        mimeType,
+        modelNotFound: isModelNotFoundError(e),
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  if (lastErr) throw wrapGeminiError(lastErr, 'analyzeImageJsonResponse');
+  return '';
+}
+
+/**
  * Generate content from audio using the Gemini model.
  */
 export async function transcribeAudio(prompt: string, base64Data: string, mimeType: string): Promise<string> {
+  const raw = stripBase64DataUrl(base64Data);
+  if (!raw) {
+    throw new Error('transcribeAudio: empty audio data');
+  }
   const genAI = getGenAI();
   const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
   const result = await withRetry(() =>
     model.generateContent(
-      [prompt, { inlineData: { data: base64Data, mimeType } }],
+      [prompt, { inlineData: { data: raw, mimeType } }],
       geminiRequestOptions
     )
   );

@@ -3,7 +3,8 @@ import type { AdmittedPatientKanban, Patient, WardBoardColumnId } from '../../..
 import { WardKanbanBoard } from '../features/clinical/ward/WardKanbanBoard';
 import type { InpatientRecord } from '../types/clinical';
 import { fetchCurrentInpatients, mergeAdmittedRowWithMockKanbanSeeds } from '../services/clinicalData';
-import { fetchDoctorKanban, saveDoctorKanban } from '../services/api';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { fetchWardBoardColumns, fetchWardKanban, saveWardKanban } from '../services/wardBoardBackend';
 import { syncAllHospitalWardTasksToKanban } from '../services/wardKanbanSync';
 import { resolvePatientIdFromClinicalNames } from '../features/clinical/shared/clinicalDisplay';
 import { Layers } from 'lucide-react';
@@ -61,7 +62,7 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
   const loadKanban = useCallback(async () => {
     setKanbanLoading(true);
     try {
-      const { kanban: k } = await fetchDoctorKanban();
+      const k = await fetchWardKanban();
       setKanban(Array.isArray(k) ? migrateKanbanFromStorage(k) : []);
     } catch {
       setKanban([]);
@@ -105,12 +106,12 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
       setKanban(migrateKanbanFromStorage(next));
       setKanbanSaving(true);
       try {
-        const { kanban: saved } = await saveDoctorKanban(next);
-        setKanban(Array.isArray(saved) ? migrateKanbanFromStorage(saved) : next);
+        const saved = await saveWardKanban(next, patientsRef.current);
+        setKanban(migrateKanbanFromStorage(saved));
       } catch {
         onToast?.('Could not save ward board.', 'error');
         try {
-          const { kanban: k } = await fetchDoctorKanban();
+          const k = await fetchWardKanban();
           setKanban(Array.isArray(k) ? migrateKanbanFromStorage(k) : []);
         } catch {
           setKanban([]);
@@ -122,8 +123,30 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
     [onToast]
   );
 
+  const [wardColumns, setWardColumns] = useState<Array<{ id: string; label: string }>>(WARD_BOARD_COLUMNS);
   const [admitPatientId, setAdmitPatientId] = useState('');
-  const [admitWardColumn, setAdmitWardColumn] = useState<WardBoardColumnId>('m');
+  const [admitWardColumn, setAdmitWardColumn] = useState<WardBoardColumnId>(
+    (WARD_BOARD_COLUMNS[0]?.id as WardBoardColumnId) ?? 'm'
+  );
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let cancelled = false;
+    void fetchWardBoardColumns()
+      .then((cols) => {
+        if (cancelled || !cols.length) return;
+        setWardColumns(cols);
+        setAdmitWardColumn((prev) =>
+          cols.some((c) => c.id === prev) ? prev : ((cols[0]!.id as WardBoardColumnId) ?? 'm')
+        );
+      })
+      .catch(() => {
+        /* keep static columns */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const submitAdmit = useCallback(() => {
     const patientId = admitPatientId;
@@ -204,10 +227,10 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
   );
 
   return (
-    <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden overscroll-x-none px-4 py-4 md:px-8 md:py-5 bg-slate-50/80">
-      <div className="w-full max-w-none mx-auto flex flex-col flex-1 min-h-0 gap-4 md:gap-5">
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3 shrink-0">
-          <h1 className="text-xl md:text-2xl font-semibold text-slate-900 tracking-tight">Ward</h1>
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden overscroll-x-none px-5 py-5 md:px-10 md:py-6 lg:px-12 bg-halo-bg">
+      <div className="w-full max-w-[1600px] mx-auto flex flex-col flex-1 min-h-0 gap-5 md:gap-6">
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 shrink-0">
+          <h1 className="text-xl md:text-2xl font-semibold text-halo-text tracking-tight">Ward</h1>
           <div className="flex flex-wrap items-end gap-2 min-w-0">
             <label className="flex flex-col gap-0.5 min-w-[min(100%,200px)] flex-1">
               <span className="text-[10px] font-medium text-slate-500">Patient</span>
@@ -233,7 +256,7 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
                 disabled={kanbanSaving}
                 className="text-[12px] px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/25 disabled:opacity-50"
               >
-                {WARD_BOARD_COLUMNS.map((c) => (
+                {wardColumns.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.label}
                   </option>
@@ -251,8 +274,8 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
           </div>
         </div>
 
-        <section className="flex-1 min-h-0 flex flex-col bg-white rounded-xl border border-slate-200/80 shadow-sm min-w-0 overflow-hidden">
-          <div className="px-3 py-2 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <section className="flex-1 min-h-0 flex flex-col bg-halo-card rounded-xl border border-halo-border shadow-[var(--shadow-halo-soft)] min-w-0 overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-halo-border flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               <Layers className="w-4 h-4 shrink-0 text-teal-500" />
               <h2 className="text-xs font-semibold text-slate-800 uppercase tracking-wide">Ward board</h2>
@@ -262,7 +285,7 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
             </span>
           </div>
 
-          <div className="flex-1 min-h-0 flex flex-col p-3 sm:p-4 md:p-5 overflow-hidden">
+          <div className="flex-1 min-h-0 flex flex-col px-2 pt-2 pb-3 sm:px-3 sm:pb-4 md:px-4 md:pb-5 overflow-hidden">
             {(kanbanSaving || hospitalSyncBusy) && (
               <div className="mb-2 text-[11px] text-slate-500 shrink-0">
                 {hospitalSyncBusy ? 'Syncing…' : 'Saving…'}
@@ -274,6 +297,7 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
             ) : (
               <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <WardKanbanBoard
+                  wardColumns={wardColumns}
                   admittedKanban={admittedKanban}
                   unlinkedAdmittedInpatients={unlinkedAdmittedInpatients}
                   patientsById={patientsById}

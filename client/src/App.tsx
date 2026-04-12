@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { HaloMark } from './components/HaloMark';
 import { PatientWorkspace } from './pages/PatientWorkspace';
 import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
@@ -358,9 +357,17 @@ export const App = () => {
 
   if (!isReady) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-50/80">
-        <div className="flex flex-col items-center gap-3">
-          <HaloMark size={36} className="text-teal-500" />
+      <div className="flex h-screen w-full items-center justify-center bg-[#f7f9fb]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative isolate flex justify-center px-4">
+            <img
+              src="/halo-brand-lockup-transparent.png"
+              alt="HALO"
+              className="h-12 w-auto max-w-[240px] object-contain object-left select-none"
+              decoding="async"
+              draggable={false}
+            />
+          </div>
           <Loader className="animate-spin text-teal-500/90" size={24} />
           <p className="text-xs text-slate-500 font-medium">Loading…</p>
         </div>
