@@ -402,7 +402,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
             <button
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
-              title="Close"
+              aria-label="Close"
             >
               <X size={20} />
             </button>

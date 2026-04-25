@@ -145,6 +145,20 @@ router.post('/kanban', async (req: Request, res: Response) => {
         if (bcRaw === 'other') bcRaw = 'm';
         const boardColumn =
           typeof bcRaw === 'string' && validBoardColumns.has(bcRaw) ? bcRaw : undefined;
+        const coRaw = (p as any).columnOrder;
+        const columnOrder =
+          typeof coRaw === 'number' && Number.isFinite(coRaw)
+            ? Math.max(0, Math.min(999, Math.floor(coRaw)))
+            : undefined;
+        const tagsRaw = (p as any).tags;
+        const tags = Array.isArray(tagsRaw)
+          ? (tagsRaw as unknown[])
+              .filter((t) => typeof t === 'string')
+              .map((t) => (t as string).trim().toLowerCase().slice(0, 40))
+              .filter(Boolean)
+              .filter((t, i, a) => a.indexOf(t) === i)
+              .slice(0, 20)
+          : undefined;
         const todosRaw = Array.isArray((p as any).todos) ? (p as any).todos : [];
         const todos = todosRaw
           .filter((t: any) => t && typeof t === 'object')
@@ -164,6 +178,8 @@ router.post('/kanban', async (req: Request, res: Response) => {
               admitted,
               todos,
               ...(boardColumn ? { boardColumn } : {}),
+              ...(columnOrder !== undefined ? { columnOrder } : {}),
+              ...(tags && tags.length ? { tags } : {}),
             }
           : null;
       })

@@ -87,7 +87,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
       if (next) {
         setDraft(cloneRow(next));
         onRowUpdated?.(next);
-        onToast?.('Saved (mock).', 'success');
+        onToast?.('Saved.', 'success');
         setEditing(false);
       }
     } finally {
@@ -420,10 +420,6 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                   </div>
                   <div className="min-w-0 space-y-1">
                     <p className="text-sm font-semibold text-slate-900">Download authorization slip</p>
-                    <p className="text-xs text-slate-600 leading-relaxed max-w-md">
-                      Generates a neat PDF summary for funding or authorization (mock). Use when the clinical
-                      fields above are complete.
-                    </p>
                   </div>
                 </div>
                 <button
@@ -439,10 +435,7 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                 </button>
               </div>
               {onOpenPatient ? (
-                <p className="text-xs text-slate-500">
-                  Consent and other documents for this patient live in their HALO folder — switch to{' '}
-                  <strong className="text-slate-700">Patients</strong> and open the matching record.
-                </p>
+                <p className="text-xs text-slate-500">Consent and other documents live in the patient folder.</p>
               ) : null}
             </div>
           </section>
@@ -470,49 +463,49 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
         aria-modal="true"
         aria-labelledby="pending-procedure-detail-title"
       >
-        <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 pr-14 relative">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-3 top-3 p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            aria-label="Close"
+          >
+            <X size={20} />
+          </button>
           <div>
             <h2 id="pending-procedure-detail-title" className="text-lg font-bold text-slate-800">
               {titleName || 'Pending procedure'}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">{bucketLabel} — full detail (mock).</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {editing ? (
-              <>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {editing ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={cancelEdit}
+                    className="inline-flex items-center px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void save()}
+                    className="px-3 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold disabled:opacity-60"
+                  >
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                </>
+              ) : (
                 <button
                   type="button"
-                  onClick={cancelEdit}
-                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50"
+                  onClick={() => setEditing(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-teal-100"
+                  aria-label="Edit row"
                 >
-                  <X size={16} /> Cancel
+                  <Pencil size={16} /> Edit
                 </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void save()}
-                  className="px-3 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold disabled:opacity-60"
-                >
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-teal-100"
-                aria-label="Edit row"
-              >
-                <Pencil size={16} /> Edit
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="shrink-0 text-sm text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-100"
-            >
-              Close
-            </button>
+              )}
+            </div>
           </div>
         </div>
 

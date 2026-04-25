@@ -321,19 +321,14 @@ export const CalendarPage: React.FC<Props> = ({
   }, [currentRange]);
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
+    <div className="flex min-h-0 flex-1 flex-col bg-white">
+      <div className="flex shrink-0 items-center justify-between px-6 py-3 border-b border-slate-200 bg-white">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-xl bg-teal-100 flex items-center justify-center">
             <CalendarIcon className="text-teal-600" size={18} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-800 tracking-tight">
-              Schedule
-            </h1>
-            <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">
-              Calendar &middot; {timeZone}
-            </p>
+            <h1 className="text-xl font-bold text-slate-800 tracking-tight">Schedule</h1>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -353,27 +348,24 @@ export const CalendarPage: React.FC<Props> = ({
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors"
+              className="inline-flex items-center justify-center rounded-full border border-slate-200 p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Close"
             >
-              <X className="w-3 h-3" />
-              Close
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>
       </div>
 
-      <div className="flex-1 bg-slate-50">
-        <div className="max-w-6xl mx-auto h-full px-4 py-4 md:px-6 md:py-6">
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 h-full flex flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
+        <div className="max-w-6xl mx-auto flex h-full min-h-0 w-full flex-1 flex-col px-4 py-3 md:px-6 md:py-4">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 <Users className="w-3.5 h-3.5 text-teal-500" />
                 <span>Day / Week / Month</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-[11px] text-slate-400">
-                  Drag to move &middot; Click to edit
-                </span>
                 <div className="flex items-center gap-2">
                   <label className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">
                     Theatre
@@ -393,7 +385,7 @@ export const CalendarPage: React.FC<Props> = ({
                 </div>
               </div>
             </div>
-            <div className="flex-1">
+            <div className="min-h-0 flex-1">
               <FullCalendar
                 plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
                 initialView="timeGridWeek"
@@ -440,9 +432,6 @@ export const CalendarPage: React.FC<Props> = ({
                 >
                   {editorState.id ? 'Edit booking' : 'New booking'}
                 </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Quickly schedule sessions, then drag to adjust.
-                </p>
               </div>
               <button
                 type="button"
@@ -665,19 +654,12 @@ export const CalendarPage: React.FC<Props> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-              <div>
-                <h2 className="text-lg font-bold text-slate-800">
-                  Attach files to booking
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Choose files from the patient&apos;s Drive folder to keep this visit
-                  organised.
-                </p>
-              </div>
+              <h2 className="text-lg font-bold text-slate-800">Attach files to booking</h2>
               <button
                 type="button"
                 onClick={() => setAttachmentsOpen(false)}
                 className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -720,20 +702,12 @@ export const CalendarPage: React.FC<Props> = ({
                 </div>
               )}
             </div>
-            <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between gap-3 bg-slate-50/70">
+            <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3 bg-slate-50/70">
               <span className="text-[11px] text-slate-500">
                 {selectedAttachmentIds.length} file
                 {selectedAttachmentIds.length === 1 ? '' : 's'} attached
               </span>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAttachmentsOpen(false)}
-                  className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                  disabled={attachmentLoading}
-                >
-                  Close
-                </button>
                 <button
                   type="button"
                   onClick={saveAttachments}

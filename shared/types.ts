@@ -229,6 +229,10 @@ export interface AdmittedPatientKanban {
   todos: KanbanTodoItem[];
   /** Trello-style ward column; drag to change. Omitted → derived from Hospital ward when known. */
   boardColumn?: WardBoardColumnId;
+  /** Order within `boardColumn` (0 = top). Persisted for drag-reorder within a ward. */
+  columnOrder?: number;
+  /** User tags on the ward card (e.g. seen, unseen, custom). */
+  tags?: string[];
 }
 
 export interface DoctorDiaryEntry {

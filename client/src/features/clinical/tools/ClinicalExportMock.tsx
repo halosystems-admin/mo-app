@@ -228,7 +228,7 @@ export async function downloadTheatreListPdf(settings?: UserSettings | null): Pr
   doc.save('halo-theatre-list-mock.pdf');
 }
 
-/** Styled A-slip PDF — letterhead from Settings + card layout (mock). */
+/** Styled A-slip PDF — letterhead from Settings + card layout. */
 export async function downloadAslipPdf(
   data?: Partial<AslipSummaryFields>,
   settings?: UserSettings | null
@@ -352,7 +352,7 @@ export async function downloadAslipPdf(
     doc.text('No patient summary attached', margin + 6, y + 12);
     doc.setFontSize(8);
     doc.setTextColor(...SLATE_MUTED);
-    doc.text('Fill the A-slip form in HALO Hospital (mock), then download again.', margin + 6, y +20);
+    doc.text('Fill the A-slip form in HALO Hospital, then download again.', margin + 6, y +20);
   }
 
   doc.save('halo-aslip-mock.pdf');

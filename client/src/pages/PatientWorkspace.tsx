@@ -41,10 +41,11 @@ import {
 } from '../services/api';
 import { uploadAndExtractSmartContext } from '../services/smartContext';
 import {
-  Upload, CheckCircle2, ChevronLeft, Loader2,
+  Upload, CheckCircle2, ChevronLeft, Loader2, Camera,
   CloudUpload, Pencil, X, Trash2, FolderOpen, MessageCircle,
   FolderPlus, ChevronRight, ExternalLink, FileText, Layers, Plus,
   History,
+  Captions,
 } from 'lucide-react';
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
@@ -57,6 +58,13 @@ import { getErrorMessage } from '../utils/formatting';
 import { CLINICAL_BTN_PRIMARY } from '../features/clinical/shared/tableScrollClasses';
 
 const MAX_MAIN_COMPLAINT_LEN = 80;
+
+/** Shared shell for Note fields / Transcription / Smart context (visual parity). */
+const EDITOR_VIEW_SHELL =
+  'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60';
+const EDITOR_VIEW_HEADER =
+  'flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2.5';
+const EDITOR_VIEW_TITLE = 'text-[11px] font-semibold uppercase tracking-wide text-slate-500';
 
 /** Internal scribe state file — never list in browser/context picker (still stored in cloud). */
 const SCRIBE_SESSIONS_FILE_NAME = 'halo_scribe_sessions.json';
@@ -232,7 +240,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   useEffect(() => {
     if (typeof consultSubTab === 'number' && (consultSubTab < 0 || consultSubTab >= notes.length)) {
-      setConsultSubTab(notes.length > 0 ? 0 : 'context');
+      setConsultSubTab(0);
     }
   }, [consultSubTab, notes.length]);
 
@@ -253,10 +261,21 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [contextDriveLoading, setContextDriveLoading] = useState(false);
   const [contextDriveSelectedIds, setContextDriveSelectedIds] = useState<string[]>([]);
   const contextUploadInputRef = useRef<HTMLInputElement>(null);
+  const [showContextUploadChooser, setShowContextUploadChooser] = useState(false);
+  const contextCameraInputRef = useRef<HTMLInputElement>(null);
+  const contextPhotoInputRef = useRef<HTMLInputElement>(null);
   const [contextEnrichBusy, setContextEnrichBusy] = useState(false);
   const [contextSaveBusy, setContextSaveBusy] = useState(false);
+  /** Editor sub-view: template note, raw transcript, or smart context (toolbar switches). */
+  const [editorPanelView, setEditorPanelView] = useState<'noteFields' | 'transcription' | 'smartContext'>(
+    'noteFields'
+  );
 
   const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
+
+  useEffect(() => {
+    if (activeTab !== 'notes') setEditorPanelView('noteFields');
+  }, [activeTab]);
 
   // Load folder contents (with loading indicator)
   const loadFolderContents = useCallback(async (folderId: string) => {
@@ -428,7 +447,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   };
 
   const handleContextUploadClick = () => {
-    contextUploadInputRef.current?.click();
+    setShowContextUploadChooser(true);
   };
 
   const handleConsultContextFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -493,7 +512,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       await silentRefresh();
       onDataChange();
       onToast('Appended to record PDF.', 'success');
-      setConsultSubTab('transcript');
+      if (notes.length > 0) setConsultSubTab(0);
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
     } finally {
@@ -785,8 +804,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     async (transcriptToUse: string, isAddNote: boolean) => {
       const trimmedTranscript = transcriptToUse.trim();
       const noteInput = buildNoteGenerationInput(trimmedTranscript, consultContext);
-      if (selectedTemplatesForGenerate.length !== 1) {
-        onToast('Choose exactly one template.', 'info');
+      if (selectedTemplatesForGenerate.length === 0) {
+        onToast('Choose at least one template.', 'info');
         return;
       }
       if (!trimmedTranscript) {
@@ -970,8 +989,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     [activeSessionId, generateNotesFromTranscript, lastTranscript, notes.length]
   );
 
-  const selectSingleTemplateForGenerate = useCallback((id: string) => {
-    setSelectedTemplatesForGenerate((prev) => (prev[0] === id ? [] : [id]));
+  const toggleTemplateForGenerate = useCallback((id: string) => {
+    setSelectedTemplatesForGenerate((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   }, []);
   const NOTE_GENERATION_STEPS = [
     'Looking at context',
@@ -1219,7 +1240,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         setShowAddNoteModal(false);
         setConsultContext('');
         setNotes([]);
-        setConsultSubTab('transcript');
+        setConsultSubTab(0);
         setActiveTab('notes');
         setPendingLongitudinalImage(null);
         setSelectedTemplatesForGenerate([]);
@@ -1236,7 +1257,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       setConsultContext(session.context || '');
 
       if (Array.isArray(session.templates) && session.templates.length > 0) {
-        setSelectedTemplatesForGenerate([session.templates[0]]);
+        setSelectedTemplatesForGenerate(session.templates.filter((t): t is string => typeof t === 'string' && !!t.trim()));
       } else {
         setSelectedTemplatesForGenerate([]);
       }
@@ -1258,7 +1279,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         setConsultSubTab(0);
       } else {
         setNotes([]);
-        setConsultSubTab('transcript');
+        setConsultSubTab(0);
       }
 
       setActiveTab('notes');
@@ -1284,16 +1305,16 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   }, [isGeneratingNotes]);
 
   return (
-    <div className="flex flex-col h-full bg-halo-bg relative w-full">
+    <div className="flex min-h-0 flex-1 flex-col bg-halo-bg relative w-full">
       {/* Header */}
-      <div className="border-b border-halo-border pl-14 pr-3 md:px-6 py-1.5 flex flex-col md:flex-row md:justify-between md:items-center bg-halo-card shadow-[var(--shadow-halo-soft)] z-10 gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="border-b border-halo-border pl-14 pr-3 md:px-6 py-2.5 flex flex-col md:flex-row md:items-center md:justify-between bg-halo-card shadow-[var(--shadow-halo-soft)] z-10 gap-2">
+        <div className="flex items-center gap-2 min-w-0 md:items-center">
           <button onClick={onBack} className="md:hidden p-1.5 text-slate-500 hover:text-teal-500 rounded-full">
             <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="group relative min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <h1 className="text-lg md:text-xl font-semibold text-halo-text tracking-tight truncate">{patient.name}</h1>
+              <h1 className="text-2xl font-semibold text-halo-text tracking-tight leading-snug truncate">{patient.name}</h1>
               <button onClick={startEditPatient} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-halo-text-secondary hover:text-halo-primary hover:bg-halo-primary-muted rounded-full shrink-0">
                 <Pencil size={14} />
               </button>
@@ -1301,7 +1322,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           </div>
         </div>
 
-        <div className="flex w-full flex-col items-stretch gap-1.5 md:w-auto md:items-end">
+        <div className="flex w-full flex-col items-stretch gap-1.5 md:w-auto md:flex-row md:items-center md:justify-end">
           {status === AppStatus.UPLOADING ? (
             <div className="w-44">
               <div className="mb-0.5 flex justify-between text-[10px] font-semibold text-teal-700/90">
@@ -1352,6 +1373,21 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 accept="image/*,application/pdf,.pdf,.doc,.docx,.txt,.csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
                 onChange={(ev) => void handleConsultContextFileUpload(ev)}
               />
+              <input
+                ref={contextCameraInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*"
+                capture="environment"
+                onChange={(ev) => void handleConsultContextFileUpload(ev)}
+              />
+              <input
+                ref={contextPhotoInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*"
+                onChange={(ev) => void handleConsultContextFileUpload(ev)}
+              />
             </>
           )}
           {uploadMessage && status !== AppStatus.UPLOADING && (
@@ -1363,8 +1399,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-3 md:p-4 bg-halo-bg">
-        <div className="w-full max-w-[min(96rem,100%)] mx-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-halo-bg p-3 md:p-4">
+        <div className="mx-auto flex w-full max-w-[min(96rem,100%)] min-h-0 flex-1 flex-col">
           {/* AI Panel */}
           {activeTab === 'overview' && hasAiContent && showAiPanel && (
             <div className="mb-3 space-y-3">
@@ -1399,10 +1435,22 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
           {/* CTA to generate insights (only when not yet generated) */}
           {/* Tabs */}
-          <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-b border-halo-border mb-2">
+          <div className="mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-b border-slate-200/70 mb-4">
             <div className="flex gap-2 md:gap-4 overflow-x-auto items-center min-w-0">
               <button onClick={() => setActiveTab('overview')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>Files</button>
-              <button onClick={() => setActiveTab('notes')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>Editor</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('notes');
+                }}
+                className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${
+                  activeTab === 'notes'
+                    ? 'border-halo-primary text-halo-text'
+                    : 'border-transparent text-halo-muted hover:text-halo-text-secondary'
+                }`}
+              >
+                Editor
+              </button>
               <button onClick={() => setActiveTab('chat')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>
               <MessageCircle size={14} className="shrink-0" /> Ask HALO
               </button>
@@ -1443,6 +1491,64 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             })()}
           </div>
 
+          {activeTab === 'notes' && showContextUploadChooser ? (
+            <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-900/40 p-3 md:items-center">
+              <div
+                className="absolute inset-0"
+                onClick={() => setShowContextUploadChooser(false)}
+                role="button"
+                tabIndex={0}
+              />
+              <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowContextUploadChooser(false)}
+                    className="p-2 rounded-lg text-slate-400 hover:bg-slate-100"
+                    aria-label="Close"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="p-3 space-y-2">
+                  <button
+                    type="button"
+                    disabled={contextEnrichBusy}
+                    onClick={() => {
+                      setShowContextUploadChooser(false);
+                      contextCameraInputRef.current?.click();
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-teal-600/20 disabled:opacity-50"
+                  >
+                    <Camera className="w-4 h-4" /> Take photo
+                  </button>
+                  <button
+                    type="button"
+                    disabled={contextEnrichBusy}
+                    onClick={() => {
+                      setShowContextUploadChooser(false);
+                      contextPhotoInputRef.current?.click();
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <Upload className="w-4 h-4" /> Choose photo
+                  </button>
+                  <button
+                    type="button"
+                    disabled={contextEnrichBusy}
+                    onClick={() => {
+                      setShowContextUploadChooser(false);
+                      contextUploadInputRef.current?.click();
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <CloudUpload className="w-4 h-4" /> Browse files
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {activeTab === 'overview' ? (
             <FileBrowser
               files={files}
@@ -1457,10 +1563,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               onCreateFolder={() => setShowCreateFolderModal(true)}
               onPatientUpload={openUploadPicker}
               uploadBusy={status === AppStatus.UPLOADING}
-              onOpenSmartContext={() => {
-                setActiveTab('notes');
-                setConsultSubTab('context');
-              }}
             />
           ) : activeTab === 'sessions' ? (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -1475,9 +1577,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
                   </div>
                 ) : sessions.length === 0 ? (
-                  <p className="text-sm text-slate-500 py-8 text-center">
-                    No previous sessions yet. Use Editor to record or add Smart context.
-                  </p>
+                  <div className="py-12" aria-hidden />
                 ) : (
                   <ul className="space-y-2">
                     {sessions.map((session) => {
@@ -1521,170 +1621,226 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               </div>
             </div>
           ) : activeTab === 'notes' ? (
-            <>
-              {/* Current session: transcript when modal is open, or main content when not */}
-              <div className="h-[calc(100svh-180px)] max-h-[640px] min-h-[300px] flex flex-col bg-white rounded-xl border border-slate-200/90 overflow-hidden relative shadow-sm">
+            <div className="flex min-h-0 flex-1 flex-col">
+              {/* Editor workspace: fills remaining viewport height */}
+              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70">
                 {pendingTranscript ? (
-                  <div className="flex-1 flex flex-col p-3 overflow-auto bg-slate-50/80">
-                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{pendingTranscript}</p>
+                  <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/90 p-4">
+                    <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{pendingTranscript}</p>
                   </div>
                 ) : (
                   <>
-                    <div className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 border-b border-slate-200/90 bg-slate-50/40">
-                      <button
-                        type="button"
-                        onClick={() => setConsultSubTab('context')}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all border ${
-                          consultSubTab === 'context'
-                            ? 'bg-teal-500 text-white border-teal-500 shadow-sm'
-                            : 'bg-white border-slate-200/90 text-slate-600 hover:border-teal-500/25'
-                        }`}
-                      >
-                        <Layers className="w-3 h-3 opacity-90" /> Smart context
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConsultSubTab('transcript')}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all border ${
-                          consultSubTab === 'transcript'
-                            ? 'bg-teal-500 text-white border-teal-500 shadow-sm'
-                            : 'bg-white border-slate-200/90 text-slate-600 hover:border-teal-500/25'
-                        }`}
-                      >
-                        <FileText className="w-3 h-3 opacity-90" /> Transcript
-                      </button>
-                      {notes.length > 0 ? (
-                        <>
-                          <div className="w-px h-4 bg-slate-200 mx-0.5" />
-                          {notes.map((note, i) => (
-                            <button
-                              key={note.noteId}
-                              type="button"
-                              onClick={() => {
-                                setConsultSubTab(i);
-                                setActiveNoteIndex(i);
-                              }}
-                              className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border transition-all ${
-                                consultSubTab === i
-                                  ? 'bg-teal-500/12 border-teal-500/35 text-teal-900'
-                                  : 'bg-white border-slate-200/90 text-slate-600 hover:border-teal-500/20'
-                              }`}
-                            >
-                              {note.title || `Note ${i + 1}`}
-                            </button>
-                          ))}
-                        </>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowAddNoteModal(true);
-                          setSelectedTemplatesForGenerate([]);
-                        }}
-                        className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 border border-slate-200/90 bg-white hover:border-teal-500/30 hover:text-teal-800 transition"
-                        title="Add note"
-                        aria-label="Add note"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    {notes.length === 0 && consultSubTab === 'transcript' && !isGeneratingNotes ? (
-                      <p className="px-3 py-1 text-[10px] text-slate-500 border-b border-slate-100 bg-white">
-                        Record above, or use <span className="font-semibold text-teal-800">Smart context</span> for scans and photos.
-                      </p>
-                    ) : null}
-                    {consultSubTab === 'transcript' ? (
-                      <div className="flex-1 overflow-auto bg-slate-50/50 p-3 min-h-0">
-                        <div className="flex items-center justify-between mb-1.5 gap-2">
-                          {isLiveStreaming ? (
-                            <span className="text-[10px] font-semibold text-teal-600">Live</span>
-                          ) : (
-                            <span />
-                          )}
+                    <div className="flex w-full min-w-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50/80 px-3 py-2.5">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                        {notes.length > 0 ? (
+                          <>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Notes</span>
+                            <div className="hidden h-4 w-px bg-slate-200 sm:block" aria-hidden />
+                            {notes.map((note, i) => (
+                              <button
+                                key={note.noteId}
+                                type="button"
+                                onClick={() => {
+                                  setConsultSubTab(i);
+                                  setActiveNoteIndex(i);
+                                }}
+                                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10px] font-semibold transition-all ${
+                                  consultSubTab === i
+                                    ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/20'
+                                    : 'bg-white text-slate-600 ring-1 ring-slate-200/80 hover:ring-teal-300/60'
+                                }`}
+                              >
+                                {note.title || `Note ${i + 1}`}
+                              </button>
+                            ))}
+                          </>
+                        ) : null}
+                        <div
+                          className="flex flex-wrap items-center gap-1.5"
+                          role="tablist"
+                          aria-label="Editor view"
+                        >
                           <button
                             type="button"
-                            onClick={handleCopyTranscript}
-                            disabled={!currentTranscript.trim()}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-slate-200/90 bg-white text-[10px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                            role="tab"
+                            aria-selected={editorPanelView === 'noteFields'}
+                            onClick={() => setEditorPanelView('noteFields')}
+                            className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-xs font-semibold shadow-[var(--shadow-halo-soft)] transition-all ${
+                              editorPanelView === 'noteFields'
+                                ? 'bg-white text-teal-900 ring-2 ring-teal-500/45'
+                                : 'bg-white/90 text-slate-600 ring-1 ring-slate-200/80 hover:bg-white hover:ring-teal-300/50'
+                            }`}
                           >
-                            {didCopyTranscript ? 'Copied' : 'Copy'}
+                            <FileText className="size-3.5 shrink-0" aria-hidden />
+                            Note fields
                           </button>
-                        </div>
-                        <div className="min-h-[220px] rounded-lg border border-slate-200/90 bg-white px-3 py-2 text-sm text-slate-700 whitespace-pre-wrap overflow-y-auto">
-                          {isGeneratingNotes
-                            ? 'Generating notes…'
-                            : currentTranscript || 'No transcript yet.'}
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={editorPanelView === 'transcription'}
+                            onClick={() => setEditorPanelView('transcription')}
+                            className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-xs font-semibold shadow-[var(--shadow-halo-soft)] transition-all ${
+                              editorPanelView === 'transcription'
+                                ? 'bg-white text-teal-900 ring-2 ring-teal-500/45'
+                                : 'bg-white/90 text-slate-600 ring-1 ring-slate-200/80 hover:bg-white hover:ring-teal-300/50'
+                            }`}
+                          >
+                            <Captions className="size-3.5 shrink-0" aria-hidden />
+                            Transcription
+                          </button>
                         </div>
                       </div>
-                    ) : consultSubTab === 'context' ? (
-                      <div className="flex-1 overflow-auto bg-slate-50/50 p-3 min-h-0 flex flex-col">
-                        <div className="flex flex-wrap items-center justify-end gap-1.5 mb-2">
-                          <button
-                            type="button"
-                            disabled={contextEnrichBusy}
-                            onClick={handleContextUploadClick}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200/90 bg-white text-[10px] font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-50"
-                          >
-                            {contextEnrichBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <CloudUpload className="w-3 h-3" />}
-                            {contextEnrichBusy ? '…' : 'Upload'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={openContextDrivePicker}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200/90 bg-white text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            <FolderOpen className="w-3 h-3" /> Drive
-                          </button>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={editorPanelView === 'smartContext'}
+                          id="editor-smart-context-tab"
+                          aria-controls="editor-smart-context-panel"
+                          onClick={() => setEditorPanelView('smartContext')}
+                          className={`inline-flex items-center gap-2 rounded-[10px] px-3 py-1.5 text-xs font-semibold text-white shadow-[var(--shadow-halo-soft)] transition-all bg-halo-primary hover:bg-halo-primary-hover ${
+                            editorPanelView === 'smartContext'
+                              ? 'ring-2 ring-white/90 ring-offset-2 ring-offset-slate-100'
+                              : ''
+                          }`}
+                        >
+                          <Layers className="size-3.5 shrink-0 text-white" aria-hidden />
+                          Smart context
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddNoteModal(true);
+                            setSelectedTemplatesForGenerate([]);
+                          }}
+                          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-teal-700 ring-1 ring-teal-200/80 bg-teal-50/80 hover:bg-teal-100/90 transition"
+                          title="Add note"
+                          aria-label="Add note"
+                        >
+                          <Plus className="size-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex min-h-0 flex-1 flex-col bg-slate-100/50 p-2 md:p-3">
+                      {editorPanelView === 'noteFields' ? (
+                        <div className={`${EDITOR_VIEW_SHELL} min-h-[240px] lg:min-h-0`}>
+                          <div className={EDITOR_VIEW_HEADER}>
+                            <span className={EDITOR_VIEW_TITLE}>Note fields</span>
+                          </div>
+                          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+                            {typeof consultSubTab === 'number' && notes[consultSubTab] ? (
+                              <NoteEditor
+                                notes={notes}
+                                activeIndex={consultSubTab}
+                                onActiveIndexChange={(i) => {
+                                  setConsultSubTab(i);
+                                  setActiveNoteIndex(i);
+                                }}
+                                onNoteChange={handleNoteChange}
+                                onRegeneratePdf={handleRegeneratePdf}
+                                status={status}
+                                templateId={templateId}
+                                templateOptions={templateOptions}
+                                onTemplateChange={setTemplateId}
+                                onSaveAsDocx={handleSaveAsDocx}
+                                onSaveAll={handleSaveAll}
+                                onEmail={handleEmail}
+                                savingNoteIndex={savingNoteIndex}
+                                regeneratingPdfIndex={regeneratingPdfIndex}
+                                showNoteTabs={false}
+                              />
+                            ) : (
+                              <div className="flex min-h-0 flex-1 bg-slate-50/80" aria-hidden />
+                            )}
+                          </div>
                         </div>
-                        {consultContext.trim() ? (
-                          <div className="mb-2 flex flex-wrap items-center justify-end gap-2 rounded-lg border border-teal-500/15 bg-teal-500/6 px-2 py-1.5">
+                      ) : editorPanelView === 'transcription' ? (
+                        <div className={EDITOR_VIEW_SHELL}>
+                          <div className={EDITOR_VIEW_HEADER}>
+                            <div className="flex items-center gap-2">
+                              <span className={EDITOR_VIEW_TITLE}>Transcription</span>
+                              {isLiveStreaming ? (
+                                <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-teal-800">
+                                  Live
+                                </span>
+                              ) : null}
+                            </div>
                             <button
                               type="button"
-                              disabled={contextSaveBusy || contextEnrichBusy}
-                              onClick={() => void handleContextDoneSave()}
-                              title="Append to cumulative history PDF in Patient Notes"
-                              className={`${CLINICAL_BTN_PRIMARY}`}
+                              onClick={handleCopyTranscript}
+                              disabled={!currentTranscript.trim()}
+                              className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 hover:bg-slate-50 disabled:opacity-40"
                             >
-                              {contextSaveBusy ? (
-                                <>
-                                  <Loader2 className="w-3 h-3 animate-spin" /> …
-                                </>
-                              ) : (
-                                'Save to record'
-                              )}
+                              {didCopyTranscript ? 'Copied' : 'Copy'}
                             </button>
                           </div>
-                        ) : null}
-                        <textarea
-                          value={consultContext}
-                          onChange={(e) => setConsultContext(e.target.value)}
-                          rows={8}
-                          placeholder="Type context, or upload a scan / photo — HALO extracts text and describes findings for note generation."
-                          className="w-full flex-1 min-h-[220px] resize-none rounded-lg border border-slate-200/90 bg-white px-3 py-2 text-sm text-slate-800 placeholder-slate-400/90 focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/20 outline-none"
-                        />
-                      </div>
-                    ) : typeof consultSubTab === 'number' && notes[consultSubTab] ? (
-                      <NoteEditor
-                        notes={notes}
-                        activeIndex={consultSubTab}
-                        onActiveIndexChange={(i) => {
-                          setConsultSubTab(i);
-                          setActiveNoteIndex(i);
-                        }}
-                        onNoteChange={handleNoteChange}
-                        onRegeneratePdf={handleRegeneratePdf}
-                        status={status}
-                        templateId={templateId}
-                        templateOptions={templateOptions}
-                        onTemplateChange={setTemplateId}
-                        onSaveAsDocx={handleSaveAsDocx}
-                        onSaveAll={handleSaveAll}
-                        onEmail={handleEmail}
-                        savingNoteIndex={savingNoteIndex}
-                        regeneratingPdfIndex={regeneratingPdfIndex}
-                        showNoteTabs={false}
-                      />
-                    ) : null}
+                          <div className="min-h-0 flex-1 overflow-auto bg-white p-3 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                            {isGeneratingNotes ? (
+                              <span className="inline-flex items-center gap-2 text-slate-500">
+                                <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden />
+                              </span>
+                            ) : (
+                              currentTranscript
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          id="editor-smart-context-panel"
+                          role="tabpanel"
+                          aria-labelledby="editor-smart-context-tab"
+                          className={EDITOR_VIEW_SHELL}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className={EDITOR_VIEW_HEADER}>
+                            <span className={EDITOR_VIEW_TITLE}>Smart context</span>
+                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                disabled={contextEnrichBusy}
+                                onClick={handleContextUploadClick}
+                                className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                {contextEnrichBusy ? <Loader2 className="size-3 animate-spin" /> : <CloudUpload className="size-3" />}
+                                {contextEnrichBusy ? '…' : 'Upload'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={openContextDrivePicker}
+                                className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 shadow-sm hover:bg-slate-50"
+                              >
+                                <FolderOpen className="size-3" /> Drive
+                              </button>
+                              {consultContext.trim() ? (
+                                <button
+                                  type="button"
+                                  disabled={contextSaveBusy || contextEnrichBusy}
+                                  onClick={() => void handleContextDoneSave()}
+                                  title="Append to cumulative history PDF in Patient Notes"
+                                  className={CLINICAL_BTN_PRIMARY}
+                                >
+                                  {contextSaveBusy ? (
+                                    <>
+                                      <Loader2 className="size-3 animate-spin" /> …
+                                    </>
+                                  ) : (
+                                    'Save to record'
+                                  )}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="flex min-h-0 flex-1 flex-col bg-white p-3">
+                            <textarea
+                              value={consultContext}
+                              onChange={(e) => setConsultContext(e.target.value)}
+                              className="min-h-0 w-full flex-1 resize-y rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400/60 focus:outline-none focus:ring-2 focus:ring-teal-500/20 md:min-h-[12rem]"
+                              placeholder="Paste or upload context for this consultation…"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
@@ -1700,9 +1856,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   >
                     <div className="px-4 pt-3 pb-2 border-b border-halo-border">
                       <h3 id="template-modal-title" className="text-sm font-semibold text-halo-text">
-                        {showAddNoteModal ? 'Add note — choose one template' : 'Choose one note template'}
+                        {showAddNoteModal ? 'Add note' : 'Templates'}
                       </h3>
-                      <p className="mt-0.5 text-[11px] text-halo-muted">Select a single template, then continue.</p>
                     </div>
                     <div className="px-4 pb-4 pt-3 space-y-3">
                       {/* Hospital toggle */}
@@ -1731,8 +1886,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                           type="text"
                           value={templateSearch}
                           onChange={e => setTemplateSearch(e.target.value)}
-                          placeholder="Search templates…"
-                          className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-slate-50/80 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/15 outline-none"
+                          className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-slate-50/80 text-xs text-slate-800 focus:bg-white focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/15 outline-none"
                         />
                       </div>
                       <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200/80 bg-slate-50/40 divide-y divide-slate-100/90">
@@ -1748,7 +1902,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                               <button
                                 key={t.id}
                                 type="button"
-                                onClick={() => selectSingleTemplateForGenerate(t.id)}
+                                onClick={() => toggleTemplateForGenerate(t.id)}
                                 className={`w-full px-3 py-2 flex items-center justify-between text-xs font-medium transition-all ${
                                   selected
                                     ? 'bg-white text-teal-900'
@@ -1781,10 +1935,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         <button
                           type="button"
                           onClick={handleGenerateFromTemplates}
-                          disabled={selectedTemplatesForGenerate.length !== 1 || isGeneratingNotes}
+                          disabled={selectedTemplatesForGenerate.length === 0 || isGeneratingNotes}
                           className="px-2.5 py-1 rounded-[10px] text-[11px] font-semibold bg-halo-primary text-white hover:bg-halo-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition shadow-[var(--shadow-halo-soft)]"
                         >
-                          {isGeneratingNotes ? '…' : showAddNoteModal ? 'Add note' : 'Generate note'}
+                          {isGeneratingNotes ? '…' : 'Continue'}
                         </button>
                         <button
                           type="button"
@@ -1811,7 +1965,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   </div>
                 </div>
               )}
-            </>
+            </div>
           ) : (
             <PatientChat
               patientName={patient.name}
@@ -1911,7 +2065,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="absolute top-0 left-0 w-16 h-16 border-4 border-teal-500 rounded-full border-t-transparent animate-spin"></div>
           </div>
           <p className="text-teal-900 font-bold text-lg mt-6">HALO is analyzing...</p>
-          <p className="text-slate-500 text-sm mt-1">Extracting clinical concepts &amp; tagging files</p>
         </div>
       )}
 
@@ -1922,7 +2075,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="absolute top-0 left-0 w-16 h-16 border-4 border-teal-500 rounded-full border-t-transparent animate-spin"></div>
           </div>
           <p className="text-teal-900 font-bold text-lg mt-6">Saving note as DOCX...</p>
-          <p className="text-slate-500 text-sm mt-1">Uploading to Patient Notes folder</p>
         </div>
       )}
 
@@ -1960,9 +2112,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 );
               })}
             </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              This usually takes a few seconds. You can continue reviewing the transcript while HALO prepares your notes.
-            </p>
           </div>
         </div>
       )}
@@ -2021,12 +2170,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-              <div className="flex flex-col">
-                <span className="text-sm font-semibold text-slate-800">Add files from storage</span>
-                <span className="text-xs text-slate-500">
-                  Choose files from this patient&apos;s storage folder to reference in your context.
-                </span>
-              </div>
+              <span className="text-sm font-semibold text-slate-800">Add files from storage</span>
               <button
                 onClick={() => {
                   setShowContextDrivePicker(false);
@@ -2150,9 +2294,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <div className="flex flex-col">
                 <span className="text-sm font-semibold text-slate-800">Ask HALO to draft a custom note</span>
-                <span className="text-xs text-slate-500">
-                  Describe what you need (e.g. &ldquo;Motivation for MRI&rdquo;, &ldquo;Sick note&rdquo;). HALO will draft it using this patient&rsquo;s documentation and transcript.
-                </span>
               </div>
               <button
                 onClick={() => {
@@ -2172,9 +2313,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 placeholder="e.g. Draft a medical motivation letter explaining why this patient requires a CT scan based on their current findings and history."
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none resize-none"
               />
-              <p className="text-[11px] text-slate-500">
-                HALO will use the same context as the <span className="font-semibold">Ask HALO</span> chat, plus your latest transcript, to generate the note.
-              </p>
             </div>
             <div className="px-5 py-4 border-t border-slate-100 flex gap-3 justify-end bg-slate-50/80">
               <button

@@ -4,14 +4,13 @@ import type { ClinicalWard, InpatientRecord } from '../../../types/clinical';
 import { getClinicalWards, updateInpatientRecord } from '../../../services/clinicalData';
 import { syncInpatientTasksToWardKanban } from '../../../services/wardKanbanSync';
 import { formatWardDisplay } from './clinicalDisplay';
-import { MessageCircle, Pencil, Phone, X } from 'lucide-react';
+import { MessageCircle, Mic, Pencil, Phone, X } from 'lucide-react';
 
 const inp =
   'w-full px-2 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400';
 
 interface Props {
   record: InpatientRecord;
-  onStartConsultation: () => void;
   onClose: () => void;
   /** Refetch lists / refresh selected record after a successful save. */
   onSaved?: () => void | Promise<void>;
@@ -20,16 +19,18 @@ interface Props {
   onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   /** Discharge flow (Hospital sheet + ward board + optional summary). Shown when admitted. */
   onRequestDischarge?: () => void;
+  /** Opens sheet dictation for this admission (surgeon plan, notes, ward tasks, etc.). */
+  onOpenDictate?: () => void;
 }
 
 export const InpatientDetailPanel: React.FC<Props> = ({
   record,
-  onStartConsultation,
   onClose,
   onSaved,
   patients = [],
   onToast,
   onRequestDischarge,
+  onOpenDictate,
 }) => {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -107,58 +108,69 @@ export const InpatientDetailPanel: React.FC<Props> = ({
         aria-modal="true"
         aria-labelledby="inpatient-profile-title"
       >
-        <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 pr-14 relative">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-3 top-3 p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            aria-label="Close"
+          >
+            <X size={20} />
+          </button>
           <div className="min-w-0">
             <h2 id="inpatient-profile-title" className="text-lg font-bold text-slate-800">
               {editing ? `${draft.firstName} ${draft.surname}` : `${record.firstName} ${record.surname}`}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Full admission detail —{' '}
-              <button
-                type="button"
-                className="text-teal-600 font-semibold hover:underline"
-                onClick={() => (editing ? cancelEdit() : setEditing(true))}
-              >
-                {editing ? 'Cancel editing' : 'tap pencil to edit (mock)'}
-              </button>
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {editing ? (
-              <>
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50"
-                >
-                  <X size={16} /> Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void save()}
-                  className="inline-flex items-center px-3 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 disabled:opacity-60"
-                >
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-teal-100 hover:text-teal-900"
-                aria-label="Edit record"
-              >
-                <Pencil size={16} /> Edit
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-sm text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-100"
-            >
-              Close
-            </button>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {editing ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={cancelEdit}
+                    className="inline-flex items-center px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void save()}
+                    className="inline-flex items-center px-3 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 disabled:opacity-60"
+                  >
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                  {onOpenDictate ? (
+                    <button
+                      type="button"
+                      onClick={onOpenDictate}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-teal-200 bg-teal-50/80 text-teal-900 text-sm font-semibold hover:bg-teal-100"
+                    >
+                      <Mic size={16} /> Dictate
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-sm font-semibold hover:bg-teal-100 hover:text-teal-900"
+                    aria-label="Edit record"
+                  >
+                    <Pencil size={16} /> Edit
+                  </button>
+                  {onOpenDictate ? (
+                    <button
+                      type="button"
+                      onClick={onOpenDictate}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-teal-200 bg-teal-50/80 text-teal-900 text-sm font-semibold hover:bg-teal-100"
+                    >
+                      <Mic size={16} /> Dictate
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -271,10 +283,6 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                       onChange={(e) => setTaskLine(e.target.value)}
                       placeholder="e.g. Bloods, Physio review"
                     />
-                    <span className="block text-[11px] text-slate-500 mt-1">
-                      If this admission is <strong>currently admitted</strong> and a HALO patient name matches,
-                      saving pushes these into <strong>Ward → To do</strong>. Drag tasks to Doing / Done on the board.
-                    </span>
                   </label>
                 </div>
               </section>
@@ -392,10 +400,6 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                 <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600">
                   Discharge & long-term follow-up
                 </h3>
-                <p className="text-[11px] text-slate-500">
-                  Use <strong className="text-slate-600">Ward To do</strong> for this admission&apos;s tasks. Fields below are for
-                  discharge and outpatient / long-term follow-up.
-                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <label className="block">
                     <span className="text-xs font-semibold text-slate-600">Date of discharge</span>
@@ -528,19 +532,11 @@ export const InpatientDetailPanel: React.FC<Props> = ({
               </section>
 
               <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={onStartConsultation}
-                  className="inline-flex items-center justify-center min-h-[44px] px-4 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold shadow-sm"
-                >
-                  Start consultation (mock)
-                </button>
                 {record.currentlyAdmitted && onRequestDischarge ? (
                   <button
                     type="button"
                     onClick={onRequestDischarge}
                     className="inline-flex items-center justify-center min-h-[44px] px-3 py-2 rounded-lg text-[11px] font-bold tracking-tight text-teal-800 bg-teal-100 border border-teal-300 hover:bg-teal-200"
-                    title="Discharge — updates Hospital sheet and ward board"
                   >
                     D/C
                   </button>

@@ -30,10 +30,56 @@ const WARDS: ClinicalWard[] = [
   'labour ward',
 ];
 
-function ip(
-  partial: Omit<InpatientRecord, 'id'> & { id: string }
-): InpatientRecord {
-  return { ...partial };
+/** Full inpatient shape minus `id` — merged under mock rows and `ip()`. */
+const INPATIENT_RECORD_DEFAULTS: Omit<InpatientRecord, 'id'> = {
+  currentlyAdmitted: true,
+  bed: '',
+  surname: '',
+  firstName: '',
+  admissionDiagnosis: '',
+  dateOfBirth: '',
+  idNumber: '',
+  sex: 'M',
+  age: 0,
+  medicalAid: '',
+  medicalAidNumber: '',
+  medicalAidPhone: undefined,
+  ward: 'medical ward',
+  dateOfAdmission: '',
+  dateOfReview: '',
+  sheetAdmissionDateKind: 'doa',
+  icd10Diagnoses: '',
+  procedure: '',
+  procedureCodes: '',
+  dateOfProcedure: '',
+  complications: '',
+  surgeonPlan: '',
+  managementPlan: '',
+  dateOfDischarge: '',
+  followUpPlan: '',
+  dateOfFollowUp: '',
+  inpatientNotes: '',
+  furtherComment: '',
+  folderNumber: '',
+  taskIndicators: [],
+  assignedDoctor: '',
+  contactNumber: '',
+  sheetStatus: 'elective',
+  taskPendingVericlaimDone: false,
+  taskDownloadSlipDone: false,
+};
+
+function ip(partial: Partial<Omit<InpatientRecord, 'id'>> & { id: string }): InpatientRecord {
+  const merged: InpatientRecord = {
+    ...INPATIENT_RECORD_DEFAULTS,
+    ...partial,
+    id: partial.id,
+  };
+  const contact =
+    (merged.contactNumber && merged.contactNumber.trim()) ||
+    (merged.medicalAidPhone && merged.medicalAidPhone.trim()) ||
+    '';
+  return { ...merged, contactNumber: contact };
 }
 
 export const MOCK_INPATIENTS: InpatientRecord[] = [
@@ -58,6 +104,8 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     procedureCodes: '30445',
     dateOfProcedure: '2026-03-30',
     complications: 'None',
+    surgeonPlan: 'Lap chole when stable',
+    managementPlan: 'IVAB, clear liquids',
     dateOfDischarge: '',
     followUpPlan: 'Bloods AM, physio review, OPD 2/52',
     dateOfFollowUp: '',
@@ -70,6 +118,11 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
       { label: 'OPD 2/52', urgent: false },
     ],
     assignedDoctor: 'Dr Patel',
+    sheetStatus: 'emergency',
+    taskPendingVericlaimDone: false,
+    taskDownloadSlipDone: false,
+    dateOfReview: '2026-04-01',
+    sheetAdmissionDateKind: 'fu',
   }),
   ip({
     id: 'in-2',
@@ -91,6 +144,8 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     procedureCodes: '49505',
     dateOfProcedure: '2026-04-01',
     complications: '',
+    surgeonPlan: 'Elective mesh repair',
+    managementPlan: 'Pre-op optimisation',
     dateOfDischarge: '',
     followUpPlan: 'Pre-op checklist, consent, starve from midnight',
     dateOfFollowUp: '',
@@ -99,6 +154,10 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     folderNumber: 'HALO-F4-2201',
     taskIndicators: [{ label: 'Pre-op checklist', urgent: false }],
     assignedDoctor: 'Dr Hoosen',
+    sheetStatus: 'elective',
+    taskPendingVericlaimDone: true,
+    taskDownloadSlipDone: false,
+    dateOfReview: '',
   }),
   ip({
     id: 'in-3',
@@ -120,6 +179,8 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     procedureCodes: '44950',
     dateOfProcedure: '2026-04-01',
     complications: 'None',
+    surgeonPlan: 'Appendicectomy completed',
+    managementPlan: 'Oral analgesia, early mobilisation',
     dateOfDischarge: '',
     followUpPlan: 'FBC/CRP trend, GP 1/52 wound check',
     dateOfFollowUp: '',
@@ -131,6 +192,11 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
       { label: 'GP review 1/52 — wound and diet', urgent: false },
     ],
     assignedDoctor: 'Dr Stanley',
+    sheetStatus: 'completed',
+    taskPendingVericlaimDone: true,
+    taskDownloadSlipDone: true,
+    dateOfReview: '2026-04-02',
+    sheetAdmissionDateKind: 'fu',
   }),
   ip({
     id: 'in-4',
@@ -152,6 +218,8 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     procedureCodes: '',
     dateOfProcedure: '',
     complications: '',
+    surgeonPlan: '',
+    managementPlan: 'IV antibiotics completed',
     dateOfDischarge: '2026-03-22',
     followUpPlan: '',
     dateOfFollowUp: '',
@@ -160,6 +228,10 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     folderNumber: 'HALO-MW-1100',
     taskIndicators: [{ label: 'Repeat CXR OPD', urgent: false }],
     assignedDoctor: 'Dr de Beer',
+    sheetStatus: 'completed',
+    taskPendingVericlaimDone: true,
+    taskDownloadSlipDone: true,
+    dateOfReview: '',
   }),
   ip({
     id: 'in-5',
@@ -181,6 +253,8 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     procedureCodes: '42820',
     dateOfProcedure: '2026-03-29',
     complications: 'Minor bleed',
+    surgeonPlan: 'ENT review PRN',
+    managementPlan: 'Analgesia, soft diet',
     dateOfDischarge: '',
     followUpPlan: 'ENT review 2/52, analgesia chart',
     dateOfFollowUp: '',
@@ -192,6 +266,11 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
       { label: 'ENT follow-up', urgent: false },
     ],
     assignedDoctor: 'Dr Strydom',
+    sheetStatus: 'elective',
+    taskPendingVericlaimDone: false,
+    taskDownloadSlipDone: true,
+    dateOfReview: '2026-04-03',
+    sheetAdmissionDateKind: 'fu',
   }),
   ip({
     id: 'in-6',
@@ -213,6 +292,8 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     procedureCodes: '27495',
     dateOfProcedure: '',
     complications: '',
+    surgeonPlan: 'IM nail when theatre available',
+    managementPlan: 'Traction, analgesia, DVT prophylaxis',
     dateOfDischarge: '',
     followUpPlan: 'Orthopaedics review, DVT prophylaxis, physio when cleared',
     dateOfFollowUp: '',
@@ -224,6 +305,10 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
       { label: 'Cross-match bloods today', urgent: true },
     ],
     assignedDoctor: 'Dr Patel',
+    sheetStatus: 'emergency',
+    taskPendingVericlaimDone: false,
+    taskDownloadSlipDone: false,
+    dateOfReview: '',
   }),
   ip({
     id: 'in-7',
@@ -245,6 +330,8 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     procedureCodes: '59514',
     dateOfProcedure: '2026-04-02',
     complications: 'None',
+    surgeonPlan: 'Elective CS',
+    managementPlan: 'Routine post-CS care',
     dateOfDischarge: '',
     followUpPlan: 'Wound check 1/52, contraception counselling',
     dateOfFollowUp: '',
@@ -253,6 +340,11 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
     folderNumber: 'HALO-LW-900',
     taskIndicators: [{ label: 'Wound check 1/52', urgent: false }],
     assignedDoctor: 'Dr Hoosen',
+    sheetStatus: 'elective',
+    taskPendingVericlaimDone: false,
+    taskDownloadSlipDone: false,
+    dateOfReview: '2026-04-03',
+    sheetAdmissionDateKind: 'fu',
   }),
 ];
 
@@ -270,7 +362,7 @@ function buildMockRounds(): SurgeonRoundRow[] {
     sex: p.sex,
     medicalAid: p.medicalAid,
     medicalAidNumber: p.medicalAidNumber,
-    contactNumber: p.medicalAidPhone ?? '',
+    contactNumber: p.contactNumber?.trim() || p.medicalAidPhone?.trim() || '',
     surgeon: (['Hoosain', 'Stanley', 'de Beer', 'Strydom'] as SurgeonName[])[i % 4],
     complications: p.complications || '—',
     surgeonPlan: 'Continue current management',
@@ -665,36 +757,11 @@ function newInpatientId(): string {
 /** Blank admission row for the mock Hospital sheet (before autofill). */
 export function createEmptyInpatientRecord(): InpatientRecord {
   const today = new Date().toISOString().slice(0, 10);
-  return {
+  return ip({
     id: newInpatientId(),
-    currentlyAdmitted: true,
-    bed: '',
-    surname: '',
-    firstName: '',
-    admissionDiagnosis: '',
     dateOfBirth: today,
-    idNumber: '',
-    sex: 'M',
-    age: 0,
-    medicalAid: '',
-    medicalAidNumber: '',
-    medicalAidPhone: undefined,
-    ward: 'medical ward',
     dateOfAdmission: today,
-    icd10Diagnoses: '',
-    procedure: '',
-    procedureCodes: '',
-    dateOfProcedure: '',
-    complications: '',
-    dateOfDischarge: '',
-    followUpPlan: '',
-    dateOfFollowUp: '',
-    inpatientNotes: '',
-    furtherComment: '',
-    folderNumber: '',
-    taskIndicators: [],
-    assignedDoctor: '',
-  };
+  });
 }
 
 /** Append a new mock inpatient (in-memory until page reload). */
@@ -976,39 +1043,14 @@ export function inpatientToAslipSummary(p: InpatientRecord): AslipSummaryFields 
 }
 
 export function createEmptyOtherSurgeonDraft(): OtherSurgeonInpatientDraft {
-  return {
+  const base = ip({
     id: 'draft',
-    currentlyAdmitted: true,
-    bed: '',
-    surname: '',
-    firstName: '',
-    admissionDiagnosis: '',
     dateOfBirth: '',
-    idNumber: '',
-    sex: 'M',
-    age: 0,
-    medicalAid: '',
-    medicalAidNumber: '',
     ward: 'S-ward (5th)',
     dateOfAdmission: new Date().toISOString().slice(0, 10),
-    icd10Diagnoses: '',
-    procedure: '',
-    procedureCodes: '',
-    dateOfProcedure: '',
-    complications: '',
-    dateOfDischarge: '',
-    followUpPlan: '',
-    dateOfFollowUp: '',
-    inpatientNotes: '',
-    furtherComment: '',
-    folderNumber: '',
-    taskIndicators: [],
-    assignedDoctor: '',
-    surgeon: 'Hoosain',
-    surgeonPlan: '',
-    weekendRoundComplete: false,
-    managementPlan: '',
-  };
+    medicalAidPhone: undefined,
+  });
+  return { ...base, surgeon: 'Hoosain', weekendRoundComplete: false };
 }
 
 function normalizedNameKeys(displayName: string): string[] {

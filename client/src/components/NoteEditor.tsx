@@ -168,7 +168,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   if (notes.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-slate-400">
-        <p className="text-sm">No notes yet. Use the Scribe to dictate, then notes will appear here.</p>
+        <p className="text-sm">No notes yet.</p>
       </div>
     );
   }

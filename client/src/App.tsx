@@ -20,7 +20,24 @@ import {
 } from './services/api';
 import type { Patient, UserSettings } from '../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
-import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, Menu, Camera, Upload } from 'lucide-react';
+import {
+  LogIn,
+  Loader,
+  X,
+  UserPlus,
+  Calendar,
+  Users,
+  AlertTriangle,
+  Trash2,
+  Menu,
+  Camera,
+  Upload,
+  LayoutGrid,
+  FileSpreadsheet,
+  FolderOpen,
+  Mic,
+} from 'lucide-react';
+import { requestOpenSheetsDictate } from './lib/sheetsDictateBridge';
 import { WardPage } from './pages/WardPage';
 import { SheetsPage } from './pages/SheetsPage';
 import { StickerCameraModal } from './components/StickerCameraModal';
@@ -357,7 +374,7 @@ export const App = () => {
 
   if (!isReady) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#f7f9fb]">
+      <div className="flex min-h-0 flex-1 h-screen w-full items-center justify-center bg-[#f7f9fb]">
         <div className="flex flex-col items-center gap-4">
           <div className="relative isolate flex justify-center px-4">
             <img
@@ -377,7 +394,7 @@ export const App = () => {
 
   if (!isSignedIn) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-white">
+      <div className="flex min-h-0 flex-1 h-screen w-full items-center justify-center bg-white">
         <div className="max-w-sm w-full text-center px-6">
           <img
             src="/halo-medical-logo.png"
@@ -385,8 +402,7 @@ export const App = () => {
             className="w-48 h-auto mx-auto mb-6 select-none"
             draggable={false}
           />
-          <h1 className="text-3xl font-bold text-slate-800 mb-2">Dr Mohamed Patel</h1>
-          <p className="text-slate-500 mb-6 leading-relaxed">Sign in to access your patient files.</p>
+          <h1 className="text-3xl font-bold text-slate-800 mb-6">Dr Mohamed Patel</h1>
 
           <div className="mb-5 flex flex-col gap-3">
             <div className="flex gap-3">
@@ -444,7 +460,7 @@ export const App = () => {
   const activePatient = patients.find(p => p.id === selectedPatientId);
 
   return (
-    <div className="flex h-screen min-w-0 bg-slate-50 font-sans text-slate-900 overflow-hidden overscroll-x-none relative">
+    <div className="flex h-screen min-h-0 min-w-0 flex-1 bg-slate-50 font-sans text-slate-900 overflow-hidden overscroll-x-none relative">
       {/* Mobile navigation drawer (patients, calendar, settings, logout) */}
       {isSignedIn && (
         <button
@@ -520,7 +536,9 @@ export const App = () => {
       </div>
 
       <div
-        className={`flex-1 flex flex-col min-w-0 h-screen relative overscroll-x-none overflow-x-hidden ${mainNav === 'folders' && !selectedPatientId ? 'hidden md:flex' : 'flex'}`}
+        className={`flex flex-1 min-h-0 min-w-0 flex-col relative overscroll-x-none overflow-x-hidden h-screen ${
+          isSignedIn ? 'max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom))]' : ''
+        }`}
       >
         {mainNav === 'ward' ? (
           <WardPage
@@ -548,7 +566,7 @@ export const App = () => {
             calendarPrepEvent={null}
           />
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-300 relative overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-slate-300 relative overflow-hidden">
             {/* Background logo — large watermark */}
             <img
               src="/halo-logo.png"
@@ -728,6 +746,64 @@ export const App = () => {
         onClose={() => setShowStickerCamera(false)}
         onCapture={(file) => void applyStickerFromFile(file)}
       />
+
+      {isSignedIn && (
+        <>
+          <nav
+            className={`md:hidden fixed inset-x-0 bottom-0 z-[45] items-stretch justify-around gap-1 border-t border-slate-200/90 bg-white/95 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] backdrop-blur-sm ${
+              mobileSidebarOpen ? 'hidden' : 'flex'
+            }`}
+            aria-label="Main sections"
+          >
+            <button
+              type="button"
+              onClick={() => setMainNav('ward')}
+              className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg py-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+                mainNav === 'ward' ? 'text-teal-700 bg-teal-50' : 'text-slate-500'
+              }`}
+            >
+              <LayoutGrid size={22} strokeWidth={mainNav === 'ward' ? 2.25 : 2} />
+              Ward
+            </button>
+            <button
+              type="button"
+              onClick={() => setMainNav('sheets')}
+              className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg py-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+                mainNav === 'sheets' ? 'text-teal-700 bg-teal-50' : 'text-slate-500'
+              }`}
+            >
+              <FileSpreadsheet size={22} strokeWidth={mainNav === 'sheets' ? 2.25 : 2} />
+              Sheets
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMainNav('folders');
+                setMobileSidebarOpen(true);
+              }}
+              className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg py-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+                mainNav === 'folders' ? 'text-teal-700 bg-teal-50' : 'text-slate-500'
+              }`}
+            >
+              <FolderOpen size={22} strokeWidth={mainNav === 'folders' ? 2.25 : 2} />
+              Folders
+            </button>
+          </nav>
+
+          {mainNav === 'sheets' && !mobileSidebarOpen ? (
+            <button
+              type="button"
+              onClick={() => requestOpenSheetsDictate()}
+              className="md:hidden fixed right-4 z-[46] flex h-14 w-14 items-center justify-center rounded-full bg-teal-600 text-white shadow-lg shadow-teal-900/20 ring-2 ring-white/90 active:scale-95 transition-transform"
+              style={{ bottom: 'max(1rem, calc(3.5rem + env(safe-area-inset-bottom, 0px) + 0.75rem))' }}
+              aria-label="Dictate"
+              title="Dictate"
+            >
+              <Mic size={26} strokeWidth={2} />
+            </button>
+          ) : null}
+        </>
+      )}
 
       {/* DELETE CONFIRMATION MODAL */}
       {patientToDelete && (

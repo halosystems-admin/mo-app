@@ -17,8 +17,8 @@ export const SheetsPage: React.FC<SheetsPageProps> = ({
   onOpenPatient,
 }) => {
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-halo-bg px-4 py-5 md:px-8 md:py-6">
-      <div className="w-full max-w-none mx-auto space-y-5">
+    <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden bg-halo-bg px-4 py-3 md:px-8 md:py-5">
+      <div className="w-full max-w-none mx-auto space-y-4">
         <header>
           <h1 className="text-xl md:text-2xl font-semibold text-halo-text tracking-tight">Sheets</h1>
         </header>

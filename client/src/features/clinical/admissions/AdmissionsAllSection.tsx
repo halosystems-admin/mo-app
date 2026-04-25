@@ -102,13 +102,11 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
                 <th className={`${CLINICAL_TABLE_TH} whitespace-nowrap`}>Discharge</th>
                 <th
                   className={`${CLINICAL_TABLE_TH} min-w-[11rem]`}
-                  title="Outpatient / long-term follow-up (not ward tasks)"
                 >
                   Long-term FU plan
                 </th>
                 <th
                   className={`${CLINICAL_TABLE_TH} whitespace-nowrap`}
-                  title="Planned outpatient follow-up date"
                 >
                   FU date
                 </th>
@@ -228,10 +226,6 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
           onToast={onToast}
           onClose={() => setSelectedId(null)}
           onSaved={() => void load()}
-          onStartConsultation={() => {
-            onToast?.('Consultation started (mock).', 'info');
-            setSelectedId(null);
-          }}
           onRequestDischarge={() => void openDischargeFlow(selected)}
         />
       )}

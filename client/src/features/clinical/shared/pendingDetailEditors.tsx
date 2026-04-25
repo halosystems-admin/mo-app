@@ -45,7 +45,7 @@ export function TheatreBlockEditor({
 }): React.ReactNode {
   const b = draft.theatreBooking;
   if (!b) {
-    return <p className="text-sm text-amber-700">No theatre payload on this row (mock).</p>;
+    return <p className="text-sm text-amber-700">No theatre payload on this row.</p>;
   }
 
   const row = (key: string, label: string, node: React.ReactNode) => (
@@ -422,7 +422,7 @@ export function EndoscopySheetEditor({
   setDraft: React.Dispatch<React.SetStateAction<PendingProcedureRow>>;
 }): React.ReactNode {
   const e = draft.endoscopySheet;
-  if (!e) return <p className="text-sm text-amber-700">No endoscopy sheet (mock).</p>;
+  if (!e) return <p className="text-sm text-amber-700">No endoscopy sheet.</p>;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -513,7 +513,7 @@ export function VericlaimSheetEditor({
   fileAttachExtras?: FileAttachExtras;
 }): React.ReactNode {
   const v = draft.vericlaim;
-  if (!v) return <p className="text-sm text-amber-700">No Vericlaim payload (mock).</p>;
+  if (!v) return <p className="text-sm text-amber-700">No Vericlaim payload.</p>;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -667,7 +667,7 @@ export function AslipSheetEditor({
   userSettings?: UserSettings | null;
 }): React.ReactNode {
   const a = draft.aslip;
-  if (!a) return <p className="text-sm text-amber-700">No A-slip payload (mock).</p>;
+  if (!a) return <p className="text-sm text-amber-700">No A-slip payload.</p>;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">

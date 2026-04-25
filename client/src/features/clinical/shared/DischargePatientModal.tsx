@@ -162,11 +162,7 @@ export const DischargePatientModal: React.FC<DischargePatientModalProps> = ({
           </button>
         </div>
         <p className="text-sm font-semibold text-slate-800">{patientDisplayName}</p>
-        <p className="text-xs text-slate-500 mt-1 mb-3">
-          Marks the admission as not admitted, removes them from the ward board if linked to HALO, and optionally saves a discharge
-          summary to the patient folder.
-        </p>
-        <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="discharge-summary-modal-ta">
+        <label className="block text-xs font-semibold text-slate-600 mb-1 mt-3" htmlFor="discharge-summary-modal-ta">
           Discharge summary
         </label>
         <textarea

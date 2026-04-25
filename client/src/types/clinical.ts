@@ -16,6 +16,16 @@ export interface ClinicalTaskIndicator {
   urgent?: boolean;
 }
 
+/** Sheets row status (dropdown + column filter). */
+export type InpatientSheetStatus =
+  | 'elective'
+  | 'completed'
+  | 'emergency'
+  | 'outpatient endoscopy';
+
+/** Single sheet date column: DOA = date of admission, F/U = follow-up / review date. */
+export type SheetAdmissionDateKind = 'doa' | 'fu';
+
 export interface InpatientRecord {
   id: string;
   currentlyAdmitted: boolean;
@@ -32,11 +42,17 @@ export interface InpatientRecord {
   medicalAidPhone?: string;
   ward: ClinicalWard;
   dateOfAdmission: string;
+  /** Follow-up / review date (used when sheet column is set to F/U). */
+  dateOfReview: string;
+  /** Which date the main sheet’s single “DOA / F/U” cell edits. */
+  sheetAdmissionDateKind: SheetAdmissionDateKind;
   icd10Diagnoses: string;
   procedure: string;
   procedureCodes: string;
   dateOfProcedure: string;
   complications: string;
+  surgeonPlan: string;
+  managementPlan: string;
   dateOfDischarge: string;
   followUpPlan: string;
   dateOfFollowUp: string;
@@ -46,13 +62,18 @@ export interface InpatientRecord {
   taskIndicators: ClinicalTaskIndicator[];
   assignedDoctor: string;
   linkedDrivePatientId?: string;
+  /** Primary contact for Sheets (defaults from medical aid phone when blank). */
+  contactNumber: string;
+  sheetStatus: InpatientSheetStatus;
+  /** When checked, Pending Vericlaim task is done. */
+  taskPendingVericlaimDone: boolean;
+  /** When checked, Download-a-Slip task is done. */
+  taskDownloadSlipDone: boolean;
 }
 
 export interface OtherSurgeonInpatientDraft extends InpatientRecord {
   surgeon: SurgeonName;
-  surgeonPlan: string;
   weekendRoundComplete: boolean;
-  managementPlan: string;
 }
 
 export interface SurgeonRoundRow {

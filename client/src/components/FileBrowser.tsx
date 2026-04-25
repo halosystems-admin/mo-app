@@ -19,8 +19,6 @@ interface FileBrowserProps {
   onDeleteFile: (file: DriveFile) => void;
   onViewFile: (file: DriveFile) => void;
   onCreateFolder: () => void;
-  /** Opens Editor → Smart Context (scan/photo for note generation). */
-  onOpenSmartContext?: () => void;
   /** Opens upload picker for files into the current patient folder tree. */
   onPatientUpload?: () => void;
   uploadBusy?: boolean;
@@ -50,7 +48,6 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
   files, status, breadcrumbs,
   onNavigateToFolder, onNavigateBack, onNavigateToBreadcrumb,
   onStartEditFile, onDeleteFile, onViewFile, onCreateFolder,
-  onOpenSmartContext,
   onPatientUpload,
   uploadBusy = false,
 }) => {
@@ -99,16 +96,6 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
             >
               <Upload size={14} className="shrink-0" />
               Upload
-            </button>
-          ) : null}
-          {onOpenSmartContext && isAtRoot ? (
-            <button
-              type="button"
-              onClick={onOpenSmartContext}
-              className="flex items-center gap-1.5 rounded-lg border border-teal-500/25 bg-teal-500/10 px-2.5 py-1.5 text-[12px] font-semibold text-teal-800 transition hover:bg-teal-500/15"
-            >
-              <Layers size={14} className="shrink-0 opacity-90" />
-              Smart context
             </button>
           ) : null}
           <button
@@ -207,14 +194,22 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                         <h4 className="font-semibold text-slate-800 group-hover:text-teal-700 transition-colors truncate">{file.name}</h4>
                         <p className="text-xs text-slate-500 mt-1 truncate">{file.createdTime} &bull; {getFriendlyFileType(file.mimeType)}</p>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => onStartEditFile(file)} className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Rename">
+                      <div className="relative z-[5] flex items-center gap-1 sm:z-auto">
+                        <button onClick={() => onStartEditFile(file)} className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100 max-md:opacity-100" title="Rename">
                           <Pencil size={16} />
                         </button>
-                        <button onClick={() => onDeleteFile(file)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Delete">
+                        <button onClick={() => onDeleteFile(file)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100 max-md:opacity-100" title="Delete">
                           <Trash2 size={16} />
                         </button>
-                        <button onClick={() => onViewFile(file)} className="hidden sm:flex items-center gap-1.5 text-sm bg-slate-50 text-slate-600 px-3 py-1.5 rounded-md font-medium hover:bg-teal-50 hover:text-teal-700 transition-colors" title="Preview">
+                        <button
+                          type="button"
+                          onClick={() => onViewFile(file)}
+                          className="sm:hidden p-2 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
+                          title="Preview"
+                        >
+                          <Eye size={18} />
+                        </button>
+                        <button onClick={() => onViewFile(file)} className="hidden sm:inline-flex items-center gap-1.5 text-sm bg-slate-50 text-slate-600 px-3 py-1.5 rounded-md font-medium hover:bg-teal-50 hover:text-teal-700 transition-colors" title="Preview">
                           <Eye size={14} /> View
                         </button>
                         <a href={file.url} target="_blank" rel="noreferrer" className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Open in new tab">

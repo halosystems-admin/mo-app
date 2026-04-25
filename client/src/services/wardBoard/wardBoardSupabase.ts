@@ -25,6 +25,7 @@ type BoardEntryRow = {
   ward_column_id: string;
   admitted: boolean;
   sort_order: number;
+  tags: string[] | null;
   patients: PatientEmbed | PatientEmbed[] | null;
   ward_tasks: Array<{
     id: string;
@@ -66,6 +67,7 @@ export async function fetchWardKanbanFromSupabase(): Promise<AdmittedPatientKanb
       ward_column_id,
       admitted,
       sort_order,
+      tags,
       patients!inner (
         id,
         halo_patient_id,
@@ -102,10 +104,16 @@ export async function fetchWardKanbanFromSupabase(): Promise<AdmittedPatientKanb
       updatedAt: t.updated_at,
     }));
 
+    const tags = Array.isArray(row.tags)
+      ? row.tags.filter((t): t is string => typeof t === 'string').map((t) => t.trim().toLowerCase()).filter(Boolean)
+      : [];
+
     kanban.push({
       patientId,
       admitted: row.admitted,
       boardColumn: row.ward_column_id as AdmittedPatientKanban['boardColumn'],
+      columnOrder: row.sort_order,
+      ...(tags.length ? { tags } : {}),
       todos,
     });
   }
@@ -167,7 +175,12 @@ export async function saveWardKanbanToSupabase(
   for (const col of columnOrder) {
     const arr = byColumn.get(col);
     if (arr) {
-      arr.sort((a, b) => sortKey(a.patientId).localeCompare(sortKey(b.patientId)));
+      arr.sort((a, b) => {
+        const oa = typeof a.columnOrder === 'number' ? a.columnOrder : 1e6;
+        const ob = typeof b.columnOrder === 'number' ? b.columnOrder : 1e6;
+        if (oa !== ob) return oa - ob;
+        return sortKey(a.patientId).localeCompare(sortKey(b.patientId));
+      });
     }
   }
 
@@ -197,6 +210,15 @@ export async function saveWardKanbanToSupabase(
       if (pErr) throw new Error(pErr.message);
       const patientUuid = patRow?.id as string;
 
+      const tagList = Array.isArray(row.tags)
+        ? row.tags
+            .filter((t): t is string => typeof t === 'string')
+            .map((t) => t.trim().toLowerCase().slice(0, 40))
+            .filter(Boolean)
+            .filter((t, i, a) => a.indexOf(t) === i)
+            .slice(0, 20)
+        : [];
+
       const { data: entryRow, error: eErr } = await supabase
         .from('board_entries')
         .upsert(
@@ -205,6 +227,7 @@ export async function saveWardKanbanToSupabase(
             ward_column_id: col,
             admitted: row.admitted,
             sort_order: sortIdx,
+            tags: tagList,
           },
           { onConflict: 'patient_id' }
         )

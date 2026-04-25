@@ -218,17 +218,43 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
     [kanban, persistKanban]
   );
 
-  const setBoardColumn = useCallback(
-    (patientId: string, column: WardBoardColumnId) => {
-      const next = kanban.map((r) => (r.patientId === patientId ? { ...r, boardColumn: column } : r));
+  const applyBoardLayout = useCallback(
+    (layout: Record<string, string[]>) => {
+      const next = kanban.map((r) => {
+        if (!r.admitted) return r;
+        for (const [col, ids] of Object.entries(layout)) {
+          const idx = ids.indexOf(r.patientId);
+          if (idx >= 0) {
+            return {
+              ...r,
+              boardColumn: col as WardBoardColumnId,
+              columnOrder: idx,
+            };
+          }
+        }
+        return r;
+      });
+      void persistKanban(next);
+    },
+    [kanban, persistKanban]
+  );
+
+  const updatePatientTags = useCallback(
+    (patientId: string, tags: string[]) => {
+      const normalized = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 20);
+      const next = kanban.map((r) =>
+        r.patientId === patientId
+          ? { ...r, ...(normalized.length ? { tags: normalized } : { tags: undefined }) }
+          : r
+      );
       void persistKanban(next);
     },
     [kanban, persistKanban]
   );
 
   return (
-    <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden overscroll-x-none px-5 py-5 md:px-10 md:py-6 lg:px-12 bg-halo-bg">
-      <div className="w-full max-w-[1600px] mx-auto flex flex-col flex-1 min-h-0 gap-5 md:gap-6">
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden overscroll-x-none px-5 py-3 md:px-10 md:py-5 lg:px-12 bg-halo-bg">
+      <div className="w-full max-w-[1600px] mx-auto flex flex-col flex-1 min-h-0 gap-4 md:gap-5">
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 shrink-0">
           <h1 className="text-xl md:text-2xl font-semibold text-halo-text tracking-tight">Ward</h1>
           <div className="flex flex-wrap items-end gap-2 min-w-0">
@@ -305,7 +331,8 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
                   kanbanSaving={kanbanSaving}
                   onOpenPatient={onOpenPatient}
                   onToggleTodoDone={toggleTodoDone}
-                  onSetBoardColumn={setBoardColumn}
+                  onApplyBoardLayout={applyBoardLayout}
+                  onUpdatePatientTags={updatePatientTags}
                   onAddTodo={addKanbanTodo}
                 />
               </div>

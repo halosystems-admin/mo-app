@@ -168,14 +168,16 @@ export const SettingsModal: React.FC<Props> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg m-4 max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-5 flex items-center justify-between rounded-t-2xl">
+        <div
+          className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-5 flex items-center justify-between rounded-t-2xl"
+          title={userEmail || undefined}
+        >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-teal-500/20 rounded-xl flex items-center justify-center">
               <User size={20} className="text-teal-400" />
             </div>
             <div>
               <h2 className="text-white font-bold text-lg">Profile & Settings</h2>
-              <p className="text-slate-400 text-xs">{userEmail || 'Not signed in'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -189,8 +191,10 @@ export const SettingsModal: React.FC<Props> = ({
               </button>
             )}
             <button
+              type="button"
               onClick={onClose}
               className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
+              aria-label="Close"
             >
               <X size={18} />
             </button>

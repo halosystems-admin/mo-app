@@ -185,14 +185,26 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     const baseName = fileName && fileName.trim() ? fileName.replace(/\.docx$/i, '') : `Clinical_Note_${new Date().toISOString().split('T')[0]}`;
     const finalFileName = baseName.endsWith('.docx') ? baseName : `${baseName}.docx`;
 
-    const uploaded = await adapter.uploadFile({
-      token,
-      parentFolderId: patientNotesFolderId,
-      fileName: finalFileName,
-      fileType: DOCX_MIME,
-      base64Data: buffer.toString('base64'),
-      microsoftStorageMode,
-    });
+    const base64Data = buffer.toString('base64');
+    let uploaded: { id: string; name: string } | null = null;
+    let lastUploadErr: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        uploaded = await adapter.uploadFile({
+          token,
+          parentFolderId: patientNotesFolderId,
+          fileName: finalFileName,
+          fileType: DOCX_MIME,
+          base64Data,
+          microsoftStorageMode,
+        });
+        break;
+      } catch (e) {
+        lastUploadErr = e;
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 650 * (attempt + 1)));
+      }
+    }
+    if (!uploaded) throw lastUploadErr instanceof Error ? lastUploadErr : new Error('DOCX upload failed.');
 
     res.json({ success: true, fileId: uploaded.id, name: uploaded.name });
   } catch (err) {

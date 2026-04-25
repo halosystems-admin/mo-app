@@ -4,16 +4,15 @@ import {
   DragOverlay,
   MeasuringStrategy,
   PointerSensor,
-  pointerWithin,
-  rectIntersection,
+  closestCorners,
   useSensor,
   useSensors,
   useDroppable,
-  useDraggable,
-  type CollisionDetection,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import type { AdmittedPatientKanban, Patient, WardBoardColumnId } from '../../../../../shared/types';
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import type { AdmittedPatientKanban, Patient } from '../../../../../shared/types';
 import type { InpatientRecord } from '../../../types/clinical';
 import { clinicalWardToBoardColumn, findInpatientMatchingHaloPatient } from '../../../services/clinicalData';
 import { CLINICAL_HEADER_BAND } from '../shared/tableScrollClasses';
@@ -34,23 +33,68 @@ function droppableId(col: string): string {
   return `${DROPPABLE_PREFIX}${col}`;
 }
 
-const DRAG_PREFIX = 'ward-patient:';
-
-function dragId(patientId: string): string {
-  return `${DRAG_PREFIX}${patientId}`;
+function cloneLayout(layout: Record<string, string[]>): Record<string, string[]> {
+  const next: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(layout)) next[k] = [...v];
+  return next;
 }
 
-function parseDragPatientId(id: string | number): string | null {
-  const s = String(id);
-  return s.startsWith(DRAG_PREFIX) ? s.slice(DRAG_PREFIX.length) : null;
+function findColumnForPatient(layout: Record<string, string[]>, patientId: string): string | null {
+  for (const [col, ids] of Object.entries(layout)) {
+    if (ids.includes(patientId)) return col;
+  }
+  return null;
 }
 
-/** Prefer pointer-inside column hit-testing; falls back to rectangle overlap for smoother drops. */
-const wardBoardCollision: CollisionDetection = (args) => {
-  const pointerHits = pointerWithin(args);
-  if (pointerHits.length > 0) return pointerHits;
-  return rectIntersection(args);
-};
+function buildLayoutFromGrouped(
+  columns: Array<{ id: string }>,
+  grouped: Record<string, AdmittedPatientKanban[]>
+): Record<string, string[]> {
+  const layout: Record<string, string[]> = {};
+  for (const c of columns) {
+    layout[c.id] = (grouped[c.id] ?? []).map((r) => r.patientId);
+  }
+  return layout;
+}
+
+/** Apply drag result: reorder within column, move across columns, or drop onto column chrome. */
+function applyDragToLayout(
+  layout: Record<string, string[]>,
+  activePid: string,
+  overRaw: string
+): Record<string, string[]> | null {
+  const next = cloneLayout(layout);
+  if (overRaw.startsWith(DROPPABLE_PREFIX)) {
+    const targetCol = overRaw.slice(DROPPABLE_PREFIX.length);
+    if (!Object.prototype.hasOwnProperty.call(next, targetCol)) return null;
+    const fromCol = findColumnForPatient(next, activePid);
+    if (!fromCol) return null;
+    next[fromCol] = next[fromCol].filter((id) => id !== activePid);
+    next[targetCol] = next[targetCol].filter((id) => id !== activePid);
+    next[targetCol].push(activePid);
+    return next;
+  }
+  const overPid = overRaw;
+  if (activePid === overPid) return null;
+  const fromCol = findColumnForPatient(next, activePid);
+  const toCol = findColumnForPatient(next, overPid);
+  if (!fromCol || !toCol) return null;
+  if (fromCol === toCol) {
+    const arr = [...next[fromCol]];
+    const oldIndex = arr.indexOf(activePid);
+    const newIndex = arr.indexOf(overPid);
+    if (oldIndex < 0 || newIndex < 0) return null;
+    next[fromCol] = arrayMove(arr, oldIndex, newIndex);
+    return next;
+  }
+  next[fromCol] = next[fromCol].filter((id) => id !== activePid);
+  const insertIdx = next[toCol].indexOf(overPid);
+  const idx = insertIdx < 0 ? next[toCol].length : insertIdx;
+  const merged = [...next[toCol]];
+  merged.splice(idx, 0, activePid);
+  next[toCol] = merged;
+  return next;
+}
 
 function sortName(a: string, b: string): number {
   return a.toLowerCase().localeCompare(b.toLowerCase());
@@ -68,7 +112,9 @@ type Props = {
   kanbanSaving: boolean;
   onOpenPatient: (patientId: string) => void;
   onToggleTodoDone: (patientId: string, todoId: string, done: boolean) => void;
-  onSetBoardColumn: (patientId: string, column: WardBoardColumnId) => void;
+  /** Patient id order per ward column (persisted with column + sort index). */
+  onApplyBoardLayout: (layout: Record<string, string[]>) => void;
+  onUpdatePatientTags: (patientId: string, tags: string[]) => void;
   onAddTodo: (patientId: string, title: string) => void;
 };
 
@@ -133,6 +179,14 @@ type CompactRowProps = {
   patientsById: Map<string, Patient>;
   inpatients: InpatientRecord[];
   onOpenTasks: () => void;
+  onTogglePresetTag: (patientId: string, preset: 'seen' | 'unseen') => void;
+  onRemoveTag: (patientId: string, tag: string) => void;
+  tagDraftPatientId: string | null;
+  tagDraftValue: string;
+  onTagDraftChange: (patientId: string, value: string) => void;
+  onOpenTagDraft: (patientId: string) => void;
+  onCloseTagDraft: () => void;
+  onSubmitTagDraft: (patientId: string) => void;
 };
 
 const KanbanCompactRow = memo(function KanbanCompactRow({
@@ -140,6 +194,14 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
   patientsById,
   inpatients,
   onOpenTasks,
+  onTogglePresetTag,
+  onRemoveTag,
+  tagDraftPatientId,
+  tagDraftValue,
+  onTagDraftChange,
+  onOpenTagDraft,
+  onCloseTagDraft,
+  onSubmitTagDraft,
 }: CompactRowProps) {
   const p = patientsById.get(row.patientId);
   const name = p?.name || row.patientId;
@@ -148,40 +210,129 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
   const doctor = ip?.assignedDoctor ?? '—';
   const todos = row.todos || [];
   const openCount = todos.filter((t) => t.status !== 'Done').length;
+  const tags = (row.tags || []).map((t) => t.trim().toLowerCase()).filter(Boolean);
+  const hasSeen = tags.includes('seen');
+  const hasUnseen = tags.includes('unseen');
+  const customTags = tags.filter((t) => t !== 'seen' && t !== 'unseen');
+  const draftOpen = tagDraftPatientId === row.patientId;
 
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: dragId(row.patientId),
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.patientId,
   });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
 
   return (
     <div
       ref={setNodeRef}
-      className={`grid w-full min-w-0 grid-cols-[40px_minmax(0,1fr)_48px] items-center gap-0 rounded-[10px] border border-halo-border bg-white shadow-[var(--shadow-halo-soft)] my-2 overflow-hidden ${
-        isDragging ? 'opacity-0 pointer-events-none' : ''
+      style={style}
+      className={`grid w-full min-w-0 grid-cols-[40px_minmax(0,1fr)_48px] items-stretch gap-0 rounded-[10px] border border-halo-border bg-white shadow-[var(--shadow-halo-soft)] my-2 overflow-hidden ${
+        isDragging ? 'opacity-40 ring-2 ring-teal-400/50 z-10' : ''
       }`}
     >
       <button
         type="button"
+        ref={setActivatorNodeRef}
         {...listeners}
         {...attributes}
         className="flex h-full min-h-[3.5rem] items-center justify-center cursor-grab active:cursor-grabbing touch-none text-halo-muted hover:text-halo-primary hover:bg-halo-primary-muted"
         style={{ touchAction: 'none' }}
-        title="Drag to another ward"
-        aria-label={`Drag ${name} to another ward`}
+        aria-label={`Drag ${name}`}
       >
         <GripVertical size={16} strokeWidth={2} />
       </button>
-      <button
-        type="button"
-        onClick={onOpenTasks}
-        className="min-h-[3.5rem] min-w-0 px-1 py-2.5 text-left hover:bg-halo-section/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-halo-primary/40 focus-visible:ring-inset"
-        aria-label={`Open ward tasks for ${name}`}
-      >
-        <div className="text-sm font-semibold text-halo-text leading-tight truncate">{name}</div>
-        <div className="text-[10px] text-halo-text-secondary truncate mt-0.5">
-          {folder} · {doctor}
+      <div className="min-w-0 flex flex-col min-h-[3.5rem]">
+        <button
+          type="button"
+          onClick={onOpenTasks}
+          className="min-w-0 px-1 py-2 text-left hover:bg-halo-section/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-halo-primary/40 focus-visible:ring-inset"
+          aria-label={`Open ward tasks for ${name}`}
+        >
+          <div className="text-sm font-semibold text-halo-text leading-tight truncate">{name}</div>
+          <div className="text-[10px] text-halo-text-secondary truncate mt-0.5">
+            {folder} · {doctor}
+          </div>
+        </button>
+        <div className="flex flex-wrap items-center gap-1 px-1 pb-2 pt-0.5 border-t border-halo-border/60 bg-halo-section/30">
+          <button
+            type="button"
+            onClick={() => onTogglePresetTag(row.patientId, 'seen')}
+            className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide border ${
+              hasSeen
+                ? 'bg-teal-600 text-white border-teal-600'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-teal-400'
+            }`}
+          >
+            Seen
+          </button>
+          <button
+            type="button"
+            onClick={() => onTogglePresetTag(row.patientId, 'unseen')}
+            className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide border ${
+              hasUnseen
+                ? 'bg-amber-600 text-white border-amber-600'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-amber-400'
+            }`}
+          >
+            Unseen
+          </button>
+          {customTags.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center gap-0.5 rounded-md bg-slate-200/90 px-1.5 py-0.5 text-[9px] font-bold text-slate-800 max-w-[5.5rem]"
+            >
+              <span className="truncate">{t}</span>
+              <button
+                type="button"
+                onClick={() => onRemoveTag(row.patientId, t)}
+                className="shrink-0 rounded p-0.5 text-slate-600 hover:bg-slate-300/80"
+                aria-label={`Remove tag ${t}`}
+              >
+                <X className="w-3 h-3" strokeWidth={2.5} />
+              </button>
+            </span>
+          ))}
+          {!draftOpen ? (
+            <button
+              type="button"
+              onClick={() => onOpenTagDraft(row.patientId)}
+              className="inline-flex items-center gap-0.5 rounded-md border border-dashed border-slate-300 bg-white px-1.5 py-0.5 text-[9px] font-bold text-teal-700 hover:bg-teal-50/80"
+            >
+              <Plus className="w-3 h-3" strokeWidth={2.5} /> tag
+            </button>
+          ) : (
+            <span className="inline-flex items-center gap-1 max-w-full">
+              <input
+                type="text"
+                value={tagDraftValue}
+                onChange={(e) => onTagDraftChange(row.patientId, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    onSubmitTagDraft(row.patientId);
+                  }
+                  if (e.key === 'Escape') onCloseTagDraft();
+                }}
+                className="min-w-0 w-20 max-w-[7rem] rounded border border-slate-200 px-1 py-0.5 text-[9px] text-slate-800"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => onSubmitTagDraft(row.patientId)}
+                className="rounded bg-teal-600 px-1 py-0.5 text-[9px] font-bold text-white"
+              >
+                Add
+              </button>
+              <button type="button" onClick={onCloseTagDraft} className="text-[9px] font-semibold text-slate-500 px-0.5">
+                ×
+              </button>
+            </span>
+          )}
         </div>
-      </button>
+      </div>
       <div
         className="flex h-full min-h-[3.5rem] items-center justify-end border-l border-halo-border bg-halo-section/50 pr-2.5 pl-1 box-border"
         aria-hidden={openCount === 0}
@@ -189,14 +340,12 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
         {openCount > 0 ? (
           <span
             className="inline-flex min-h-[1.5rem] min-w-[1.5rem] max-w-[2rem] shrink-0 items-center justify-center px-1 text-[10px] font-bold tabular-nums rounded-full bg-halo-primary-muted text-halo-text ring-1 ring-halo-primary/30"
-            title={`${openCount} open task(s)`}
           >
             {openCount > 9 ? '9+' : openCount}
           </span>
         ) : (
           <span
             className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[10px] text-halo-muted tabular-nums select-none"
-            title="No open tasks"
             aria-hidden
           >
             ·
@@ -368,7 +517,7 @@ function WardPatientDetailSheet({
               ) : null}
               <div className="space-y-1">
                 {todos.length === 0 && !adding ? (
-                  <p className="text-sm text-slate-400 py-2">No tasks yet — use Add.</p>
+                  <p className="text-sm text-slate-400 py-2">No tasks yet.</p>
                 ) : null}
                 {todos.map((t) => {
                   const done = t.status === 'Done';
@@ -427,17 +576,18 @@ function WardPatientDetailSheet({
               <ExternalLink size={16} /> Open HALO workspace
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center justify-center min-h-[44px] px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 sm:max-w-[120px]"
-          >
-            Close
-          </button>
         </div>
       </div>
     </div>
   );
+}
+
+function cyclePresetTag(tags: string[] | undefined, preset: 'seen' | 'unseen'): string[] {
+  const cur = (tags || []).map((t) => t.trim().toLowerCase()).filter(Boolean);
+  const has = cur.includes(preset);
+  const rest = cur.filter((t) => t !== 'seen' && t !== 'unseen');
+  if (has) return rest;
+  return [...rest, preset];
 }
 
 export const WardKanbanBoard: React.FC<Props> = ({
@@ -449,24 +599,18 @@ export const WardKanbanBoard: React.FC<Props> = ({
   kanbanSaving,
   onOpenPatient,
   onToggleTodoDone,
-  onSetBoardColumn,
+  onApplyBoardLayout,
+  onUpdatePatientTags,
   onAddTodo,
 }) => {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
+  const [tagDraftPatientId, setTagDraftPatientId] = useState<string | null>(null);
+  const [tagDraftValue, setTagDraftValue] = useState('');
 
   const columns = wardColumns?.length ? wardColumns : WARD_BOARD_COLUMNS;
   const validColumnIds = useMemo(() => new Set(columns.map((c) => c.id)), [columns]);
   const defaultColId = columns[0]?.id ?? 'm';
-
-  const parseDroppableCol = useCallback(
-    (id: string): WardBoardColumnId | null => {
-      if (!id.startsWith(DROPPABLE_PREFIX)) return null;
-      const col = id.slice(DROPPABLE_PREFIX.length);
-      return validColumnIds.has(col) ? (col as WardBoardColumnId) : null;
-    },
-    [validColumnIds]
-  );
 
   const resolveColumn = useCallback(
     (row: AdmittedPatientKanban): string => {
@@ -486,6 +630,9 @@ export const WardKanbanBoard: React.FC<Props> = ({
     }
     for (const col of columns) {
       m[col.id]!.sort((a, b) => {
+        const oa = typeof a.columnOrder === 'number' ? a.columnOrder : 1e6;
+        const ob = typeof b.columnOrder === 'number' ? b.columnOrder : 1e6;
+        if (oa !== ob) return oa - ob;
         const na = patientsById.get(a.patientId)?.name || a.patientId;
         const nb = patientsById.get(b.patientId)?.name || b.patientId;
         return sortName(na, nb);
@@ -516,29 +663,63 @@ export const WardKanbanBoard: React.FC<Props> = ({
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
-      try {
-        if (!over) return;
-        const col = parseDroppableCol(String(over.id));
-        const patientId = parseDragPatientId(active.id);
-        if (!col || !patientId) return;
-        const row = admittedKanban.find((r) => r.patientId === patientId);
-        if (!row) return;
-        if (resolveColumn(row) === col) return;
-        onSetBoardColumn(patientId, col);
-      } finally {
-        setActiveDragId(null);
-      }
+      setActiveDragId(null);
+      if (!over) return;
+      const activePid = String(active.id);
+      const overRaw = String(over.id);
+      const layout = buildLayoutFromGrouped(columns, grouped);
+      const next = applyDragToLayout(layout, activePid, overRaw);
+      if (next) onApplyBoardLayout(next);
     },
-    [admittedKanban, onSetBoardColumn, resolveColumn, parseDroppableCol]
+    [columns, grouped, onApplyBoardLayout]
   );
 
-  const overlayPatientId = activeDragId ? parseDragPatientId(activeDragId) : null;
+  const handleTogglePresetTag = useCallback(
+    (patientId: string, preset: 'seen' | 'unseen') => {
+      const row = admittedKanban.find((r) => r.patientId === patientId);
+      if (!row) return;
+      onUpdatePatientTags(patientId, cyclePresetTag(row.tags, preset));
+    },
+    [admittedKanban, onUpdatePatientTags]
+  );
+
+  const handleRemoveTag = useCallback(
+    (patientId: string, tag: string) => {
+      const row = admittedKanban.find((r) => r.patientId === patientId);
+      if (!row) return;
+      const t = tag.trim().toLowerCase();
+      const next = (row.tags || []).map((x) => x.trim().toLowerCase()).filter((x) => x && x !== t);
+      onUpdatePatientTags(patientId, next);
+    },
+    [admittedKanban, onUpdatePatientTags]
+  );
+
+  const handleSubmitTagDraft = useCallback(
+    (patientId: string) => {
+      const raw = tagDraftValue.trim().slice(0, 32).toLowerCase();
+      if (!raw || raw === 'seen' || raw === 'unseen') {
+        setTagDraftPatientId(null);
+        setTagDraftValue('');
+        return;
+      }
+      const row = admittedKanban.find((r) => r.patientId === patientId);
+      if (!row) return;
+      const cur = new Set((row.tags || []).map((x) => x.trim().toLowerCase()).filter(Boolean));
+      cur.add(raw);
+      onUpdatePatientTags(patientId, Array.from(cur));
+      setTagDraftPatientId(null);
+      setTagDraftValue('');
+    },
+    [tagDraftValue, admittedKanban, onUpdatePatientTags]
+  );
+
+  const overlayPatientId = activeDragId;
 
   return (
     <div className="flex flex-1 min-h-0 h-full min-w-0 flex-col">
       <DndContext
         sensors={sensors}
-        collisionDetection={wardBoardCollision}
+        collisionDetection={closestCorners}
         measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
         autoScroll={false}
         onDragStart={({ active }) => setActiveDragId(String(active.id))}
@@ -546,7 +727,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
         onDragCancel={() => setActiveDragId(null)}
       >
       <div
-        className={wardBoardScrollerClass}
+        className={`${wardBoardScrollerClass} max-md:[scroll-padding-inline:12px]`}
         style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
         role="region"
         aria-label="Ward board — compact list; tap a name for tasks"
@@ -562,15 +743,37 @@ export const WardKanbanBoard: React.FC<Props> = ({
               style={{ touchAction: 'pan-y' }}
             >
               <div className="flex min-w-0 max-w-full flex-col items-stretch">
-                {(grouped[col.id] ?? []).map((row) => (
-                  <KanbanCompactRow
-                    key={row.patientId}
-                    row={row}
-                    patientsById={patientsById}
-                    inpatients={inpatients}
-                    onOpenTasks={() => setDetailTarget({ kind: 'halo', patientId: row.patientId })}
-                  />
-                ))}
+                <SortableContext
+                  items={(grouped[col.id] ?? []).map((r) => r.patientId)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {(grouped[col.id] ?? []).map((row) => (
+                    <KanbanCompactRow
+                      key={row.patientId}
+                      row={row}
+                      patientsById={patientsById}
+                      inpatients={inpatients}
+                      onOpenTasks={() => setDetailTarget({ kind: 'halo', patientId: row.patientId })}
+                      onTogglePresetTag={handleTogglePresetTag}
+                      onRemoveTag={handleRemoveTag}
+                      tagDraftPatientId={tagDraftPatientId}
+                      tagDraftValue={tagDraftValue}
+                      onTagDraftChange={(pid, v) => {
+                        setTagDraftPatientId(pid);
+                        setTagDraftValue(v.slice(0, 32));
+                      }}
+                      onOpenTagDraft={(pid) => {
+                        setTagDraftPatientId(pid);
+                        setTagDraftValue('');
+                      }}
+                      onCloseTagDraft={() => {
+                        setTagDraftPatientId(null);
+                        setTagDraftValue('');
+                      }}
+                      onSubmitTagDraft={handleSubmitTagDraft}
+                    />
+                  ))}
+                </SortableContext>
                 {(unlinkedGrouped[col.id] ?? []).map((record) => (
                   <button
                     key={`unlinked-${record.id}`}

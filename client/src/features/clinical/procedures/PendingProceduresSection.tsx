@@ -38,7 +38,7 @@ import {
 } from '../shared/clinicalDisplay';
 import { MockFileAttachRow } from '../shared/MockFileAttachRow';
 import type { Patient, UserSettings } from '../../../../../shared/types';
-import { MessageCircle, Phone } from 'lucide-react';
+import { MessageCircle, Phone, X } from 'lucide-react';
 
 const BUCKETS: { id: PendingProcedureBucket; label: string }[] = [
   { id: 'emergencies', label: 'Emergencies' },
@@ -159,7 +159,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
     else if (bucket === 'vericlaim') setVc(inpatientToVericlaim(p));
     else if (bucket === 'endoscopy') setEndo(inpatientToEndoscopySheet(p));
     else if (bucket === 'aslip') setAslipForm(inpatientToAslipSummary(p));
-    onToast?.('Applied mock data from admissions / inpatients.', 'success');
+    onToast?.('Applied data from admissions / inpatients.', 'success');
   };
 
   const applyNameMatch = () => {
@@ -201,7 +201,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
       theatreBooking: { ...tb },
       notes: tb.diagnosis,
     });
-    onToast?.('Saved (mock).', 'success');
+    onToast?.('Saved.', 'success');
     setShowAdd(false);
     void load();
   };
@@ -215,7 +215,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
       claimStatus: vc.processPending,
       vericlaim: { ...vc },
     });
-    onToast?.('Saved (mock).', 'success');
+    onToast?.('Saved.', 'success');
     setShowAdd(false);
     void load();
   };
@@ -231,7 +231,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
         endo.endoscopyCompleted === 'Y' ? true : endo.endoscopyCompleted === 'N' ? false : null,
       endoscopySheet: { ...endo },
     });
-    onToast?.('Saved (mock).', 'success');
+    onToast?.('Saved.', 'success');
     setShowAdd(false);
     void load();
   };
@@ -1146,10 +1146,11 @@ export const PendingProceduresSection: React.FC<Props> = ({
               </h3>
               <button
                 type="button"
-                className="text-slate-500 text-sm"
+                className="p-2 rounded-lg text-slate-500 hover:bg-slate-100"
                 onClick={() => setShowAdd(false)}
+                aria-label="Close"
               >
-                Close
+                <X size={20} />
               </button>
             </div>
             <div className="p-4 overflow-y-auto flex-1">

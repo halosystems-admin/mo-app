@@ -226,20 +226,39 @@ export interface GenerateNoteParams {
 export async function generateNote(params: GenerateNoteParams): Promise<HaloNote[] | Buffer> {
   const { return_type } = params;
 
-  const res = await fetchWithTimeout(
-    `${BASE}/generate_note`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: params.user_id,
-        template_id: params.template_id,
-        text: params.text,
-        return_type,
-      }),
-    },
-    HALO_REQUEST_TIMEOUT_MS
-  );
+  const url = `${BASE}/generate_note`;
+  const body = JSON.stringify({
+    user_id: params.user_id,
+    template_id: params.template_id,
+    text: params.text,
+    return_type,
+  });
+
+  const maxAttempts = return_type === 'docx' ? 3 : 1;
+  let res: Response | null = null;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      res = await fetchWithTimeout(
+        url,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
+        HALO_REQUEST_TIMEOUT_MS
+      );
+      if (res.ok) break;
+      if (![502, 503, 504].includes(res.status)) break;
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 900 * (attempt + 1)));
+      }
+    } catch (e) {
+      lastErr = e;
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 900 * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (!res) throw lastErr instanceof Error ? lastErr : new Error('Halo request failed.');
 
   if (!res.ok) {
     const body = await res.text();
