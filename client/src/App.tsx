@@ -660,11 +660,6 @@ export const App = () => {
                     </span>
                   ) : null}
                 </div>
-                <p className="text-xs text-slate-500">
-                  Scan a wristband or sticker — Gemini fills the profile below. Edit anything before creating the folder. A{' '}
-                  <span className="font-mono text-[11px]">HALO_patient_profile.json</span> file is saved in the folder for billing /
-                  future Supabase sync.
-                </p>
                 <div>
                   <label className="block text-sm font-semibold text-slate-600 mb-1.5">Full Name</label>
                   <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
@@ -790,7 +785,7 @@ export const App = () => {
             </button>
           </nav>
 
-          {mainNav === 'sheets' && !mobileSidebarOpen ? (
+          {mainNav === 'folders' && !mobileSidebarOpen ? (
             <button
               type="button"
               onClick={() => requestOpenSheetsDictate()}

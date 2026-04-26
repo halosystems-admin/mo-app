@@ -169,17 +169,9 @@ export const SheetsDictateModal: React.FC<Props> = ({ open, onClose, patient, on
         </div>
         <div className="p-4 space-y-3 overflow-y-auto flex-1 text-sm">
           {!patient ? (
-            <p className="text-slate-600">
-              Select a patient row in the table first, then open <strong>Dictate</strong> again.
-            </p>
+            <p className="text-slate-600">No row selected.</p>
           ) : (
             <>
-              <p className="text-xs text-slate-500">
-                Patient:{' '}
-                <span className="font-semibold text-slate-800">
-                  {patient.firstName} {patient.surname}
-                </span>
-              </p>
               <label className="block">
                 <span className="text-xs font-semibold text-slate-600">Update field</span>
                 <select

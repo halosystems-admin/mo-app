@@ -434,9 +434,6 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
                   Download A-slip PDF
                 </button>
               </div>
-              {onOpenPatient ? (
-                <p className="text-xs text-slate-500">Consent and other documents live in the patient folder.</p>
-              ) : null}
             </div>
           </section>
         ) : (

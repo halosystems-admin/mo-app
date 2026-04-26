@@ -4,6 +4,7 @@ import {
   DragOverlay,
   MeasuringStrategy,
   PointerSensor,
+  TouchSensor,
   closestCorners,
   useSensor,
   useSensors,
@@ -231,7 +232,7 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
       style={style}
       className={`grid w-full min-w-0 grid-cols-[40px_minmax(0,1fr)_48px] items-stretch gap-0 rounded-[10px] border border-halo-border bg-white shadow-[var(--shadow-halo-soft)] my-2 overflow-hidden ${
         isDragging ? 'opacity-40 ring-2 ring-teal-400/50 z-10' : ''
-      }`}
+      } max-md:[touch-action:pan-y]`}
     >
       <button
         type="button"
@@ -657,6 +658,9 @@ export const WardKanbanBoard: React.FC<Props> = ({
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6, delay: 0, tolerance: 5 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 5 },
     })
   );
 

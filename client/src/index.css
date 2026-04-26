@@ -105,6 +105,15 @@ a:not(.halo-touch-min) {
   background-color: #475569;
 }
 
+/* Hide scrollbars completely (native-app feel). */
+.halo-hide-scrollbar {
+  scrollbar-width: none; /* Firefox */
+}
+
+.halo-hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Safari/Chrome */
+}
+
 /* ─── iOS safe-area utilities ────────────────────────────────── */
 /* Apply to bottom-pinned elements (sidebars, nav bars, modals) */
 .pb-safe {

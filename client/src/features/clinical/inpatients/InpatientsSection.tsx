@@ -16,7 +16,6 @@ import {
   fetchAdmissionsAll,
   getClinicalWards,
   getInpatientById,
-  mockExtractFromSticker,
   createEmptyOtherSurgeonDraft,
   updateInpatientRecord,
   type RoundFilters,
@@ -39,8 +38,10 @@ import {
   CLINICAL_TABLE_TBODY_TR,
   CLINICAL_TABLE_THEAD,
 } from '../shared/tableScrollClasses';
-import { ChevronDown, FolderOpen, MessageCircle, Phone, Plus, Upload, X } from 'lucide-react';
+import { Camera, ChevronDown, FolderOpen, Loader, MessageCircle, Phone, Plus, Upload, X } from 'lucide-react';
 import { SheetsDictateModal } from './SheetsDictateModal';
+import { StickerCameraModal } from '../../../components/StickerCameraModal';
+import { extractPatientFromStickerFile } from '../../../services/api';
 
 const SHEET_STATUS_OPTIONS: InpatientSheetStatus[] = [
   'elective',
@@ -94,6 +95,17 @@ function matchesAssignedSurgeon(record: InpatientRecord, surgeon: SurgeonName | 
   return d.includes(surgeon.toLowerCase());
 }
 
+function ageFromIsoDob(dob: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) return 0;
+  const b = new Date(`${dob}T12:00:00`);
+  if (Number.isNaN(b.getTime())) return 0;
+  const t = new Date();
+  let a = t.getFullYear() - b.getFullYear();
+  const m = t.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && t.getDate() < b.getDate())) a -= 1;
+  return a < 0 ? 0 : a;
+}
+
 /** Anchor for start/end date filters: admission first, then review, then follow-up date. */
 function sheetListAnchorDate(r: InpatientRecord): string {
   return (
@@ -126,6 +138,9 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<OtherSurgeonInpatientDraft>(() => createEmptyOtherSurgeonDraft());
   const [stickerBusy, setStickerBusy] = useState(false);
+  const stickerScanInputRef = useRef<HTMLInputElement>(null);
+  const [showStickerScanCamera, setShowStickerScanCamera] = useState(false);
+  const [lastStickerScanFileName, setLastStickerScanFileName] = useState<string | null>(null);
   const [showAddAdmission, setShowAddAdmission] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
   const [newAdmission, setNewAdmission] = useState<InpatientRecord>(() => createEmptyInpatientRecord());
@@ -273,20 +288,58 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
     }
   };
 
-  const applySticker = async (file: File) => {
+  const applyStickerFromFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      onToast?.('Please use an image file.', 'info');
+      return;
+    }
     setStickerBusy(true);
     try {
-      const ex = await mockExtractFromSticker(file);
-      setDraft((d) => ({
-        ...d,
-        firstName: ex.firstName ?? d.firstName,
-        surname: ex.surname ?? d.surname,
-        dateOfBirth: ex.dateOfBirth ?? d.dateOfBirth,
-        folderNumber: ex.folderNumber ?? d.folderNumber,
-        idNumber: ex.idNumber ?? d.idNumber,
-        ward: ex.ward ?? d.ward,
-      }));
-      onToast?.('Sticker fields applied — edit as needed.', 'success');
+      const ex = await extractPatientFromStickerFile(file);
+      setLastStickerScanFileName(file.name);
+      setDraft((d) => {
+        let firstName = d.firstName;
+        let surname = d.surname;
+        const name = ex.name?.trim() ?? '';
+        if (name) {
+          const parts = name.split(/\s+/).filter(Boolean);
+          if (parts.length === 1) {
+            surname = parts[0] ?? surname;
+          } else {
+            firstName = parts.slice(0, -1).join(' ') || firstName;
+            surname = parts[parts.length - 1] ?? surname;
+          }
+        }
+        const next: OtherSurgeonInpatientDraft = {
+          ...d,
+          firstName,
+          surname,
+        };
+        const dob = ex.dob?.trim() ?? '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+          next.dateOfBirth = dob;
+          next.age = ageFromIsoDob(dob);
+        }
+        if (ex.sex === 'M' || ex.sex === 'F') next.sex = ex.sex;
+        if (ex.idNumber?.trim()) next.idNumber = ex.idNumber.trim();
+        if (ex.folderNumber?.trim()) next.folderNumber = ex.folderNumber.trim();
+        if (ex.ward?.trim()) next.ward = ex.ward.trim() as ClinicalWard;
+        if (ex.medicalAidName?.trim()) next.medicalAid = ex.medicalAidName.trim();
+        if (ex.medicalAidMemberNumber?.trim()) next.medicalAidNumber = ex.medicalAidMemberNumber.trim();
+        if (ex.medicalAidPhone?.trim()) next.medicalAidPhone = ex.medicalAidPhone.trim();
+        const extra: string[] = [];
+        if (ex.medicalAidPackage?.trim()) extra.push(`Plan: ${ex.medicalAidPackage.trim()}`);
+        if (ex.rawNotes?.trim()) extra.push(ex.rawNotes.trim());
+        if (extra.length) {
+          const add = extra.join('\n');
+          next.furtherComment = d.furtherComment?.trim() ? `${d.furtherComment.trim()}\n${add}` : add;
+        }
+        return next;
+      });
+      onToast?.('Fields updated from sticker.', 'success');
+    } catch {
+      onToast?.('Could not read sticker image.', 'error');
+      setLastStickerScanFileName(null);
     } finally {
       setStickerBusy(false);
     }
@@ -372,21 +425,41 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
           />
         </summary>
         <div className="p-4 space-y-3 bg-white">
-        <div className="flex items-center gap-3 flex-wrap">
-          <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-teal-300 bg-teal-50/40 cursor-pointer hover:bg-teal-50 text-sm font-medium text-slate-800">
-            <Upload size={16} className="text-teal-500" />
-            {stickerBusy ? 'Extracting…' : 'Add sticker — browse image'}
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              disabled={stickerBusy}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void applySticker(f);
-              }}
-            />
-          </label>
+        <input
+          ref={stickerScanInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) void applyStickerFromFile(f);
+          }}
+        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            disabled={stickerBusy}
+            onClick={() => stickerScanInputRef.current?.click()}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-teal-200 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-50"
+          >
+            {stickerBusy ? <Loader className="animate-spin w-4 h-4" /> : <Upload className="w-4 h-4" />}
+            {stickerBusy ? 'Scanning…' : 'Gallery / file'}
+          </button>
+          <button
+            type="button"
+            disabled={stickerBusy}
+            onClick={() => setShowStickerScanCamera(true)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Camera className="w-4 h-4" />
+            Live camera
+          </button>
+          {lastStickerScanFileName ? (
+            <span className="text-xs text-slate-600 self-center truncate max-w-[200px]" title={lastStickerScanFileName}>
+              {lastStickerScanFileName}
+            </span>
+          ) : null}
           {onOpenPatient ? (
             <button
               type="button"
@@ -736,6 +809,12 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
           await patchRow(id, patch);
         }}
         onToast={onToast}
+      />
+
+      <StickerCameraModal
+        isOpen={showStickerScanCamera}
+        onClose={() => setShowStickerScanCamera(false)}
+        onCapture={(file) => void applyStickerFromFile(file)}
       />
 
       {showAddAdmission && (
