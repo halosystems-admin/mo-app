@@ -20,7 +20,7 @@ export const wardBoardScrollerClass = [
   'flex min-h-0 flex-1 flex-nowrap items-stretch',
   wardBoardGapClass,
   'overflow-x-auto overflow-y-hidden',
-  'overscroll-x-contain',
+  'overscroll-x-contain max-md:overscroll-x-none',
   'pb-3 pt-2 pl-4 pr-6 sm:pl-5 sm:pr-8',
   'touch-pan-x snap-x snap-mandatory halo-hide-scrollbar',
 ].join(' ');

@@ -232,7 +232,7 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
       style={style}
       className={`grid w-full min-w-0 grid-cols-[40px_minmax(0,1fr)_48px] items-stretch gap-0 rounded-[10px] border border-halo-border bg-white shadow-[var(--shadow-halo-soft)] my-2 overflow-hidden ${
         isDragging ? 'opacity-40 ring-2 ring-teal-400/50 z-10' : ''
-      } max-md:[touch-action:pan-y]`}
+      } max-md:!touch-manipulation`}
     >
       <button
         type="button"
@@ -655,13 +655,28 @@ export const WardKanbanBoard: React.FC<Props> = ({
     return m;
   }, [unlinkedAdmittedInpatients, columns, validColumnIds, defaultColId]);
 
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia?.('(max-width: 768px)');
+    if (!mq) return;
+    const apply = () => setIsMobile(Boolean(mq.matches));
+    apply();
+    mq.addEventListener?.('change', apply);
+    return () => mq.removeEventListener?.('change', apply);
+  }, []);
+
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6, delay: 0, tolerance: 5 },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 200, tolerance: 5 },
-    })
+    ...(isMobile
+      ? [
+          useSensor(TouchSensor, {
+            activationConstraint: { delay: 250, tolerance: 5 },
+          }),
+        ]
+      : [
+          useSensor(PointerSensor, {
+            activationConstraint: { distance: 6, delay: 0, tolerance: 5 },
+          }),
+        ])
   );
 
   const handleDragEnd = useCallback(
@@ -732,7 +747,11 @@ export const WardKanbanBoard: React.FC<Props> = ({
       >
       <div
         className={`${wardBoardScrollerClass} max-md:[scroll-padding-inline:12px]`}
-        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
+        style={
+          isMobile
+            ? { WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }
+            : { touchAction: 'auto' }
+        }
         role="region"
         aria-label="Ward board — compact list; tap a name for tasks"
       >
