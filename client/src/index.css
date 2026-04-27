@@ -117,6 +117,15 @@ a:not(.halo-touch-min) {
   display: none; /* Safari/Chrome */
 }
 
+@media (max-width: 768px) {
+  .halo-hide-scrollbar-mobile {
+    scrollbar-width: none;
+  }
+  .halo-hide-scrollbar-mobile::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* ─── iOS safe-area utilities ────────────────────────────────── */
 /* Apply to bottom-pinned elements (sidebars, nav bars, modals) */
 .pb-safe {

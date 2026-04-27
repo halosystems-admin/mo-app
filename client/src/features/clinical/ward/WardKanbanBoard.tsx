@@ -4,7 +4,6 @@ import {
   DragOverlay,
   MeasuringStrategy,
   PointerSensor,
-  TouchSensor,
   closestCorners,
   useSensor,
   useSensors,
@@ -16,6 +15,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { AdmittedPatientKanban, Patient } from '../../../../../shared/types';
 import type { InpatientRecord } from '../../../types/clinical';
 import { clinicalWardToBoardColumn, findInpatientMatchingHaloPatient } from '../../../services/clinicalData';
+import { formatWardDisplay } from '../shared/clinicalDisplay';
 import { CLINICAL_HEADER_BAND } from '../shared/tableScrollClasses';
 import {
   WARD_BOARD_COLUMNS,
@@ -130,7 +130,7 @@ const WardColumnDropZone = memo(function WardColumnDropZone({ col, ptCount, chil
   return (
     <div
       ref={setNodeRef}
-      className={`flex snap-start flex-col ${wardColumnWidthClass} min-h-0 h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
+      className={`flex snap-start max-md:snap-center flex-col ${wardColumnWidthClass} min-h-0 h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
         isOver ? 'border-halo-primary ring-2 ring-halo-primary/35 shadow-md' : 'border-halo-border'
       }`}
     >
@@ -155,8 +155,12 @@ function WardDragOverlayCard({
   const p = patientsById.get(patientId);
   const name = p?.name || patientId;
   const ip = findInpatientMatchingHaloPatient(p, inpatients);
-  const folder = ip?.folderNumber ?? '—';
   const doctor = ip?.assignedDoctor ?? '—';
+  const bedLine = ip
+    ? [ip.bed?.trim(), ip.ward ? formatWardDisplay(ip.ward) : '']
+        .filter((s) => Boolean(s && String(s).trim()))
+        .join(' · ') || '—'
+    : '—';
   return (
     <div
       className="w-[268px] rounded-lg border-2 border-teal-500 bg-white px-2 py-2 shadow-xl cursor-grabbing select-none will-change-transform"
@@ -167,7 +171,7 @@ function WardDragOverlayCard({
         <div className="min-w-0">
           <div className="text-sm font-semibold text-slate-900 truncate">{name}</div>
           <div className="text-[10px] text-slate-600 truncate">
-            {folder} · {doctor}
+            {bedLine} · {doctor}
           </div>
         </div>
       </div>
@@ -207,8 +211,12 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
   const p = patientsById.get(row.patientId);
   const name = p?.name || row.patientId;
   const ip = findInpatientMatchingHaloPatient(p, inpatients);
-  const folder = ip?.folderNumber ?? '—';
   const doctor = ip?.assignedDoctor ?? '—';
+  const bedLine = ip
+    ? [ip.bed?.trim(), ip.ward ? formatWardDisplay(ip.ward) : '']
+        .filter((s) => Boolean(s && String(s).trim()))
+        .join(' · ') || '—'
+    : '—';
   const todos = row.todos || [];
   const openCount = todos.filter((t) => t.status !== 'Done').length;
   const tags = (row.tags || []).map((t) => t.trim().toLowerCase()).filter(Boolean);
@@ -232,7 +240,7 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
       style={style}
       className={`grid w-full min-w-0 grid-cols-[40px_minmax(0,1fr)_48px] items-stretch gap-0 rounded-[10px] border border-halo-border bg-white shadow-[var(--shadow-halo-soft)] my-2 overflow-hidden ${
         isDragging ? 'opacity-40 ring-2 ring-teal-400/50 z-10' : ''
-      } max-md:!touch-manipulation`}
+      }`}
     >
       <button
         type="button"
@@ -245,7 +253,7 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
       >
         <GripVertical size={16} strokeWidth={2} />
       </button>
-      <div className="min-w-0 flex flex-col min-h-[3.5rem]">
+      <div className="min-w-0 flex flex-col min-h-[3.5rem] max-md:[touch-action:pan-x_pan-y]">
         <button
           type="button"
           onClick={onOpenTasks}
@@ -253,8 +261,8 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
           aria-label={`Open ward tasks for ${name}`}
         >
           <div className="text-sm font-semibold text-halo-text leading-tight truncate">{name}</div>
-          <div className="text-[10px] text-halo-text-secondary truncate mt-0.5">
-            {folder} · {doctor}
+          <div className="text-[10px] text-halo-text-secondary truncate mt-0.5 max-md:[touch-action:pan-x_pan-y]">
+            {bedLine} · {doctor}
           </div>
         </button>
         <div className="flex flex-wrap items-center gap-1 px-1 pb-2 pt-0.5 border-t border-halo-border/60 bg-halo-section/30">
@@ -429,8 +437,18 @@ function WardPatientDetailSheet({
   const p = row ? patientsById.get(row.patientId) : undefined;
   const haloName = row ? p?.name || row.patientId : '';
   const ip = row ? findInpatientMatchingHaloPatient(p, inpatients) : undefined;
-  const folder = ip?.folderNumber ?? '—';
   const doctor = ip?.assignedDoctor ?? '—';
+  const haloBedLine = ip
+    ? [ip.bed?.trim(), ip.ward ? formatWardDisplay(ip.ward) : '']
+        .filter((s) => Boolean(s && String(s).trim()))
+        .join(' · ') || '—'
+    : '—';
+  const unlinkedBedLine =
+    target.kind === 'unlinked'
+      ? [unlinked!.bed?.trim(), unlinked!.ward ? formatWardDisplay(unlinked!.ward) : '']
+          .filter((s) => Boolean(s && String(s).trim()))
+          .join(' · ') || '—'
+      : '';
   const todos = row?.todos || [];
 
   return (
@@ -450,11 +468,11 @@ function WardPatientDetailSheet({
             <p className="text-xs text-slate-500 mt-0.5 truncate">
               {target.kind === 'halo' ? (
                 <>
-                  {folder} · {doctor}
+                  {haloBedLine} · {doctor}
                 </>
               ) : (
                 <>
-                  Hospital (no HALO) · {unlinked!.folderNumber || '—'} · {unlinked!.assignedDoctor || '—'}
+                  {unlinkedBedLine} · {unlinked!.assignedDoctor || '—'}
                 </>
               )}
             </p>
@@ -666,17 +684,13 @@ export const WardKanbanBoard: React.FC<Props> = ({
   }, []);
 
   const sensors = useSensors(
-    ...(isMobile
-      ? [
-          useSensor(TouchSensor, {
-            activationConstraint: { delay: 250, tolerance: 5 },
-          }),
-        ]
-      : [
-          useSensor(PointerSensor, {
-            activationConstraint: { distance: 6, delay: 0, tolerance: 5 },
-          }),
-        ])
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        delay: 0,
+        tolerance: 5,
+        distance: isMobile ? 12 : 6,
+      },
+    })
   );
 
   const handleDragEnd = useCallback(
@@ -762,8 +776,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
             ptCount={(grouped[col.id] ?? []).length + (unlinkedGrouped[col.id] ?? []).length}
           >
             <div
-              className={`flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain bg-halo-section/50 pb-3 pt-2 ${wardColumnBodyPaddingClass}`}
-              style={{ touchAction: 'pan-y' }}
+              className={`flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain bg-halo-section/50 pb-3 pt-2 ${wardColumnBodyPaddingClass} max-md:touch-auto md:touch-pan-y`}
             >
               <div className="flex min-w-0 max-w-full flex-col items-stretch">
                 <SortableContext

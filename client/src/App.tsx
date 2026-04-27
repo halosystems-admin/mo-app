@@ -789,8 +789,7 @@ export const App = () => {
             <button
               type="button"
               onClick={() => requestOpenSheetsDictate()}
-              className="md:hidden fixed right-4 z-[46] flex h-14 w-14 items-center justify-center rounded-full bg-teal-600 text-white shadow-lg shadow-teal-900/20 ring-2 ring-white/90 active:scale-95 transition-transform"
-              style={{ bottom: 'max(1rem, calc(3.5rem + env(safe-area-inset-bottom, 0px) + 0.75rem))' }}
+              className="md:hidden fixed bottom-5 left-1/2 z-50 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full bg-teal-600 text-white shadow-lg shadow-teal-900/20 ring-2 ring-white/90 active:scale-95 transition-transform"
               aria-label="Dictate"
               title="Dictate"
             >

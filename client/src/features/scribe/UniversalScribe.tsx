@@ -99,7 +99,7 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+    <div className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2 md:bottom-6 md:left-auto md:right-6 md:translate-x-0 md:items-end">
       {/* Recording indicator pill */}
       {isRecording && (
         <div className="bg-white border border-red-200 shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2 animate-in fade-in">

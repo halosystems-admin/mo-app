@@ -1336,11 +1336,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           ) : (
             <>
               <div className="flex flex-row flex-wrap items-center justify-end gap-2">
-                <HeaderConsultationRecorder
-                  onLiveTranscriptUpdate={handleLiveTranscriptUpdate}
-                  onLiveStopped={handleLiveStopped}
-                  onError={(msg: string) => onToast(msg, 'error')}
-                />
+                <div className="hidden md:block">
+                  <HeaderConsultationRecorder
+                    onLiveTranscriptUpdate={handleLiveTranscriptUpdate}
+                    onLiveStopped={handleLiveStopped}
+                    onError={(msg: string) => onToast(msg, 'error')}
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={handleGenerateAiInsights}
