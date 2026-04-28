@@ -147,7 +147,7 @@ const WardColumnDropZone = memo(function WardColumnDropZone({ col, ptCount, chil
   return (
     <div
       ref={setNodeRef}
-      className={`flex snap-start max-md:snap-center flex-col ${wardColumnWidthClass} min-h-0 h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
+      className={`flex snap-start flex-col ${wardColumnWidthClass} min-h-0 h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
         isOver ? 'border-halo-primary ring-2 ring-halo-primary/35 shadow-md' : 'border-halo-border'
       }`}
     >
@@ -173,11 +173,7 @@ function WardDragOverlayCard({
   const name = p?.name || patientId;
   const ip = findInpatientMatchingHaloPatient(p, inpatients);
   const doctor = ip?.assignedDoctor ?? '—';
-  const bedLine = ip
-    ? [ip.bed?.trim(), ip.ward ? formatWardDisplay(ip.ward) : '']
-        .filter((s) => Boolean(s && String(s).trim()))
-        .join(' · ') || '—'
-    : '—';
+  const bedLine = ip?.bed?.trim() || '—';
   return (
     <div
       className="w-[268px] rounded-lg border-2 border-teal-500 bg-white px-2 py-2 shadow-xl cursor-grabbing select-none will-change-transform"
@@ -229,11 +225,7 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
   const name = p?.name || row.patientId;
   const ip = findInpatientMatchingHaloPatient(p, inpatients);
   const doctor = ip?.assignedDoctor ?? '—';
-  const bedLine = ip
-    ? [ip.bed?.trim(), ip.ward ? formatWardDisplay(ip.ward) : '']
-        .filter((s) => Boolean(s && String(s).trim()))
-        .join(' · ') || '—'
-    : '—';
+  const bedLine = ip?.bed?.trim() || '—';
   const todos = row.todos || [];
   const openCount = todos.filter((t) => t.status !== 'Done').length;
   const tags = (row.tags || []).map((t) => t.trim().toLowerCase()).filter(Boolean);
@@ -423,11 +415,6 @@ function WardPatientDetailSheet({
     setAdding(false);
     setNewTitle('');
   };
-
-  useEffect(() => {
-    setAdding(false);
-    setNewTitle('');
-  }, [target]);
 
   useEffect(() => {
     if (!target) return;
@@ -838,6 +825,9 @@ export const WardKanbanBoard: React.FC<Props> = ({
   );
 
   const overlayPatientId = activeDragId;
+  const detailKey = detailTarget
+    ? `${detailTarget.kind}:${detailTarget.kind === 'halo' ? detailTarget.patientId : detailTarget.recordId}`
+    : 'none';
 
   return (
     <div className="flex flex-1 min-h-0 h-full min-w-0 flex-col">
@@ -856,7 +846,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
       >
       <div
         ref={boardScrollerRef}
-        className={`${wardBoardScrollerClass} max-md:[scroll-padding-inline:12px]`}
+        className={`${wardBoardScrollerClass} max-md:[scroll-padding-inline:0px]`}
         style={
           isMobile
             ? { WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }
@@ -936,6 +926,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
       </DragOverlay>
 
       <WardPatientDetailSheet
+        key={detailKey}
         target={detailTarget}
         onClose={() => setDetailTarget(null)}
         admittedKanban={admittedKanban}

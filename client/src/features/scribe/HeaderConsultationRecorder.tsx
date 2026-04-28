@@ -254,7 +254,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
     .padStart(2, '0')}`;
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="max-md:hidden flex items-center gap-1.5">
       <div className="flex items-center gap-1.5">
         {isLive && (
           <button

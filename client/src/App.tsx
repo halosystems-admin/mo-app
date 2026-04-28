@@ -462,18 +462,6 @@ export const App = () => {
   return (
     <div className="flex h-screen min-h-0 min-w-0 flex-1 bg-slate-50 font-sans text-slate-900 overflow-hidden overscroll-x-none relative">
       {/* Mobile navigation drawer (patients, calendar, settings, logout) */}
-      {isSignedIn && (
-        <button
-          type="button"
-          onClick={() => setMobileSidebarOpen(true)}
-          className="md:hidden absolute top-3 left-3 z-50 p-2 rounded-xl bg-white/80 backdrop-blur border border-slate-200 shadow-sm text-slate-700"
-          aria-label="Open menu"
-          aria-haspopup="dialog"
-          aria-expanded={mobileSidebarOpen}
-        >
-          <Menu size={20} />
-        </button>
-      )}
 
       {mobileSidebarOpen && (
         <div className="md:hidden fixed inset-0 z-[60]">
@@ -540,6 +528,29 @@ export const App = () => {
           isSignedIn ? 'max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom))]' : ''
         }`}
       >
+        {isSignedIn ? (
+          <header className="md:hidden flex items-center gap-4 px-4 pt-3 pb-2 bg-halo-bg shrink-0">
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="halo-touch-min inline-flex items-center justify-center rounded-xl bg-white/90 backdrop-blur border border-slate-200 shadow-sm text-slate-700"
+              aria-label="Open menu"
+              aria-haspopup="dialog"
+              aria-expanded={mobileSidebarOpen}
+            >
+              <Menu size={20} />
+            </button>
+            <h1 className="min-w-0 flex-1 text-lg font-semibold text-halo-text tracking-tight truncate">
+              {mainNav === 'ward'
+                ? 'Ward'
+                : mainNav === 'sheets'
+                  ? 'Sheets'
+                  : activePatient
+                    ? activePatient.name
+                    : 'Folders'}
+            </h1>
+          </header>
+        ) : null}
         {mainNav === 'ward' ? (
           <WardPage
             patients={patients}
@@ -789,7 +800,8 @@ export const App = () => {
             <button
               type="button"
               onClick={() => requestOpenSheetsDictate()}
-              className="md:hidden fixed bottom-5 left-1/2 z-50 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full bg-teal-600 text-white shadow-lg shadow-teal-900/20 ring-2 ring-white/90 active:scale-95 transition-transform"
+              className="md:hidden fixed bottom-[calc(84px+env(safe-area-inset-bottom))] left-1/2 z-50 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full bg-teal-600 text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-transform border-4"
+              style={{ borderColor: 'var(--color-halo-bg)' }}
               aria-label="Dictate"
               title="Dictate"
             >
