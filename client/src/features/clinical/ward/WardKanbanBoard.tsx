@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -9,6 +9,8 @@ import {
   useSensors,
   useDroppable,
   type DragEndEvent,
+  type DragMoveEvent,
+  type DragStartEvent,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -32,6 +34,21 @@ const DROPPABLE_PREFIX = 'ward-col:';
 
 function droppableId(col: string): string {
   return `${DROPPABLE_PREFIX}${col}`;
+}
+
+function getPointerTypeFromEvent(e: unknown): 'touch' | 'mouse' | 'pen' | null {
+  if (!e || typeof e !== 'object') return null;
+  // PointerEvent path (most modern mobile browsers)
+  const pe = e as { pointerType?: unknown };
+  if (typeof pe.pointerType === 'string') {
+    const pt = pe.pointerType;
+    if (pt === 'touch' || pt === 'mouse' || pt === 'pen') return pt;
+  }
+  // TouchEvent fallback
+  const te = e as { touches?: unknown; changedTouches?: unknown };
+  const hasTouches =
+    Array.isArray(te.touches) || Array.isArray(te.changedTouches) || typeof te.touches === 'object';
+  return hasTouches ? 'touch' : null;
 }
 
 function cloneLayout(layout: Record<string, string[]>): Record<string, string[]> {
@@ -626,6 +643,11 @@ export const WardKanbanBoard: React.FC<Props> = ({
   const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
   const [tagDraftPatientId, setTagDraftPatientId] = useState<string | null>(null);
   const [tagDraftValue, setTagDraftValue] = useState('');
+  const boardScrollerRef = useRef<HTMLDivElement | null>(null);
+  const dragPointerTypeRef = useRef<'touch' | 'mouse' | 'pen' | null>(null);
+  const autoScrollDirRef = useRef<-1 | 0 | 1>(0);
+  const autoScrollSpeedRef = useRef<number>(0);
+  const autoScrollRafRef = useRef<number | null>(null);
 
   const columns = wardColumns?.length ? wardColumns : WARD_BOARD_COLUMNS;
   const validColumnIds = useMemo(() => new Set(columns.map((c) => c.id)), [columns]);
@@ -693,10 +715,79 @@ export const WardKanbanBoard: React.FC<Props> = ({
     })
   );
 
+  const stopAutoScroll = useCallback(() => {
+    autoScrollDirRef.current = 0;
+    autoScrollSpeedRef.current = 0;
+    if (autoScrollRafRef.current != null) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+  }, []);
+
+  const tickAutoScroll = useCallback(() => {
+    autoScrollRafRef.current = null;
+    const el = boardScrollerRef.current;
+    if (!el) return;
+    const dir = autoScrollDirRef.current;
+    const speed = autoScrollSpeedRef.current;
+    if (dir === 0 || speed <= 0) return;
+    el.scrollLeft += dir * speed;
+    autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
+  }, []);
+
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      setActiveDragId(String(event.active.id));
+      dragPointerTypeRef.current = getPointerTypeFromEvent(event.activatorEvent);
+      if (!(isMobile && dragPointerTypeRef.current === 'touch')) return;
+      // Start loop only for mobile touch drags.
+      stopAutoScroll();
+      autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
+    },
+    [isMobile, stopAutoScroll, tickAutoScroll]
+  );
+
+  const handleDragMove = useCallback(
+    (event: DragMoveEvent) => {
+      if (!(isMobile && dragPointerTypeRef.current === 'touch')) return;
+      const el = boardScrollerRef.current;
+      if (!el) return;
+
+      // Use the dragged card's translated rect (stable across browsers).
+      const r = event.active.rect.current.translated ?? event.active.rect.current.initial ?? null;
+      if (!r) return;
+
+      const centerX = r.left + r.width / 2;
+      const vw = Math.max(1, window.innerWidth || 1);
+      const edge = vw * 0.13; // ~13% of viewport
+      const leftZone = edge;
+      const rightZone = vw - edge;
+
+      if (centerX < leftZone) {
+        const t = Math.min(1, Math.max(0, (leftZone - centerX) / edge));
+        autoScrollDirRef.current = -1;
+        autoScrollSpeedRef.current = 6 + t * 18; // 6..24 px/frame
+      } else if (centerX > rightZone) {
+        const t = Math.min(1, Math.max(0, (centerX - rightZone) / edge));
+        autoScrollDirRef.current = 1;
+        autoScrollSpeedRef.current = 6 + t * 18;
+      } else {
+        autoScrollDirRef.current = 0;
+        autoScrollSpeedRef.current = 0;
+      }
+
+      if (autoScrollDirRef.current !== 0 && autoScrollRafRef.current == null) {
+        autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
+      }
+    },
+    [isMobile, tickAutoScroll]
+  );
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
       setActiveDragId(null);
+      stopAutoScroll();
       if (!over) return;
       const activePid = String(active.id);
       const overRaw = String(over.id);
@@ -704,7 +795,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
       const next = applyDragToLayout(layout, activePid, overRaw);
       if (next) onApplyBoardLayout(next);
     },
-    [columns, grouped, onApplyBoardLayout]
+    [columns, grouped, onApplyBoardLayout, stopAutoScroll]
   );
 
   const handleTogglePresetTag = useCallback(
@@ -755,11 +846,16 @@ export const WardKanbanBoard: React.FC<Props> = ({
         collisionDetection={closestCorners}
         measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
         autoScroll={false}
-        onDragStart={({ active }) => setActiveDragId(String(active.id))}
+        onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
-        onDragCancel={() => setActiveDragId(null)}
+        onDragCancel={() => {
+          setActiveDragId(null);
+          stopAutoScroll();
+        }}
       >
       <div
+        ref={boardScrollerRef}
         className={`${wardBoardScrollerClass} max-md:[scroll-padding-inline:12px]`}
         style={
           isMobile
