@@ -1306,15 +1306,21 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-halo-bg relative w-full">
-      {/* Header */}
-      <div className="border-b border-halo-border px-3 md:px-6 py-2.5 flex flex-col md:flex-row md:items-center md:justify-between bg-halo-card shadow-[var(--shadow-halo-soft)] z-10 gap-2">
-        <div className="flex items-center gap-2 min-w-0 md:items-center">
-          <button onClick={onBack} className="md:hidden p-1.5 text-slate-500 hover:text-teal-500 rounded-full">
+      {/* Header — mobile: single compact row (back + actions); desktop: unchanged title left / actions right */}
+      <div className="border-b border-halo-border px-3 md:px-6 py-2.5 flex flex-row flex-wrap items-center gap-x-2 gap-y-2 bg-halo-card shadow-[var(--shadow-halo-soft)] z-10 md:flex-nowrap md:items-center md:justify-between md:gap-4">
+        {/* Mobile: shrink-wrap group (back + actions sit tight); Desktop: title takes remaining space */}
+        <div className="flex min-w-0 shrink-0 items-center gap-2 md:min-w-0 md:flex-1">
+          <button
+            type="button"
+            onClick={onBack}
+            className="md:hidden shrink-0 p-1.5 text-slate-500 hover:text-teal-500 rounded-full"
+            aria-label="Back"
+          >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <div className="group relative min-w-0">
+          <div className="group relative hidden min-w-0 md:block md:flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <h1 className="halo-page-title text-2xl font-semibold text-halo-text tracking-tight leading-snug truncate">{patient.name}</h1>
+              <h1 className="text-2xl font-semibold text-halo-text tracking-tight leading-snug truncate">{patient.name}</h1>
               <button onClick={startEditPatient} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-halo-text-secondary hover:text-halo-primary hover:bg-halo-primary-muted rounded-full shrink-0">
                 <Pencil size={14} />
               </button>
@@ -1322,9 +1328,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           </div>
         </div>
 
-        <div className="flex w-full flex-col items-stretch gap-1.5 md:w-auto md:flex-row md:items-center md:justify-end">
+        <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2 md:shrink-0">
           {status === AppStatus.UPLOADING ? (
-            <div className="w-44">
+            <div className="w-full md:w-44">
               <div className="mb-0.5 flex justify-between text-[10px] font-semibold text-teal-700/90">
                 <span>Uploading</span>
                 <span>{uploadProgress}%</span>
