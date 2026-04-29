@@ -209,6 +209,20 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
     }
   }, [connectionState, isLive, onLiveTranscriptUpdate, onError, stopLive]);
 
+  useEffect(() => {
+    const onToggle = () => {
+      if (isLive) {
+        void stopLive();
+      } else {
+        void startLive();
+      }
+    };
+    window.addEventListener('halo:toggle-consultation-dictation', onToggle as EventListener);
+    return () => {
+      window.removeEventListener('halo:toggle-consultation-dictation', onToggle as EventListener);
+    };
+  }, [isLive, startLive, stopLive]);
+
   const togglePause = () => {
     if (!isLive || connectionState !== 'open') return;
     // Pause should stop chunk generation + prevent further transcription updates.
@@ -254,7 +268,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
     .padStart(2, '0')}`;
 
   return (
-    <div className="max-md:hidden flex items-center gap-1.5">
+    <div className="consultation-recorder-pill flex items-center gap-1.5">
       <div className="flex items-center gap-1.5">
         {isLive && (
           <button

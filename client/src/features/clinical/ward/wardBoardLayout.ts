@@ -7,10 +7,10 @@
 export const WARD_COLUMN_WIDTH_PX = 300;
 
 /** Tailwind: fixed width + no shrink (identical columns). */
-export const wardColumnWidthClass = `max-md:w-[100vw] max-md:min-w-[100vw] max-md:max-w-[100vw] md:w-[300px] md:min-w-[300px] md:max-w-[300px] shrink-0`;
+export const wardColumnWidthClass = `md:w-[300px] md:min-w-[300px] md:max-w-[300px] shrink-0`;
 
 /** Gap between columns (1.5rem = 24px). */
-export const wardBoardGapClass = 'max-md:gap-0 md:gap-6';
+export const wardBoardGapClass = 'gap-6';
 
 /** Horizontal padding inside column body (card area). */
 export const wardColumnBodyPaddingClass = 'px-3';
@@ -21,6 +21,6 @@ export const wardBoardScrollerClass = [
   wardBoardGapClass,
   'overflow-x-auto overflow-y-hidden',
   'overscroll-x-contain',
-  'max-md:px-0 md:pb-3 md:pt-2 md:pl-4 md:pr-6 lg:pl-5 lg:pr-8',
+  'pb-3 pt-2 pl-4 pr-6 sm:pl-5 sm:pr-8',
   'touch-pan-x snap-x snap-mandatory halo-hide-scrollbar-mobile',
 ].join(' ');

@@ -799,7 +799,15 @@ export const App = () => {
           {mainNav === 'folders' && !mobileSidebarOpen ? (
             <button
               type="button"
-              onClick={() => requestOpenSheetsDictate()}
+              onClick={() => {
+                // Patient workspace: trigger consultation dictation (same logic as the header pill button).
+                if (activePatient) {
+                  window.dispatchEvent(new Event('halo:toggle-consultation-dictation'));
+                  return;
+                }
+                // Fallback: open the Sheets dictate flow (used outside PatientWorkspace).
+                requestOpenSheetsDictate();
+              }}
               className="md:hidden fixed bottom-[calc(84px+env(safe-area-inset-bottom))] left-1/2 z-50 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full bg-teal-600 text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-transform border-4"
               style={{ borderColor: 'var(--color-halo-bg)' }}
               aria-label="Dictate"

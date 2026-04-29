@@ -147,7 +147,7 @@ const WardColumnDropZone = memo(function WardColumnDropZone({ col, ptCount, chil
   return (
     <div
       ref={setNodeRef}
-      className={`flex snap-start flex-col ${wardColumnWidthClass} min-h-0 h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
+      className={`ward-board-col flex snap-start flex-col ${wardColumnWidthClass} min-h-0 h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
         isOver ? 'border-halo-primary ring-2 ring-halo-primary/35 shadow-md' : 'border-halo-border'
       }`}
     >
@@ -718,7 +718,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
     const dir = autoScrollDirRef.current;
     const speed = autoScrollSpeedRef.current;
     if (dir === 0 || speed <= 0) return;
-    el.scrollLeft += dir * speed;
+    el.scrollBy({ left: dir * speed, behavior: 'auto' });
     autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
   }, []);
 
@@ -835,7 +835,15 @@ export const WardKanbanBoard: React.FC<Props> = ({
         sensors={sensors}
         collisionDetection={closestCorners}
         measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-        autoScroll={false}
+        autoScroll={
+          isMobile
+            ? {
+                enabled: true,
+                // We only want horizontal assist; vertical lists scroll within columns already.
+                threshold: { x: 0.15, y: 1 },
+              }
+            : false
+        }
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
@@ -846,10 +854,15 @@ export const WardKanbanBoard: React.FC<Props> = ({
       >
       <div
         ref={boardScrollerRef}
-        className={`${wardBoardScrollerClass} max-md:[scroll-padding-inline:0px]`}
+        className={`ward-board-scroller ${wardBoardScrollerClass}`}
         style={
           isMobile
-            ? { WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }
+            ? {
+                WebkitOverflowScrolling: 'touch',
+                // Important: during an active touch-drag, disable native panning so dragging stays smooth
+                // and our edge auto-scroll can drive the horizontal movement without "fighting" the browser.
+                touchAction: activeDragId && dragPointerTypeRef.current === 'touch' ? 'none' : 'pan-x',
+              }
             : { touchAction: 'auto' }
         }
         role="region"

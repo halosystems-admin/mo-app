@@ -1314,7 +1314,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           </button>
           <div className="group relative min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <h1 className="max-md:hidden text-2xl font-semibold text-halo-text tracking-tight leading-snug truncate">{patient.name}</h1>
+              <h1 className="halo-page-title text-2xl font-semibold text-halo-text tracking-tight leading-snug truncate">{patient.name}</h1>
               <button onClick={startEditPatient} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-halo-text-secondary hover:text-halo-primary hover:bg-halo-primary-muted rounded-full shrink-0">
                 <Pencil size={14} />
               </button>
@@ -1336,13 +1336,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           ) : (
             <>
               <div className="flex flex-row flex-wrap items-center justify-end gap-2">
-                <div className="hidden md:block">
-                  <HeaderConsultationRecorder
-                    onLiveTranscriptUpdate={handleLiveTranscriptUpdate}
-                    onLiveStopped={handleLiveStopped}
-                    onError={(msg: string) => onToast(msg, 'error')}
-                  />
-                </div>
+                <HeaderConsultationRecorder
+                  onLiveTranscriptUpdate={handleLiveTranscriptUpdate}
+                  onLiveStopped={handleLiveStopped}
+                  onError={(msg: string) => onToast(msg, 'error')}
+                />
                 <button
                   type="button"
                   onClick={handleGenerateAiInsights}
