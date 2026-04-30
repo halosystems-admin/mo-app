@@ -91,6 +91,49 @@ function extractNoteFields(note: HaloNote): NoteField[] {
   return [];
 }
 
+function labelParts(label: string): string[] {
+  return label
+    .split('›')
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+function fieldsToOrganizedText(fields: NoteField[]): string {
+  if (!fields.length) return '';
+
+  // Group by top-level section (derived from template structure, not hard-coded).
+  const groups = new Map<string, Array<{ label: string; body: string }>>();
+  for (const f of fields) {
+    const rawLabel = String(f.label || '').trim();
+    const body = String(f.body ?? '').trim();
+    if (!rawLabel && !body) continue;
+    const parts = labelParts(rawLabel);
+    const top = parts[0] || 'Note';
+    const leaf = parts.length > 1 ? parts.slice(1).join(' › ') : rawLabel || 'Text';
+    const arr = groups.get(top) ?? [];
+    arr.push({ label: leaf, body });
+    groups.set(top, arr);
+  }
+
+  const sections: string[] = [];
+  for (const [section, items] of groups.entries()) {
+    // Section header (template-derived)
+    sections.push(section.toUpperCase());
+    for (const it of items) {
+      if (!it.label && it.body) {
+        sections.push(it.body);
+        continue;
+      }
+      sections.push(`${it.label}:`);
+      sections.push(it.body || '—');
+      sections.push(''); // spacer
+    }
+    sections.push(''); // spacer between sections
+  }
+
+  return sections.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 interface NoteEditorProps {
   notes: HaloNote[];
   activeIndex: number;
@@ -140,6 +183,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     if (fields.length > 0) return fieldsToContent(fields);
     return '';
   }, [activeNote?.content, fields]);
+
+  const organizedText = useMemo(() => {
+    if (!fields.length) return displayContent;
+    // If the user has already edited/typed a note, keep their content.
+    if (activeNote?.content?.trim()) return activeNote.content;
+    return fieldsToOrganizedText(fields) || displayContent;
+  }, [fields, displayContent, activeNote?.content]);
 
   // Rebuild blob URL whenever the PDF base64 changes
   useEffect(() => {
@@ -239,33 +289,24 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
       {/* Content area */}
       {viewMode === 'fields' ? (
-        <div className="flex-1 overflow-auto bg-slate-50/70 p-3">
-          {fields.length > 0 ? (
-            <div className="space-y-2">
-              {fields.map((field, idx) => (
-                <div key={`${field.label}-${idx}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{field.label}</p>
-                  <textarea
-                    value={field.body ?? ''}
-                    onChange={(e) => {
-                      const next = fields.map((f, i) => i === idx ? { ...f, body: e.target.value } : f);
-                      onNoteChange(activeIndex, { fields: next, content: fieldsToContent(next) });
-                    }}
-                    rows={Math.max(2, Math.ceil((field.body?.length ?? 0) / 80))}
-                    className="w-full rounded-md border-0 bg-transparent px-0 py-0 text-sm text-slate-700 focus:outline-none resize-y leading-relaxed"
-                  />
-                </div>
-              ))}
+        <div className="note-fields-shell flex-1 bg-slate-50/70 p-3">
+          <div className="note-fields-card rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col min-h-0">
+            <div className="px-4 py-3 border-b border-slate-100 shrink-0">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Note fields</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                {fields.length > 0 ? 'Formatted from the selected template fields.' : 'Type or paste your note here.'}
+              </div>
             </div>
-          ) : (
-            /* Fallback: free-text edit when HALO returned a plain string note */
-            <textarea
-              value={displayContent}
-              onChange={(e) => onNoteChange(activeIndex, { content: e.target.value })}
-              placeholder="Note content will appear here after generation..."
-              className="w-full h-full min-h-[320px] p-4 focus:outline-none resize-none text-sm leading-relaxed text-slate-700 border border-slate-200 rounded-xl bg-white"
-            />
-          )}
+
+            <div className="note-fields-scrollArea min-h-0 flex-1 overflow-y-auto p-3">
+              <textarea
+                value={organizedText}
+                onChange={(e) => onNoteChange(activeIndex, { content: e.target.value })}
+                placeholder="Note content will appear here after generation..."
+                className="w-full h-full min-h-[320px] p-4 focus:outline-none resize-none text-sm leading-relaxed text-slate-700 border border-slate-200 rounded-xl bg-white"
+              />
+            </div>
+          </div>
         </div>
       ) : (
         <div className="flex-1 overflow-auto bg-slate-50/70 p-3">

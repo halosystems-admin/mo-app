@@ -753,11 +753,11 @@ export const WardKanbanBoard: React.FC<Props> = ({
       if (centerX < leftZone) {
         const t = Math.min(1, Math.max(0, (leftZone - centerX) / edge));
         autoScrollDirRef.current = -1;
-        autoScrollSpeedRef.current = 6 + t * 18; // 6..24 px/frame
+        autoScrollSpeedRef.current = 2 + t * 2; // 2..4 px/frame (smooth, controlled)
       } else if (centerX > rightZone) {
         const t = Math.min(1, Math.max(0, (centerX - rightZone) / edge));
         autoScrollDirRef.current = 1;
-        autoScrollSpeedRef.current = 6 + t * 18;
+        autoScrollSpeedRef.current = 2 + t * 2;
       } else {
         autoScrollDirRef.current = 0;
         autoScrollSpeedRef.current = 0;
@@ -835,15 +835,8 @@ export const WardKanbanBoard: React.FC<Props> = ({
         sensors={sensors}
         collisionDetection={closestCorners}
         measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-        autoScroll={
-          isMobile
-            ? {
-                enabled: true,
-                // We only want horizontal assist; vertical lists scroll within columns already.
-                threshold: { x: 0.15, y: 1 },
-              }
-            : false
-        }
+        // Mobile: rely on our controlled edge auto-scroll (prevents fast/erratic native autoScroll).
+        autoScroll={false}
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}

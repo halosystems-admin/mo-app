@@ -16,7 +16,7 @@ interface SidebarProps {
   onDeletePatient: (patient: Patient) => void;
   onLogout: () => void;
   onOpenSettings: () => void;
-  userEmail?: string;
+  currentUser?: { firstName: string; lastName: string; email: string };
 }
 
 const navItem = (active: boolean) =>
@@ -35,7 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeletePatient,
   onLogout,
   onOpenSettings,
-  userEmail,
+  currentUser,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [aiSearchResults, setAiSearchResults] = useState<string[] | null>(null);
@@ -242,10 +242,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Plus size={16} /> New patient
           </button>
         )}
-        {userEmail ? (
-          <p className="text-[10px] text-slate-400 truncate mb-2 px-0.5" title={userEmail}>
-            {userEmail}
-          </p>
+        {currentUser ? (
+          <div className="mb-2 px-0.5 min-w-0">
+            <p className="text-[11px] font-semibold text-slate-700 truncate" title={`${currentUser.firstName} ${currentUser.lastName}`.trim()}>
+              {`${currentUser.firstName} ${currentUser.lastName}`.trim() || currentUser.email}
+            </p>
+            <p className="text-[10px] text-slate-400 truncate" title={currentUser.email}>
+              {currentUser.email}
+            </p>
+          </div>
         ) : null}
         <button
           onClick={onLogout}

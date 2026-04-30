@@ -50,10 +50,17 @@ NODE_ENV=production
 
 # --- Session (use a strong random secret) ---
 SESSION_SECRET=<run: openssl rand -hex 32>
+# Recommended: persistent sessions (required for multi-user invites)
+DATABASE_URL=<postgres-connection-string>
 
 # --- Google OAuth ---
 GOOGLE_CLIENT_ID=<your-client-id>
 GOOGLE_CLIENT_SECRET=<your-client-secret>
+
+# --- Microsoft OAuth (required for shared OneDrive) ---
+MS_TENANT_ID=<your-tenant-id>
+MS_CLIENT_ID=<your-client-id>
+MS_CLIENT_SECRET=<your-client-secret>
 
 # --- AI ---
 GEMINI_API_KEY=<your-key>
@@ -62,6 +69,17 @@ GEMINI_API_KEY=<your-key>
 # --- URLs (same base URL for app + API) ---
 CLIENT_URL=https://app.halo.africa
 PRODUCTION_URL=https://app.halo.africa
+
+# --- Supabase (required for multi-user auth + shared OneDrive tokens) ---
+SUPABASE_URL=<your-supabase-project-url>
+SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
+
+# --- SMTP (optional; if unset, admin UI will show invite links to copy/paste) ---
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=<smtp-user>
+SMTP_PASS=<smtp-pass>
 ```
 
 Replace `app.halo.africa` with your chosen hostname.
@@ -76,7 +94,7 @@ For a single URL, leave `VITE_API_URL` unset.
 
 ---
 
-## 3. Google OAuth (required for production)
+## 3. OAuth redirects (Google optional; Microsoft required for shared OneDrive)
 
 Google must allow your production URL for redirects and (optionally) JavaScript origins.
 
@@ -90,7 +108,15 @@ Google must allow your production URL for redirects and (optionally) JavaScript 
    (again, replace with your hostname.)
 5. Save.
 
-Without these, login will fail on the production domain.
+Without these, OAuth flows will fail on the production domain.
+
+### 3.1 Microsoft (shared OneDrive bootstrap)
+
+In Microsoft Entra (Azure AD) App Registration, add this redirect URI (Web platform):
+
+- `https://<your-host>/api/admin/onedrive/callback`
+
+This is used **only by admins** to connect Mo’s OneDrive once. All users share that OneDrive connection; users do not authenticate to Microsoft individually.
 
 ---
 
@@ -201,7 +227,18 @@ If you use Railway, Render, Fly.io, etc.:
 
 1. Open `https://app.halo.africa` in a browser (and on your phone).
 2. Check health: `https://app.halo.africa/api/health` should return `{"status":"ok",...}`.
-3. Log in with Google — you should be redirected to Google and back to the app.
+3. Bootstrap the first admin user (Mo) once:
+
+```bash
+export BOOTSTRAP_ADMIN_EMAIL="mo@practice.halo.africa"
+export BOOTSTRAP_ADMIN_PASSWORD="use-a-long-random-password"
+export BOOTSTRAP_ADMIN_HALO_USER_ID="<your-halo-user-id>"
+npm run bootstrap:admin
+```
+
+4. Log in with email/password (Mo).
+5. As admin: open Settings → Admin → OneDrive connection → Connect, complete Microsoft OAuth, then refresh status.
+6. Invite a user from Settings → Admin → Team, then accept the invite link and sign in.
 4. If something fails, check server logs (e.g. `pm2 logs halo-app`) and the browser devtools (Console / Network).
 
 ---

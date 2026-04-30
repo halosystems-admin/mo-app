@@ -81,7 +81,7 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 
   if (res.status === 401) {
     // Don’t force navigation on auth API routes (e.g. avoids full reload if /me ever returns 401).
-    if (!path.startsWith('/api/auth/')) {
+    if (!path.startsWith('/api/auth/') && !path.startsWith('/api/user-auth/')) {
       window.location.href = '/';
     }
     throw new ApiError('Not authenticated', 401);
@@ -119,8 +119,81 @@ export const getLoginUrl = (params?: { provider?: AuthProvider; storageMode?: Mi
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
   return request<{ url: string }>(`/api/auth/login-url${suffix}`);
 };
-export const checkAuth = () => request<{ signedIn: boolean; email?: string }>('/api/auth/me');
-export const logout = () => request('/api/auth/logout', { method: 'POST' });
+
+export type AppUserRole = 'admin' | 'user';
+export type CurrentUser = {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: AppUserRole;
+  haloUserId: string | null;
+};
+
+export const checkAuth = () => request<{ signedIn: boolean; user?: CurrentUser }>('/api/user-auth/me');
+export const loginWithPassword = (email: string, password: string) =>
+  request<{ user: CurrentUser }>('/api/user-auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+export const logout = () => request('/api/user-auth/logout', { method: 'POST' });
+
+export const fetchInvite = (token: string) =>
+  request<{
+    invite: {
+      email: string;
+      role: AppUserRole;
+      firstName: string;
+      lastName: string;
+      haloUserId: string | null;
+      expiresAt: string;
+    };
+  }>(`/api/user-auth/invite/${encodeURIComponent(token)}`);
+
+export const acceptInvite = (params: { token: string; firstName: string; lastName: string; password: string }) =>
+  request<{ success: boolean; user: { id: string; email: string; role: AppUserRole } }>('/api/user-auth/accept-invite', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+
+export const adminListUsers = () =>
+  request<{
+    users: Array<{
+      id: string;
+      email: string;
+      first_name: string;
+      last_name: string;
+      role: AppUserRole;
+      halo_user_id: string | null;
+      is_active: boolean;
+      created_at: string;
+      last_login_at: string | null;
+    }>;
+  }>('/api/admin/users');
+
+export const adminInviteUser = (params: {
+  email: string;
+  role: AppUserRole;
+  firstName?: string;
+  lastName?: string;
+  haloUserId?: string | null;
+}) =>
+  request<{ ok: boolean; inviteUrl: string; emailSent: boolean; emailError?: string }>('/api/admin/users/invite', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+
+export const adminUpdateUser = (
+  id: string,
+  params: { role?: AppUserRole; haloUserId?: string | null; isActive?: boolean; firstName?: string; lastName?: string }
+) =>
+  request<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(params) });
+
+export const adminDeactivateUser = (id: string) =>
+  request<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+export const adminOneDriveStatus = () => request<{ connected: boolean; error?: string }>('/api/admin/onedrive/status');
+export const adminOneDriveConnectUrl = () => request<{ url: string }>('/api/admin/onedrive/connect-url');
 
 /** Run note conversion scheduler now (txt→docx after 10h, docx→pdf after 24h). Requires jobs to be due. */
 export const runSchedulerNow = () =>

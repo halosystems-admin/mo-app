@@ -17,6 +17,11 @@ function isSmtpConfigured(): boolean {
   return Boolean(config.smtpHost && config.smtpUser && config.smtpPass);
 }
 
+function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConfig?: boolean }): string {
+  if (opts?.useMobileConfig) return config.haloMobileUserId;
+  return opts?.userId || req.appUser?.haloUserId || config.haloUserId;
+}
+
 async function convertDocxBufferToPdfBuffer(token: string, docxBuffer: Buffer): Promise<Buffer> {
   const importMetadata = JSON.stringify({
     name: `halo_preview_${Date.now()}`,
@@ -125,7 +130,7 @@ async function convertDocxBufferToPdfBufferMicrosoft(
 // POST /api/halo/templates
 router.post('/templates', async (req: Request, res: Response) => {
   try {
-    const userId = (req.body?.user_id as string) || config.haloUserId;
+    const userId = resolveHaloUserId(req, { userId: req.body?.user_id as string | undefined });
     const templates = await getTemplates(userId);
     res.json(templates);
   } catch (err) {
@@ -156,7 +161,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       return;
     }
 
-    const userId = useMobileConfig ? config.haloMobileUserId : (user_id || config.haloUserId);
+    const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
     console.log('[Halo] generate-note request:', { userId: userId.slice(0, 8) + '…', templateId, return_type, textLength: text.length });
     const result = await generateNote({ user_id: userId, template_id: templateId, text, return_type });
@@ -235,7 +240,7 @@ router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
       res.status(401).json({ error: 'Not authenticated.' });
       return;
     }
-    const userId = useMobileConfig ? config.haloMobileUserId : (user_id || config.haloUserId);
+    const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
 
     const docx = await generateNote({

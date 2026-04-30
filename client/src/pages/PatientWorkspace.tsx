@@ -119,12 +119,6 @@ function buildNoteGenerationInput(transcript: string, consultContext: string): s
   ].join('\n');
 }
 
-/** Fallback when Halo get_templates fails or returns empty (must match shared/haloTemplates). */
-/** Server uses HALO_USER_ID from env / shared when user_id is not sent. */
-function getHaloUserForTemplate(_templateId: string | undefined): string | undefined {
-  return undefined;
-}
-
 function normalizeHaloTemplates(raw: Record<string, unknown>): Array<{ id: string; name: string }> {
   if (!raw || typeof raw !== 'object') return [];
   const arr = Array.isArray(raw)
@@ -708,7 +702,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         template_id: tplId,
         text,
         fileName,
-        user_id: getHaloUserForTemplate(tplId),
       });
       setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
       await loadFolderContents(currentFolderId);
@@ -736,7 +729,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           template_id: tplId,
           text,
           fileName,
-          user_id: getHaloUserForTemplate(tplId),
         });
         setNotes(prev => prev.map((n, j) => j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
         saved++;
@@ -767,12 +759,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         generateNotePreviewPdf({
           template_id: tplId,
           text: payloadText,
-          user_id: getHaloUserForTemplate(tplId),
         }),
         generateNotePreview({
           template_id: tplId,
           text: payloadText,
-          user_id: getHaloUserForTemplate(tplId),
         }),
       ]);
       const first = preview.notes?.[0];

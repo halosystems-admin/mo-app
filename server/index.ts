@@ -6,6 +6,8 @@ import path from 'path';
 import http from 'http';
 import { config } from './config';
 import authRoutes from './routes/auth';
+import userAuthRoutes from './routes/userAuth';
+import adminRoutes from './routes/admin';
 import driveRoutes from './routes/drive';
 import aiRoutes from './routes/ai';
 import haloRoutes from './routes/halo';
@@ -57,12 +59,33 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' }));
 
+// Use persistent session store when DATABASE_URL is set; otherwise fall back to MemoryStore (dev).
+let sessionStore: session.Store | undefined;
+if (config.databaseUrl) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const PgSession = require('connect-pg-simple')(session);
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { Pool } = require('pg') as typeof import('pg');
+    const pool = new Pool({ connectionString: config.databaseUrl, ssl: config.isProduction ? { rejectUnauthorized: false } : undefined });
+    sessionStore = new PgSession({
+      pool,
+      tableName: 'session',
+      schemaName: 'public',
+      createTableIfMissing: true,
+    });
+  } catch (err) {
+    console.error('[session] Could not initialize Postgres session store; falling back to MemoryStore.', err);
+  }
+}
+
 app.use(
   session({
     name: 'halo.sid',
     secret: config.sessionSecret,
     resave: false,
     saveUninitialized: false,
+    ...(sessionStore ? { store: sessionStore } : {}),
     proxy: config.isProduction,
     cookie: {
       secure: config.isProduction,
@@ -76,6 +99,8 @@ app.use(
 
 // --- ROUTES ---
 app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/user-auth', authLimiter, userAuthRoutes);
+app.use('/api/admin', authLimiter, adminRoutes);
 app.use('/api/drive', driveRoutes);
 app.use('/api/ai', aiLimiter, aiRoutes);
 app.use('/api/halo', aiLimiter, haloRoutes);

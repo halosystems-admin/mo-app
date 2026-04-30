@@ -135,4 +135,10 @@ export const config = {
    */
   supabaseUrl: (process.env.SUPABASE_URL || '').trim(),
   supabaseServiceRoleKey: (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
+
+  /**
+   * Optional Postgres connection string (used for persistent server sessions via connect-pg-simple).
+   * Recommended in production. If unset, server falls back to MemoryStore sessions.
+   */
+  databaseUrl: (process.env.DATABASE_URL || '').trim(),
 } as const;

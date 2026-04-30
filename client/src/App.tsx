@@ -5,7 +5,7 @@ import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
 import {
   checkAuth,
-  getLoginUrl,
+  loginWithPassword,
   logout,
   fetchAllPatients,
   warmAndListFiles,
@@ -17,6 +17,7 @@ import {
   extractPatientFromStickerFile,
   uploadFile,
   uploadPatientHaloProfile,
+  type CurrentUser,
 } from './services/api';
 import type { Patient, UserSettings } from '../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
@@ -40,11 +41,9 @@ import {
 import { requestOpenSheetsDictate } from './lib/sheetsDictateBridge';
 import { WardPage } from './pages/WardPage';
 import { SheetsPage } from './pages/SheetsPage';
+import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { StickerCameraModal } from './components/StickerCameraModal';
 import type { MainNavSection } from './components/Sidebar';
-
-type AuthProvider = 'google' | 'microsoft';
-type MicrosoftStorageMode = 'onedrive' | 'sharepoint';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -54,6 +53,7 @@ export const App = () => {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
@@ -80,7 +80,6 @@ export const App = () => {
   // Settings / profile state
   const [showSettings, setShowSettings] = useState(false);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
-  const [userEmail, setUserEmail] = useState<string | undefined>();
   const [loginTime] = useState<number>(Date.now());
 
   // Toast notification state
@@ -97,10 +96,6 @@ export const App = () => {
 
   const [mainNav, setMainNav] = useState<MainNavSection>('folders');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-
-  // Auth provider selection (Google vs Microsoft)
-  const [authProvider, setAuthProvider] = useState<AuthProvider>('microsoft');
-  const [microsoftStorageMode, setMicrosoftStorageMode] = useState<MicrosoftStorageMode>('onedrive');
 
   // Persist selected patient to sessionStorage so it survives page refresh
   // Also track recently opened patients in localStorage
@@ -172,9 +167,9 @@ export const App = () => {
         }
         
         const auth = await checkAuth();
-        if (auth.signedIn) {
+        if (auth.signedIn && auth.user) {
           setIsSignedIn(true);
-          setUserEmail(auth.email);
+          setCurrentUser(auth.user);
           const loadedPatients = await refreshPatients();
           // Validate stored patient selection — clear if patient no longer exists
           const storedId = sessionStorage.getItem('halo_selectedPatientId');
@@ -202,23 +197,28 @@ export const App = () => {
     checkSession();
   }, []);
 
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+
   const handleSignIn = async () => {
     setLoading(true);
+    setLoginError(null);
     try {
-      console.log('Fetching login URL...');
-      const { url } = await getLoginUrl({
-        provider: authProvider,
-        storageMode: authProvider === 'microsoft' ? microsoftStorageMode : undefined,
-      });
-      console.log('Got login URL:', url);
-      if (url) {
-        window.location.href = url;
-      } else {
-        throw new Error('No login URL received from server');
-      }
+      const { user } = await loginWithPassword(loginEmail, loginPassword);
+      setCurrentUser(user);
+      setIsSignedIn(true);
+      await refreshPatients();
+      loadSettings()
+        .then((res) => {
+          if (res.settings) setUserSettings(res.settings);
+        })
+        .catch(() => {});
     } catch (error) {
-      console.error('Sign in error:', error);
-      showToast(getErrorMessage(error), 'error');
+      const msg = getErrorMessage(error);
+      setLoginError(msg);
+      showToast(msg, 'error');
+    } finally {
       setLoading(false);
     }
   };
@@ -226,6 +226,7 @@ export const App = () => {
   const handleLogout = async () => {
     await logout();
     setIsSignedIn(false);
+    setCurrentUser(null);
     selectPatient(null);
     setMainNav('folders');
   };
@@ -393,6 +394,23 @@ export const App = () => {
   }
 
   if (!isSignedIn) {
+    // Accept invite flow (no router)
+    const params = new URLSearchParams(window.location.search);
+    const inviteToken = window.location.pathname === '/accept-invite' ? params.get('token') : null;
+    if (inviteToken) {
+      return (
+        <AcceptInvitePage
+          token={inviteToken}
+          onToast={showToast}
+          onDone={() => {
+            // Strip token from URL, then let normal session boot continue.
+            window.history.replaceState({}, '', '/');
+            window.location.reload();
+          }}
+        />
+      );
+    }
+
     return (
       <div className="flex min-h-0 flex-1 h-screen w-full items-center justify-center bg-white">
         <div className="max-w-sm w-full text-center px-6">
@@ -402,44 +420,30 @@ export const App = () => {
             className="w-48 h-auto mx-auto mb-6 select-none"
             draggable={false}
           />
-          <h1 className="text-3xl font-bold text-slate-800 mb-6">Dr Mohamed Patel</h1>
+          <h1 className="text-3xl font-bold text-slate-800 mb-6">HALO</h1>
 
-          <div className="mb-5 flex flex-col gap-3">
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setAuthProvider('google')}
-                className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
-                  authProvider === 'google'
-                    ? 'bg-teal-50 border-teal-300 text-teal-700'
-                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                }`}
-              >
-                Google
-              </button>
-              <button
-                type="button"
-                onClick={() => setAuthProvider('microsoft')}
-                className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
-                  authProvider === 'microsoft'
-                    ? 'bg-teal-50 border-teal-300 text-teal-700'
-                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                }`}
-              >
-                Microsoft
-              </button>
-            </div>
-
-            {authProvider === 'microsoft' && (
-              <select
-                value={microsoftStorageMode}
-                onChange={(e) => setMicrosoftStorageMode(e.target.value as MicrosoftStorageMode)}
+          <div className="mb-5 flex flex-col gap-3 text-left">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-slate-600">Email</span>
+              <input
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold"
-              >
-                <option value="onedrive">OneDrive</option>
-                <option value="sharepoint">SharePoint</option>
-              </select>
-            )}
+                autoComplete="email"
+                inputMode="email"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-slate-600">Password</span>
+              <input
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                type="password"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold"
+                autoComplete="current-password"
+              />
+            </label>
+            {loginError ? <p className="text-xs text-rose-600">{loginError}</p> : null}
           </div>
 
           <button
@@ -448,7 +452,7 @@ export const App = () => {
             className="w-full flex items-center justify-center gap-3 bg-teal-600 hover:bg-teal-700 text-white px-6 py-4 rounded-xl transition-all shadow-md hover:shadow-lg font-semibold text-lg active:scale-[0.98]"
           >
             {loading ? <Loader className="animate-spin" /> : <LogIn size={20} />}
-            {loading ? 'Connecting...' : `Sign In with ${authProvider === 'microsoft' ? 'Microsoft' : 'Google'}`}
+            {loading ? 'Signing in...' : `Sign In`}
           </button>
 
           <p className="mt-8 text-xs text-slate-400">Secure Environment &bull; POPIA Compliant</p>
@@ -501,7 +505,7 @@ export const App = () => {
                 setMobileSidebarOpen(false);
                 setShowSettings(true);
               }}
-              userEmail={userEmail}
+              currentUser={currentUser ? { firstName: currentUser.firstName, lastName: currentUser.lastName, email: currentUser.email } : undefined}
             />
           </div>
         </div>
@@ -519,7 +523,7 @@ export const App = () => {
           onDeletePatient={handleDeleteRequest}
           onLogout={handleLogout}
           onOpenSettings={() => setShowSettings(true)}
-          userEmail={userEmail}
+          currentUser={currentUser ? { firstName: currentUser.firstName, lastName: currentUser.lastName, email: currentUser.email } : undefined}
         />
       </div>
 
@@ -615,7 +619,7 @@ export const App = () => {
         onClose={() => setShowSettings(false)}
         settings={userSettings}
         onSave={handleSaveSettings}
-        userEmail={userEmail}
+        currentUser={currentUser ? { firstName: currentUser.firstName, lastName: currentUser.lastName, email: currentUser.email, role: currentUser.role } : undefined}
         loginTime={loginTime}
         onToast={showToast}
       />

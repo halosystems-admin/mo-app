@@ -6,6 +6,8 @@ import {
   FileText, Upload, Check, AlertCircle, Send, Plus,
 } from 'lucide-react';
 import { requestNewTemplate } from '../services/api';
+import { AdminOneDrivePanel } from './AdminOneDrivePanel';
+import { AdminTeamPanel } from './AdminTeamPanel';
 
 const DEFAULT_SETTINGS: UserSettings = {
   firstName: '',
@@ -26,13 +28,13 @@ interface Props {
   onClose: () => void;
   settings: UserSettings | null;
   onSave: (settings: UserSettings) => Promise<void>;
-  userEmail?: string;
+  currentUser?: { firstName: string; lastName: string; email: string; role: 'admin' | 'user' };
   loginTime: number;
   onToast?: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
 export const SettingsModal: React.FC<Props> = ({
-  isOpen, onClose, settings, onSave, userEmail, loginTime, onToast,
+  isOpen, onClose, settings, onSave, currentUser, loginTime, onToast,
 }) => {
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState<UserSettings>(settings || DEFAULT_SETTINGS);
@@ -170,7 +172,7 @@ export const SettingsModal: React.FC<Props> = ({
         {/* Header */}
         <div
           className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-5 flex items-center justify-between rounded-t-2xl"
-          title={userEmail || undefined}
+          title={currentUser?.email || undefined}
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-teal-500/20 rounded-xl flex items-center justify-center">
@@ -178,6 +180,12 @@ export const SettingsModal: React.FC<Props> = ({
             </div>
             <div>
               <h2 className="text-white font-bold text-lg">Profile & Settings</h2>
+              {currentUser ? (
+                <p className="text-[11px] text-white/70 mt-0.5">
+                  {`${currentUser.firstName} ${currentUser.lastName}`.trim() || currentUser.email}
+                  {currentUser.role === 'admin' ? ' · admin' : ''}
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -434,6 +442,15 @@ export const SettingsModal: React.FC<Props> = ({
               </div>
             )}
           </div>
+
+          {/* Admin-only: OneDrive bootstrap + team invites */}
+          {currentUser?.role === 'admin' ? (
+            <div className="border-t border-slate-100 pt-6 space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Admin</h3>
+              <AdminOneDrivePanel onToast={onToast} />
+              <AdminTeamPanel onToast={onToast} />
+            </div>
+          ) : null}
 
         </div>
 
