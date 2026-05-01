@@ -12,14 +12,15 @@ router.use(requireAdmin);
 
 function getAdminOneDriveRedirectUri(req: Request): string {
   if (!config.isProduction) {
-    return `http://localhost:${config.port}/api/admin/onedrive/callback`;
+    // Reuse the existing OAuth callback URI so Entra doesn't need extra redirect URIs.
+    return `http://localhost:${config.port}/api/auth/callback`;
   }
   const fromEnv = config.productionUrl || '';
-  if (fromEnv) return `${fromEnv}/api/admin/onedrive/callback`;
+  if (fromEnv) return `${fromEnv}/api/auth/callback`;
   const proto = ((req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0] || 'https').trim();
   const host = ((req.get('x-forwarded-host') || req.get('host') || '').split(',')[0] || '').trim();
   if (!host) throw new Error('Cannot determine public origin for OneDrive callback. Set PRODUCTION_URL.');
-  return `${proto}://${host}/api/admin/onedrive/callback`;
+  return `${proto}://${host}/api/auth/callback`;
 }
 
 function supabaseOrThrow() {
@@ -172,6 +173,7 @@ router.get('/onedrive/connect-url', (req: Request, res: Response) => {
   const state = crypto.randomUUID();
   req.session.oauthState = state;
   req.session.provider = 'microsoft';
+  req.session.oauthPurpose = 'shared_onedrive_bootstrap';
   const url =
     `https://login.microsoftonline.com/${config.msTenantId}/oauth2/v2.0/authorize?` +
     `client_id=${encodeURIComponent(config.msClientId)}` +
@@ -184,74 +186,7 @@ router.get('/onedrive/connect-url', (req: Request, res: Response) => {
   res.json({ url });
 });
 
-router.get('/onedrive/callback', async (req: Request, res: Response) => {
-  const code = req.query.code as string | undefined;
-  const state = req.query.state as string | undefined;
-  if (!code || typeof code !== 'string') {
-    res.status(400).json({ error: 'Missing authorization code.' });
-    return;
-  }
-  const expectedState = req.session.oauthState;
-  if (!state || !expectedState || state !== expectedState) {
-    res.status(400).json({ error: 'OAuth state mismatch.' });
-    return;
-  }
-
-  try {
-    const redirectUri = getAdminOneDriveRedirectUri(req);
-    const tokenResponse = await fetch(
-      `https://login.microsoftonline.com/${config.msTenantId}/oauth2/v2.0/token`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: config.msClientId,
-          client_secret: config.msClientSecret,
-          code,
-          redirect_uri: redirectUri,
-          grant_type: 'authorization_code',
-        }).toString(),
-      }
-    );
-
-    const tokens = (await tokenResponse.json()) as {
-      access_token?: string;
-      refresh_token?: string;
-      expires_in?: number;
-      error?: string;
-      error_description?: string;
-    };
-
-    if (!tokenResponse.ok || tokens.error || !tokens.access_token) {
-      res.status(400).json({ error: tokens.error_description || tokens.error || 'Token exchange failed.' });
-      return;
-    }
-
-    // Fetch profile email (optional, for admin visibility)
-    let accountEmail: string | null = null;
-    try {
-      const userInfoRes = await fetch('https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName', {
-        headers: { Authorization: `Bearer ${tokens.access_token}` },
-      });
-      const user = (await userInfoRes.json()) as { mail?: string; userPrincipalName?: string };
-      accountEmail = user.mail || user.userPrincipalName || null;
-    } catch {
-      // ignore
-    }
-
-    await storeSharedMicrosoftTokens({
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? null,
-      expiresInSec: tokens.expires_in ?? null,
-      accountEmail,
-    });
-
-    res.redirect(`${config.clientUrl}?onedrive_connected=1`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'OneDrive connect failed.';
-    res.status(500).json({ error: msg });
-  }
-});
+// Callback now handled by /api/auth/callback (shared redirect URI).
 
 export default router;
 

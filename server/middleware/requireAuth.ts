@@ -12,6 +12,7 @@ declare module 'express-session' {
     userEmail?: string;
     provider?: 'google' | 'microsoft';
     oauthState?: string;
+    oauthPurpose?: 'shared_onedrive_bootstrap';
     microsoftStorageMode?: 'onedrive' | 'sharepoint';
   }
 }

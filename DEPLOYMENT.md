@@ -114,7 +114,8 @@ Without these, OAuth flows will fail on the production domain.
 
 In Microsoft Entra (Azure AD) App Registration, add this redirect URI (Web platform):
 
-- `https://<your-host>/api/admin/onedrive/callback`
+- Uses the existing OAuth callback redirect URI:
+- `https://<your-host>/api/auth/callback`
 
 This is used **only by admins** to connect Mo’s OneDrive once. All users share that OneDrive connection; users do not authenticate to Microsoft individually.
 

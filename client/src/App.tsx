@@ -200,6 +200,23 @@ export const App = () => {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const [loginProfile, setLoginProfile] = useState<'mo' | 'henk' | 'other'>(() => {
+    const raw = localStorage.getItem('halo_loginProfile');
+    return raw === 'mo' || raw === 'henk' || raw === 'other' ? raw : 'mo';
+  });
+  const [loginStep, setLoginStep] = useState<'choose' | 'password'>(() => 'choose');
+
+  useEffect(() => {
+    const emailForProfile =
+      loginProfile === 'mo'
+        ? 'mo@practice.halo.africa'
+        : loginProfile === 'henk'
+          ? 'henk.kruger90@gmail.com'
+          : '';
+    if (loginProfile !== 'other') setLoginEmail(emailForProfile);
+    localStorage.setItem('halo_loginProfile', loginProfile);
+  }, [loginProfile]);
 
   const handleSignIn = async () => {
     setLoading(true);
@@ -413,49 +430,142 @@ export const App = () => {
 
     return (
       <div className="flex min-h-0 flex-1 h-screen w-full items-center justify-center bg-white">
-        <div className="max-w-sm w-full text-center px-6">
+        <div className="mx-auto flex w-full max-w-sm flex-col items-center px-6">
           <img
-            src="/halo-medical-logo.png"
-            alt="Dr Mohamed Patel"
-            className="w-48 h-auto mx-auto mb-6 select-none"
+            src="/halo-brand-lockup-transparent.png"
+            alt="HALO"
+            className="h-12 w-auto max-w-[240px] mx-auto mb-6 object-contain select-none"
             draggable={false}
           />
-          <h1 className="text-3xl font-bold text-slate-800 mb-6">HALO</h1>
+          <h1 className="text-center text-2xl font-bold text-slate-800 mb-1">{loginStep === 'choose' ? 'Welcome' : 'Sign in'}</h1>
+          <p className="text-center text-sm text-slate-500 mb-6">
+            {loginStep === 'choose' ? 'Choose your profile.' : 'Enter your password.'}
+          </p>
 
-          <div className="mb-5 flex flex-col gap-3 text-left">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-slate-600">Email</span>
-              <input
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold"
-                autoComplete="email"
-                inputMode="email"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-slate-600">Password</span>
-              <input
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                type="password"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold"
-                autoComplete="current-password"
-              />
-            </label>
-            {loginError ? <p className="text-xs text-rose-600">{loginError}</p> : null}
-          </div>
+          {loginStep === 'choose' ? (
+            <div className="mb-5 w-full flex flex-col gap-2 text-left">
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginProfile('mo');
+                    setLoginPassword('');
+                    setLoginError(null);
+                    setLoginStep('password');
+                    setTimeout(() => passwordInputRef.current?.focus(), 0);
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-3 text-left transition"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-slate-800 truncate">Dr Mohamed Patel</div>
+                      <div className="text-xs font-semibold text-slate-500 truncate">mo@practice.halo.africa</div>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginProfile('henk');
+                    setLoginPassword('');
+                    setLoginError(null);
+                    setLoginStep('password');
+                    setTimeout(() => passwordInputRef.current?.focus(), 0);
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-3 text-left transition"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-slate-800 truncate">Dr Henk Kruger</div>
+                      <div className="text-xs font-semibold text-slate-500 truncate">henk.kruger90@gmail.com</div>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginProfile('other');
+                    setLoginEmail('');
+                    setLoginPassword('');
+                    setLoginError(null);
+                    setLoginStep('password');
+                    setTimeout(() => passwordInputRef.current?.focus(), 0);
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-3 text-left transition"
+                >
+                  <div className="text-sm font-bold text-slate-800">Other user</div>
+                  <div className="text-xs font-semibold text-slate-500">Enter email manually</div>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mb-5 w-full text-left">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Signing in as</div>
+                <div className="text-sm font-bold text-slate-800">
+                  {loginProfile === 'mo' ? 'Dr Mohamed Patel' : loginProfile === 'henk' ? 'Dr Henk Kruger' : 'User'}
+                </div>
+                <div className="text-xs font-semibold text-slate-600 break-all">{loginEmail}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginPassword('');
+                  setLoginError(null);
+                  setLoginStep('choose');
+                }}
+                className="mt-2 text-xs font-semibold text-slate-500 hover:text-slate-700"
+              >
+                Change account
+              </button>
+            </div>
+          )}
+
+          {loginStep === 'password' ? (
+            <div className="mb-5 w-full flex flex-col gap-3 text-left">
+              {loginProfile === 'other' ? (
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-slate-600">Email</span>
+                  <input
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold"
+                    autoComplete="email"
+                    inputMode="email"
+                  />
+                </label>
+              ) : null}
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-600">Password</span>
+                <input
+                  ref={passwordInputRef}
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  type="password"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold"
+                  autoComplete="current-password"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleSignIn();
+                  }}
+                />
+              </label>
+              {loginError ? <p className="text-xs text-rose-600">{loginError}</p> : null}
+            </div>
+          ) : null}
 
           <button
             type="button"
             onClick={() => void handleSignIn()}
+            disabled={loginStep !== 'password'}
             className="w-full flex items-center justify-center gap-3 bg-teal-600 hover:bg-teal-700 text-white px-6 py-4 rounded-xl transition-all shadow-md hover:shadow-lg font-semibold text-lg active:scale-[0.98]"
           >
             {loading ? <Loader className="animate-spin" /> : <LogIn size={20} />}
             {loading ? 'Signing in...' : `Sign In`}
           </button>
 
-          <p className="mt-8 text-xs text-slate-400">Secure Environment &bull; POPIA Compliant</p>
+          <p className="mt-8 text-center text-xs text-slate-400">Secure Environment &bull; POPIA Compliant</p>
         </div>
       </div>
     );

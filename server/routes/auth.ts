@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { config } from '../config';
+import { storeSharedMicrosoftTokens } from '../services/sharedOauth';
 
 const router = Router();
 
@@ -260,6 +261,19 @@ router.get('/callback', async (req: Request, res: Response) => {
       req.session.userEmail = user.mail || user.userPrincipalName;
 
       console.log(`User signed in (Microsoft): ${req.session.userEmail}`);
+
+      // If this was the admin "connect OneDrive" bootstrap flow, persist tokens to the shared store.
+      if (req.session.oauthPurpose === 'shared_onedrive_bootstrap') {
+        req.session.oauthPurpose = undefined;
+        await storeSharedMicrosoftTokens({
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token ?? null,
+          expiresInSec: tokens.expires_in ?? null,
+          accountEmail: req.session.userEmail ?? null,
+        });
+        res.redirect(`${config.clientUrl}?onedrive_connected=1`);
+        return;
+      }
 
       res.redirect(config.clientUrl);
       return;
