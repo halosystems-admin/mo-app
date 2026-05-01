@@ -147,7 +147,7 @@ const WardColumnDropZone = memo(function WardColumnDropZone({ col, ptCount, chil
   return (
     <div
       ref={setNodeRef}
-      className={`ward-board-col flex snap-start flex-col ${wardColumnWidthClass} min-h-0 h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
+      className={`ward-board-col flex snap-none md:snap-start flex-col ${wardColumnWidthClass} min-h-0 h-auto md:h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
         isOver ? 'border-halo-primary ring-2 ring-halo-primary/35 shadow-md' : 'border-halo-border'
       }`}
     >
@@ -718,9 +718,15 @@ export const WardKanbanBoard: React.FC<Props> = ({
     const dir = autoScrollDirRef.current;
     const speed = autoScrollSpeedRef.current;
     if (dir === 0 || speed <= 0) return;
-    el.scrollBy({ left: dir * speed, behavior: 'auto' });
+    // Mobile: vertical stack → scroll the board along Y while dragging near top/bottom edges.
+    // Desktop: horizontal ward columns → scroll along X (touch-only; see handleDragMove).
+    if (isMobile) {
+      el.scrollBy({ top: dir * speed, behavior: 'auto' });
+    } else {
+      el.scrollBy({ left: dir * speed, behavior: 'auto' });
+    }
     autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
-  }, []);
+  }, [isMobile]);
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
@@ -740,22 +746,23 @@ export const WardKanbanBoard: React.FC<Props> = ({
       const el = boardScrollerRef.current;
       if (!el) return;
 
-      // Use the dragged card's translated rect (stable across browsers).
       const r = event.active.rect.current.translated ?? event.active.rect.current.initial ?? null;
       if (!r) return;
 
-      const centerX = r.left + r.width / 2;
-      const vw = Math.max(1, window.innerWidth || 1);
-      const edge = vw * 0.13; // ~13% of viewport
-      const leftZone = edge;
-      const rightZone = vw - edge;
+      // Mobile layout is a vertical stack of wards: auto-scroll the board scroller on Y when
+      // the drag hovers near the top/bottom of the scroll container (not horizontal).
+      const sr = el.getBoundingClientRect();
+      const centerY = r.top + r.height / 2;
+      const edge = Math.max(28, sr.height * 0.12);
+      const topZone = sr.top + edge;
+      const bottomZone = sr.bottom - edge;
 
-      if (centerX < leftZone) {
-        const t = Math.min(1, Math.max(0, (leftZone - centerX) / edge));
+      if (centerY < topZone) {
+        const t = Math.min(1, Math.max(0, (topZone - centerY) / edge));
         autoScrollDirRef.current = -1;
-        autoScrollSpeedRef.current = 2 + t * 2; // 2..4 px/frame (smooth, controlled)
-      } else if (centerX > rightZone) {
-        const t = Math.min(1, Math.max(0, (centerX - rightZone) / edge));
+        autoScrollSpeedRef.current = 2 + t * 2;
+      } else if (centerY > bottomZone) {
+        const t = Math.min(1, Math.max(0, (centerY - bottomZone) / edge));
         autoScrollDirRef.current = 1;
         autoScrollSpeedRef.current = 2 + t * 2;
       } else {
@@ -835,7 +842,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
         sensors={sensors}
         collisionDetection={closestCorners}
         measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-        // Mobile: rely on our controlled edge auto-scroll (prevents fast/erratic native autoScroll).
+        // Mobile: vertical ward stack uses our Y-edge auto-scroll on the board scroller (touch).
         autoScroll={false}
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
@@ -852,9 +859,10 @@ export const WardKanbanBoard: React.FC<Props> = ({
           isMobile
             ? {
                 WebkitOverflowScrolling: 'touch',
-                // Important: during an active touch-drag, disable native panning so dragging stays smooth
-                // and our edge auto-scroll can drive the horizontal movement without "fighting" the browser.
-                touchAction: activeDragId && dragPointerTypeRef.current === 'touch' ? 'none' : 'pan-x',
+                touchAction:
+                  activeDragId && dragPointerTypeRef.current === 'touch'
+                    ? 'none'
+                    : 'pan-y',
               }
             : { touchAction: 'auto' }
         }

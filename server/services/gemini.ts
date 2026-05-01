@@ -100,7 +100,7 @@ export async function generateText(prompt: string): Promise<string> {
     const result = await withRetry(() =>
       model.generateContent(prompt, geminiRequestOptions)
     );
-    return result.response.text();
+    return extractTextFromResult(result);
   } catch (e) {
     throw wrapGeminiError(e, 'generateText');
   }

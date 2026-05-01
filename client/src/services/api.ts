@@ -621,14 +621,25 @@ export const getHaloTemplates = (userId?: string) =>
   });
 
 /** Generate note preview (return_type=note). Returns normalized notes array. */
-export const generateNotePreview = (params: { template_id: string; text: string; user_id?: string }) =>
+export const generateNotePreview = (params: {
+  template_id: string;
+  text: string;
+  user_id?: string;
+  /** Display name (e.g. Admission) — server composes structured Markdown prompt for Halo. */
+  template_name?: string;
+}) =>
   request<{ notes: HaloNote[] }>('/api/halo/generate-note', {
     method: 'POST',
     body: JSON.stringify({ ...params, return_type: 'note' }),
   });
 
 /** Generate a DOCX from Halo and convert to PDF for in-app preview (not saved to Drive). */
-export const generateNotePreviewPdf = (params: { template_id: string; text: string; user_id?: string }) =>
+export const generateNotePreviewPdf = (params: {
+  template_id: string;
+  text: string;
+  user_id?: string;
+  template_name?: string;
+}) =>
   request<{ pdfBase64: string }>('/api/halo/generate-preview-pdf', {
     method: 'POST',
     body: JSON.stringify(params),
@@ -641,6 +652,7 @@ export const saveNoteAsDocx = (params: {
   text: string;
   fileName?: string;
   user_id?: string;
+  template_name?: string;
 }) =>
   request<{ success: boolean; fileId: string; name: string }>('/api/halo/generate-note', {
     method: 'POST',
@@ -651,6 +663,7 @@ export const saveNoteAsDocx = (params: {
       patientId: params.patientId,
       fileName: params.fileName,
       user_id: params.user_id,
+      ...(params.template_name ? { template_name: params.template_name } : {}),
     }),
   });
 

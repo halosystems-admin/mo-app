@@ -46,6 +46,70 @@ ${conversationHistory ? `Previous conversation:\n${conversationHistory}\n` : ''}
 User question: ${question}`;
 }
 
+/**
+ * Wraps user dictation/context before sending to Halo generate_note so the upstream model
+ * returns Markdown sections instead of one continuous paragraph.
+ */
+/** Last resort: organise dictation into Markdown when Halo/Gemini yield no usable body. */
+export function fallbackOrganisedNoteMarkdown(sourceText: string, sectionTitle: string): string {
+  const t = sourceText.trim();
+  if (!t) return '';
+  const paras = t.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (paras.length >= 2) {
+    return [`## ${sectionTitle}`, ...paras].join('\n\n');
+  }
+  const body = paras[0] ?? t;
+  return `## ${sectionTitle}\n\n${body}`;
+}
+
+/** When Halo returns an unstructured blob, Gemini reformats into template-shaped Markdown (## headings). */
+export function clinicalNoteMarkdownStructurePrompt(params: {
+  templateDisplayName: string;
+  templateId: string;
+  /** Raw dictation + optional context (same text sent toward Halo). */
+  sourceText: string;
+}): string {
+  const src = params.sourceText.trim();
+  return `You are a medical scribe.
+
+The text below is raw clinical dictation (and may include an "Additional clinical context" block). 
+Produce ONE clinical note suitable for the "${params.templateDisplayName}" documentation style (template_id: ${params.templateId}).
+
+STRICT RULES:
+- Use Markdown. Start major sections with ## headings and subsections with ### where appropriate for this note type.
+- Organize facts under the correct headings. Do NOT output a single continuous paragraph.
+- Do not repeat filler phrases from poor speech-to-text verbatim when you can condense clinically.
+- If information for a section is missing, write "N/A" or "Not discussed".
+- Output ONLY the clinical note. No preamble or explanation.
+
+SOURCE:
+---
+${src}
+---
+`;
+}
+
+export function haloGenerateNoteInputEnvelope(params: {
+  userPayloadText: string;
+  templateId: string;
+  templateDisplayName?: string;
+}): string {
+  const label = params.templateDisplayName?.trim() || params.templateId;
+  const raw = params.userPayloadText?.trim() ?? '';
+  return [
+    '=== SCRIBE_INSTRUCTIONS (metadata — do not echo; produce only the clinical note below) ===',
+    'You are a medical scribe. You receive a raw, unstructured voice transcript (and optional extra context).',
+    `You MUST structure the final clinical note strictly according to the "${label}" template (template_id: ${params.templateId}).`,
+    'Use explicit Markdown headings: ## for each major section required by this template; ### for subsections if needed.',
+    'Do NOT output a single continuous paragraph. Separate sections with blank lines.',
+    'Populate sections only from the transcript/context; where nothing applies, write "N/A" or "Not discussed".',
+    'Output ONLY the finished clinical note in Markdown after processing. Do not repeat these instructions.',
+    '=== END SCRIBE_INSTRUCTIONS ===',
+    '',
+    raw,
+  ].join('\n');
+}
+
 export function soapNotePrompt(transcript: string, customTemplate?: string): string {
   if (customTemplate) {
     return `

@@ -4,6 +4,7 @@
  */
 
 import { config } from '../config';
+import { haloGenerateNoteInputEnvelope } from '../utils/prompts';
 
 const BASE = config.haloApiBaseUrl;
 
@@ -217,6 +218,8 @@ export interface GenerateNoteParams {
   template_id: string;
   text: string;
   return_type: 'note' | 'docx';
+  /** Human-readable template name (e.g. "Admission") — improves Markdown structuring in the composed prompt. */
+  template_name?: string;
 }
 
 /**
@@ -226,11 +229,17 @@ export interface GenerateNoteParams {
 export async function generateNote(params: GenerateNoteParams): Promise<HaloNote[] | Buffer> {
   const { return_type } = params;
 
+  const composedText = haloGenerateNoteInputEnvelope({
+    userPayloadText: params.text,
+    templateId: params.template_id,
+    templateDisplayName: params.template_name,
+  });
+
   const url = `${BASE}/generate_note`;
   const body = JSON.stringify({
     user_id: params.user_id,
     template_id: params.template_id,
-    text: params.text,
+    text: composedText,
     return_type,
   });
 

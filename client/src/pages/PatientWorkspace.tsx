@@ -702,6 +702,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         template_id: tplId,
         text,
         fileName,
+        template_name: templateOptions.find((t) => t.id === tplId)?.name,
       });
       setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
       await loadFolderContents(currentFolderId);
@@ -712,7 +713,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     }
     setSavingNoteIndex(null);
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName]);
+  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions]);
 
   const handleSaveAll = useCallback(async () => {
     setStatus(AppStatus.SAVING);
@@ -729,6 +730,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           template_id: tplId,
           text,
           fileName,
+          template_name: templateOptions.find((t) => t.id === tplId)?.name,
         });
         setNotes(prev => prev.map((n, j) => j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
         saved++;
@@ -742,7 +744,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast(getErrorMessage(err), 'error');
     }
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName]);
+  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions]);
 
   const handleEmail = useCallback((_noteIndex: number) => {
     onToast('Email not implemented yet.', 'info');
@@ -753,16 +755,19 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     const payloadText = text.trim();
     if (!note || !payloadText) return;
     const tplId = note.template_id || templateId;
+    const tplName = templateOptions.find((t) => t.id === tplId)?.name;
     setRegeneratingPdfIndex(noteIndex);
     try {
       const [{ pdfBase64 }, preview] = await Promise.all([
         generateNotePreviewPdf({
           template_id: tplId,
           text: payloadText,
+          template_name: tplName,
         }),
         generateNotePreview({
           template_id: tplId,
           text: payloadText,
+          template_name: tplName,
         }),
       ]);
       const first = preview.notes?.[0];
@@ -786,7 +791,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     } finally {
       setRegeneratingPdfIndex(null);
     }
-  }, [notes, onToast, templateId]);
+  }, [notes, onToast, templateId, templateOptions]);
 
   const GENERATE_TIMEOUT_MS = 95_000;
 
@@ -815,19 +820,14 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         const results = await Promise.race([
           Promise.all(
             templateIds.map(async (id) => {
-              const [noteResult, pdfResult] = await Promise.all([
-                generateNotePreview({
-                  template_id: id,
-                  text: noteInput,
-                  user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
-                }),
-                generateNotePreviewPdf({
-                  template_id: id,
-                  text: noteInput,
-                  user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
-                }),
-              ]);
-              return { noteResult, pdfBase64: pdfResult.pdfBase64 };
+              const template_name = templateNames[id];
+              const noteResult = await generateNotePreview({
+                template_id: id,
+                text: noteInput,
+                user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
+                template_name,
+              });
+              return { noteResult };
             })
           ),
           timeoutPromise,
@@ -843,20 +843,48 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   .filter(Boolean)
                   .join('\n\n')
               : '';
-          const content =
-            first?.content?.trim() || fromFields || trimmedTranscript;
+          // Never put raw transcript here — that belongs in the Transcription tab only.
+          const content = first?.content?.trim() || fromFields || '';
           return {
             noteId: first?.noteId ?? `note-${tid}-${Date.now()}`,
             title: first?.title ?? name,
             content,
             ...(first?.raw !== undefined ? { raw: first.raw } : {}),
-            ...(res.pdfBase64 ? { previewPdfBase64: res.pdfBase64 } : {}),
             template_id: tid,
             lastSavedAt: new Date().toISOString(),
             dirty: false,
             ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
           };
         });
+
+        void (async () => {
+          try {
+            const pdfs = await Promise.all(
+              templateIds.map((id) =>
+                generateNotePreviewPdf({
+                  template_id: id,
+                  text: noteInput,
+                  user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
+                  template_name: templateNames[id],
+                })
+              )
+            );
+            setNotes((prev) => {
+              const next = [...prev];
+              const offset = isAddNote ? Math.max(0, next.length - templateIds.length) : 0;
+              for (let j = 0; j < templateIds.length; j++) {
+                const idx = offset + j;
+                const b64 = pdfs[j]?.pdfBase64;
+                if (idx >= 0 && idx < next.length && b64) {
+                  next[idx] = { ...next[idx], previewPdfBase64: b64 };
+                }
+              }
+              return next;
+            });
+          } catch {
+            /* PDF preview is optional */
+          }
+        })();
         if (isAddNote) {
           setNotes(prev => [...prev, ...combined]);
           setActiveNoteIndex(notes.length);
@@ -907,9 +935,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     [
       GENERATE_TIMEOUT_MS,
       activeSessionId,
+      activeHospitalConfig.userId,
       consultContext,
       onToast,
       patient.id,
+      selectedHospital,
       selectedTemplatesForGenerate,
       templateOptions,
     ]
@@ -1617,9 +1647,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               </div>
             </div>
           ) : activeTab === 'notes' ? (
-            <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col max-md:min-h-0 max-md:overflow-visible">
               {/* Editor workspace: fills remaining viewport height */}
-              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70">
+              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] max-md:min-h-0 flex-1 max-md:flex-none flex-col overflow-hidden max-md:overflow-visible rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70">
                 {pendingTranscript ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/90 p-4">
                     <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{pendingTranscript}</p>
@@ -1717,13 +1747,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         </button>
                       </div>
                     </div>
-                    <div className="flex min-h-0 flex-1 flex-col bg-slate-100/50 p-2 md:p-3">
+                    <div className="flex min-h-0 flex-1 flex-col bg-slate-100/50 p-2 md:p-3 max-md:p-1 max-md:overflow-visible">
                       {editorPanelView === 'noteFields' ? (
-                        <div className={`${EDITOR_VIEW_SHELL} min-h-[240px] lg:min-h-0`}>
-                          <div className={EDITOR_VIEW_HEADER}>
+                        <div className={`${EDITOR_VIEW_SHELL} min-h-[240px] lg:min-h-0 max-md:!overflow-visible max-md:min-h-0`}>
+                          <div className={`${EDITOR_VIEW_HEADER} max-md:px-2 max-md:py-2 max-md:gap-1`}>
                             <span className={EDITOR_VIEW_TITLE}>Note fields</span>
                           </div>
-                          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+                          <div className="flex min-h-0 flex-1 flex-col overflow-hidden max-md:!overflow-visible max-md:min-h-0 bg-white">
                             {typeof consultSubTab === 'number' && notes[consultSubTab] ? (
                               <NoteEditor
                                 notes={notes}

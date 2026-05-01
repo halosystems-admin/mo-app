@@ -3,8 +3,10 @@ import nodemailer from 'nodemailer';
 import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
-import { getTemplates, generateNote } from '../services/haloApi';
+import { getTemplates, generateNote, type HaloNote } from '../services/haloApi';
 import { getStorageAdapter } from '../services/storage';
+import { generateText } from '../services/gemini';
+import { clinicalNoteMarkdownStructurePrompt, fallbackOrganisedNoteMarkdown } from '../utils/prompts';
 
 const router = Router();
 router.use(requireAuth);
@@ -20,6 +22,22 @@ function isSmtpConfigured(): boolean {
 function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConfig?: boolean }): string {
   if (opts?.useMobileConfig) return config.haloMobileUserId;
   return opts?.userId || req.appUser?.haloUserId || config.haloUserId;
+}
+
+/** Halo sometimes echoes unstructured dictation — fill structured Markdown via Gemini when needed. */
+function noteNeedsMarkdownStructure(note: Pick<HaloNote, 'content' | 'fields'>): boolean {
+  if (note.fields && note.fields.length > 0) return false;
+  const c = note.content?.trim() ?? '';
+  if (!c) return true;
+  if (/^#{1,3}\s/m.test(c)) return false;
+  const lines = c.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (c.length > 180 && lines.length < 5) return true;
+  return false;
+}
+
+function noteHasDisplayableBody(note: Pick<HaloNote, 'content' | 'fields'>): boolean {
+  if (note.fields && note.fields.length > 0) return true;
+  return Boolean(note.content?.trim());
 }
 
 async function convertDocxBufferToPdfBuffer(token: string, docxBuffer: Buffer): Promise<Buffer> {
@@ -146,7 +164,7 @@ router.post('/templates', async (req: Request, res: Response) => {
 // If return_type === 'docx' and patientId is set, uploads DOCX to patient's Patient Notes folder and returns { success, fileId, name }.
 router.post('/generate-note', async (req: Request, res: Response) => {
   try {
-    const { user_id, template_id, text, return_type, patientId, fileName, useMobileConfig } = req.body as {
+    const { user_id, template_id, text, return_type, patientId, fileName, useMobileConfig, template_name } = req.body as {
       user_id?: string;
       template_id?: string;
       text: string;
@@ -154,6 +172,8 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       patientId?: string;
       fileName?: string;
       useMobileConfig?: boolean;
+      /** Display name for template (e.g. Admission) — forwarded into composed Halo prompt for Markdown sections. */
+      template_name?: string;
     };
 
     if (typeof text !== 'string') {
@@ -164,10 +184,61 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
     console.log('[Halo] generate-note request:', { userId: userId.slice(0, 8) + '…', templateId, return_type, textLength: text.length });
-    const result = await generateNote({ user_id: userId, template_id: templateId, text, return_type });
+    const result = await generateNote({
+      user_id: userId,
+      template_id: templateId,
+      text,
+      return_type,
+      template_name: typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined,
+    });
 
     if (return_type === 'note') {
-      res.json({ notes: result });
+      let notes = result as HaloNote[];
+      const tplLabel =
+        (typeof template_name === 'string' && template_name.trim() ? template_name.trim() : null) || templateId;
+
+      if (notes.length === 0 && text.trim()) {
+        notes = [
+          {
+            noteId: `note-${Date.now()}`,
+            title: tplLabel,
+            content: '',
+            template_id: templateId,
+            lastSavedAt: new Date().toISOString(),
+            dirty: false,
+          },
+        ];
+      }
+
+      if (config.geminiApiKey) {
+        notes = await Promise.all(
+          notes.map(async (note) => {
+            if (!noteNeedsMarkdownStructure(note)) return note;
+            try {
+              const md = await generateText(
+                clinicalNoteMarkdownStructurePrompt({
+                  templateDisplayName: tplLabel,
+                  templateId,
+                  sourceText: text,
+                })
+              );
+              const trimmed = md.trim();
+              if (trimmed) return { ...note, content: trimmed };
+            } catch (e) {
+              console.warn('[Halo] Gemini Markdown structure fallback failed:', e);
+            }
+            return note;
+          })
+        );
+      }
+
+      notes = notes.map((note) => {
+        if (noteHasDisplayableBody(note)) return note;
+        const fb = fallbackOrganisedNoteMarkdown(text, tplLabel);
+        return fb ? { ...note, content: fb } : note;
+      });
+
+      res.json({ notes });
       return;
     }
 
@@ -225,11 +296,12 @@ router.post('/generate-note', async (req: Request, res: Response) => {
 // Generates a DOCX with Halo and converts to PDF for in-app preview only (no Drive save).
 router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
   try {
-    const { user_id, template_id, text, useMobileConfig } = req.body as {
+    const { user_id, template_id, text, useMobileConfig, template_name } = req.body as {
       user_id?: string;
       template_id?: string;
       text: string;
       useMobileConfig?: boolean;
+      template_name?: string;
     };
 
     if (typeof text !== 'string' || !text.trim()) {
@@ -248,6 +320,7 @@ router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
       template_id: templateId,
       text,
       return_type: 'docx',
+      template_name: typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined,
     });
     let pdfBuffer: Buffer;
     if (req.session.provider === 'microsoft') {

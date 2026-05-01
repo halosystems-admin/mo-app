@@ -62,55 +62,75 @@ body {
     display: none;
   }
 
-  /* Mobile-only: ward board should be exact full-width pages (no peeking). */
+  /*
+   * Mobile-only: vertical stack of wards (full width, no horizontal overflow).
+   * Spacing via gap only; horizontal padding on the scroller (not column margins).
+   */
   .ward-board-scroller {
     display: flex;
+    flex-direction: column;
     flex-wrap: nowrap;
-    overflow-x: auto;
-    width: 100vw;
-    scroll-snap-type: x mandatory;
-    overscroll-behavior-x: none;
-    padding: 0 !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    gap: 0 !important;
-    scroll-padding-inline: 0 !important;
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     box-sizing: border-box;
+    overflow-x: hidden !important;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    /* Full-bleed inside padded parents (WardPage uses padding). */
-    margin-left: calc(50% - 50vw);
-    margin-right: calc(50% - 50vw);
+    overscroll-behavior-x: none;
+    gap: 1rem; /* 16px between wards */
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.75rem !important;
+    padding-left: 0.75rem !important; /* 12px inset */
+    padding-right: 0.75rem !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    scroll-snap-type: none;
   }
 
   .ward-board-col {
-    flex: 0 0 100vw;
-    max-width: 100vw;
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     box-sizing: border-box;
-    scroll-snap-align: center;
     margin: 0 !important;
-    border-left: 0;
-    border-right: 0;
-    border-radius: 0;
+    height: auto;
+    max-height: min(70dvh, 520px);
+    min-height: 12rem;
+    border-radius: 0.75rem;
+    scroll-snap-align: none;
   }
 
-  /* Mobile-only: maximize Note Fields area and keep scrolling inside content */
+  /*
+   * Note Fields (PatientWorkspace): natural document scroll — no nested scroll areas or forced heights.
+   */
   .note-fields-shell {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
-    height: 100%;
-    min-height: 65vh;
+    display: block;
+    flex-grow: 0;
+    height: auto;
+    min-height: 0;
     min-width: 0;
   }
 
   .note-fields-card {
-    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    flex: 0 1 auto;
     min-height: 0;
   }
 
   .note-fields-scrollArea {
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible !important;
+    -webkit-overflow-scrolling: auto;
+    flex: 0 1 auto;
+    min-height: 0;
+  }
+
+  .note-fields-editor-input {
+    overflow: visible !important;
+    max-height: none !important;
   }
 }
 

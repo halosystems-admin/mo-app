@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Save, FileDown, Mail, Loader2, RefreshCw } from 'lucide-react';
 import type { HaloNote, NoteField } from '../../../shared/types';
 import { AppStatus } from '../../../shared/types';
@@ -117,18 +117,20 @@ function fieldsToOrganizedText(fields: NoteField[]): string {
 
   const sections: string[] = [];
   for (const [section, items] of groups.entries()) {
-    // Section header (template-derived)
-    sections.push(section.toUpperCase());
+    sections.push(`## ${section}`);
+    sections.push('');
     for (const it of items) {
       if (!it.label && it.body) {
         sections.push(it.body);
+        sections.push('');
         continue;
       }
-      sections.push(`${it.label}:`);
+      sections.push(`**${it.label}**`);
+      sections.push('');
       sections.push(it.body || '—');
-      sections.push(''); // spacer
+      sections.push('');
     }
-    sections.push(''); // spacer between sections
+    sections.push('');
   }
 
   return sections.join('\n').replace(/\n{3,}/g, '\n\n').trim();
@@ -174,7 +176,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [viewMode, setViewMode] = useState<'fields' | 'pdf'>('fields');
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === AppStatus.FILING || status === AppStatus.SAVING;
+
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia?.('(max-width: 768px)');
+    if (!mq) return;
+    const apply = () => setIsMobileViewport(Boolean(mq.matches));
+    apply();
+    mq.addEventListener?.('change', apply);
+    return () => mq.removeEventListener?.('change', apply);
+  }, []);
 
   const fields = useMemo(() => (activeNote ? extractNoteFields(activeNote) : []), [activeNote]);
 
@@ -190,6 +203,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     if (activeNote?.content?.trim()) return activeNote.content;
     return fieldsToOrganizedText(fields) || displayContent;
   }, [fields, displayContent, activeNote?.content]);
+
+  /** Mobile: single-page scroll — textarea grows with content (no nested scroll). */
+  useLayoutEffect(() => {
+    if (!isMobileViewport || viewMode !== 'fields') return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(el.scrollHeight, 96)}px`;
+  }, [isMobileViewport, organizedText, viewMode, activeIndex]);
 
   // Rebuild blob URL whenever the PDF base64 changes
   useEffect(() => {
@@ -229,10 +251,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex flex-col md:flex-1 md:min-h-0 md:overflow-hidden max-md:overflow-visible">
       {/* Only show template picker + mini note tabs when used standalone */}
       {showNoteTabs && (
-        <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+        <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 max-md:px-3 max-md:py-1.5 max-md:gap-1.5">
           <div className="flex items-center gap-2 flex-wrap">
             {templateOptions.length > 0 && onTemplateChange && (
               <select
@@ -264,7 +286,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       )}
 
       {/* 2-tab toggle: Note Fields | PDF Preview */}
-      <div className="px-4 py-2 bg-white border-b border-slate-100 flex items-center gap-2">
+      <div className="px-4 py-2 bg-white border-b border-slate-100 flex items-center gap-2 max-md:px-2 max-md:py-1">
         <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/70 p-0.5">
           <button
             type="button"
@@ -289,27 +311,25 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
       {/* Content area */}
       {viewMode === 'fields' ? (
-        <div className="note-fields-shell flex-1 bg-slate-50/70 p-3">
-          <div className="note-fields-card rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col min-h-0">
-            <div className="px-4 py-3 border-b border-slate-100 shrink-0">
+        <div className="note-fields-shell flex-1 bg-slate-50/70 p-3 max-md:flex-none max-md:p-1 max-md:bg-transparent">
+          <div className="note-fields-card rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col min-h-0 max-md:rounded-lg max-md:border-0 max-md:shadow-none">
+            <div className="px-4 py-3 border-b border-slate-100 shrink-0 max-md:px-2 max-md:py-2">
               <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Note fields</div>
-              <div className="text-[11px] text-slate-400 mt-0.5">
-                {fields.length > 0 ? 'Formatted from the selected template fields.' : 'Type or paste your note here.'}
-              </div>
             </div>
 
-            <div className="note-fields-scrollArea min-h-0 flex-1 overflow-y-auto p-3">
+            <div className="note-fields-scrollArea min-h-0 flex-1 overflow-y-auto p-3 max-md:overflow-visible max-md:flex-none max-md:p-2 max-md:!min-h-0">
               <textarea
+                ref={textareaRef}
                 value={organizedText}
                 onChange={(e) => onNoteChange(activeIndex, { content: e.target.value })}
-                placeholder="Note content will appear here after generation..."
-                className="w-full h-full min-h-[320px] p-4 focus:outline-none resize-none text-sm leading-relaxed text-slate-700 border border-slate-200 rounded-xl bg-white"
+                placeholder=""
+                className="note-fields-editor-input w-full font-sans focus:outline-none resize-none text-sm leading-relaxed text-slate-700 border border-slate-200 rounded-xl bg-white p-4 max-md:min-h-[6rem] max-md:h-auto max-md:overflow-visible max-md:p-3 md:h-full md:min-h-[320px]"
               />
             </div>
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto bg-slate-50/70 p-3">
+        <div className="flex-1 overflow-auto bg-slate-50/70 p-3 max-md:flex-none">
           {pdfUrl ? (
             <iframe
               src={pdfUrl}
@@ -317,16 +337,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               className="w-full h-full min-h-[420px] rounded-xl border border-slate-200 bg-white"
             />
           ) : (
-            <div className="flex flex-col items-center justify-center h-full min-h-[320px] text-slate-400 gap-2">
-              <p className="text-sm">No PDF preview yet.</p>
-              <p className="text-xs">Click <span className="font-semibold text-teal-600">Regenerate PDF</span> to generate one.</p>
-            </div>
+            <div className="h-full min-h-[320px]" aria-hidden />
           )}
         </div>
       )}
 
       {/* Footer actions */}
-      <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 max-md:px-2 max-md:py-2 max-md:gap-1.5">
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
