@@ -5,6 +5,7 @@ import {
   FileText, ChevronLeft, ChevronRight, Home, FolderOpen, FolderPlus,
   Pencil, Trash2, Eye, ExternalLink, CloudUpload,
   FileSpreadsheet, FileImage, File, Layers, Upload,
+  CreditCard,
 } from 'lucide-react';
 import { getFriendlyFileType } from '../utils/formatting';
 
@@ -22,6 +23,8 @@ interface FileBrowserProps {
   /** Opens upload picker for files into the current patient folder tree. */
   onPatientUpload?: () => void;
   uploadBusy?: boolean;
+  /** Opens sticker / billing profile (HALO_patient_profile.json) — patient root crumb or small link when inside subfolders. */
+  onOpenStickerProfile?: () => void;
 }
 
 const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
@@ -50,6 +53,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
   onStartEditFile, onDeleteFile, onViewFile, onCreateFolder,
   onPatientUpload,
   uploadBusy = false,
+  onOpenStickerProfile,
 }) => {
   const isAtRoot = breadcrumbs.length <= 1;
   const folders = files.filter(isFolder);
@@ -73,11 +77,31 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
             <React.Fragment key={crumb.id}>
               {index > 0 && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
               <button
-                onClick={() => onNavigateToBreadcrumb(index)}
+                type="button"
+                onClick={() => {
+                  if (
+                    onOpenStickerProfile &&
+                    breadcrumbs.length === 1 &&
+                    index === breadcrumbs.length - 1
+                  ) {
+                    onOpenStickerProfile();
+                    return;
+                  }
+                  onNavigateToBreadcrumb(index);
+                }}
+                title={
+                  onOpenStickerProfile && breadcrumbs.length === 1 && index === breadcrumbs.length - 1
+                    ? 'View sticker / billing details'
+                    : undefined
+                }
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                   index === breadcrumbs.length - 1
                     ? 'text-teal-700 bg-teal-50'
                     : 'text-slate-500 hover:text-teal-600 hover:bg-slate-100'
+                } ${
+                  onOpenStickerProfile && breadcrumbs.length === 1 && index === breadcrumbs.length - 1
+                    ? 'cursor-pointer underline-offset-2 hover:underline'
+                    : ''
                 }`}
               >
                 {index === 0 && <Home size={13} className="shrink-0" />}
@@ -85,6 +109,17 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
               </button>
             </React.Fragment>
           ))}
+          {onOpenStickerProfile && breadcrumbs.length > 1 ? (
+            <button
+              type="button"
+              onClick={onOpenStickerProfile}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-50 hover:underline"
+              title="Sticker scan / billing profile"
+            >
+              <CreditCard size={13} className="shrink-0" />
+              Profile
+            </button>
+          ) : null}
         </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           {onPatientUpload && isAtRoot ? (

@@ -3,13 +3,6 @@ import rateLimit from 'express-rate-limit';
 import { requireUser } from '../middleware/requireUser';
 import { acceptInvite, findUserByEmail, normalizeEmail, updateLastLogin, verifyPassword } from '../services/userStore';
 
-/** Persist session before responding so the next request (e.g. /api/drive/patients) sees userId. */
-function saveSession(req: Request): Promise<void> {
-  return new Promise((resolve, reject) => {
-    req.session.save((err) => (err ? reject(err) : resolve()));
-  });
-}
-
 const router = Router();
 
 // Brute-force protection for password login and invite acceptance
@@ -43,7 +36,6 @@ router.post('/login', async (req: Request, res: Response) => {
     }
     req.session.userId = user.id;
     await updateLastLogin(user.id);
-    await saveSession(req);
     res.json({
       user: {
         id: user.id,
@@ -52,7 +44,6 @@ router.post('/login', async (req: Request, res: Response) => {
         lastName: user.last_name,
         role: user.role,
         haloUserId: user.halo_user_id,
-        defaultWardColumnId: user.default_ward_column_id ?? null,
       },
     });
   } catch (err) {
@@ -83,7 +74,6 @@ router.get('/me', async (req: Request, res: Response) => {
         lastName: u.lastName,
         role: u.role,
         haloUserId: u.haloUserId,
-        defaultWardColumnId: u.defaultWardColumnId,
       },
     });
   });
@@ -138,7 +128,6 @@ router.post('/accept-invite', async (req: Request, res: Response) => {
   try {
     const result = await acceptInvite({ rawToken: token, password, firstName, lastName });
     req.session.userId = result.userId;
-    await saveSession(req);
     res.json({
       success: true,
       user: {

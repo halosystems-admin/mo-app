@@ -46,7 +46,7 @@ import { uploadAndExtractSmartContext } from '../services/smartContext';
 import {
   Upload, CheckCircle2, ChevronLeft, Loader2, Camera,
   CloudUpload, Pencil, X, Trash2, FolderOpen, MessageCircle,
-  FolderPlus, ChevronRight, ChevronDown, ExternalLink, FileText, Layers, Plus,
+  FolderPlus, ChevronRight, ExternalLink, FileText, Layers, Plus,
   History,
   Captions,
 } from 'lucide-react';
@@ -238,7 +238,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const [haloPatientProfile, setHaloPatientProfile] = useState<HaloPatientProfile | null>(null);
   const [haloProfileLoading, setHaloProfileLoading] = useState(true);
-  const [stickerProfileOpen, setStickerProfileOpen] = useState(false);
+  const [stickerProfileModalOpen, setStickerProfileModalOpen] = useState(false);
   const [letterGenBusy, setLetterGenBusy] = useState<'motivation' | 'referral' | null>(null);
 
   const refreshHaloPatientProfile = useCallback(async () => {
@@ -252,6 +252,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       setHaloProfileLoading(false);
     }
   }, [patient.id]);
+
+  const openStickerProfileModal = useCallback(() => {
+    setStickerProfileModalOpen(true);
+    void refreshHaloPatientProfile();
+  }, [refreshHaloPatientProfile]);
 
   useEffect(() => {
     void refreshHaloPatientProfile();
@@ -1526,38 +1531,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
           )}
 
-          {activeTab === 'overview' && (
-            <div className="mb-3 rounded-xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setStickerProfileOpen((o) => !o)}
-                className="flex w-full items-center justify-between px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-50"
-              >
-                <span>Sticker / billing profile (HALO_patient_profile.json)</span>
-                <ChevronDown
-                  className={`h-4 w-4 shrink-0 transition-transform ${stickerProfileOpen ? 'rotate-180' : ''}`}
-                  aria-hidden
-                />
-              </button>
-              {stickerProfileOpen && (
-                <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-3">
-                  {haloProfileLoading ? (
-                    <p className="text-xs text-slate-500">Loading…</p>
-                  ) : haloPatientProfile ? (
-                    <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-slate-700">
-                      {JSON.stringify(haloPatientProfile, null, 2)}
-                    </pre>
-                  ) : (
-                    <p className="text-xs text-slate-500">
-                      No profile file in this patient folder yet. It is created when you scan a wristband or sticker during
-                      admission.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* CTA to generate insights (only when not yet generated) */}
           {/* Tabs */}
           <div className="mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-b border-slate-200/70 mb-4">
@@ -1688,6 +1661,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               onCreateFolder={() => setShowCreateFolderModal(true)}
               onPatientUpload={openUploadPicker}
               uploadBusy={status === AppStatus.UPLOADING}
+              onOpenStickerProfile={openStickerProfileModal}
             />
           ) : activeTab === 'sessions' ? (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -2109,6 +2083,87 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           )}
         </div>
       </div>
+
+      {/* Sticker / billing (OCR) — open from green patient breadcrumb or “Profile” in subfolders */}
+      {stickerProfileModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sticker-profile-title"
+          onClick={() => setStickerProfileModalOpen(false)}
+        >
+          <div
+            className="max-h-[min(90dvh,32rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2 id="sticker-profile-title" className="text-base font-bold text-slate-800">
+                Sticker &amp; billing details
+              </h2>
+              <button
+                type="button"
+                onClick={() => setStickerProfileModalOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            {haloProfileLoading ? (
+              <div className="flex items-center gap-2 py-6 text-sm text-slate-500">
+                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-teal-600" />
+                Loading profile…
+              </div>
+            ) : haloPatientProfile ? (
+              <dl className="grid grid-cols-[8.5rem_1fr] gap-x-3 gap-y-2.5 text-sm">
+                <dt className="font-semibold text-slate-500">Name</dt>
+                <dd className="text-slate-900">{haloPatientProfile.fullName || '—'}</dd>
+                <dt className="font-semibold text-slate-500">DOB</dt>
+                <dd className="text-slate-900">{haloPatientProfile.dob || '—'}</dd>
+                <dt className="font-semibold text-slate-500">Sex</dt>
+                <dd className="text-slate-900">{haloPatientProfile.sex || '—'}</dd>
+                <dt className="font-semibold text-slate-500">ID number</dt>
+                <dd className="text-slate-900">{haloPatientProfile.idNumber || '—'}</dd>
+                <dt className="font-semibold text-slate-500">Folder</dt>
+                <dd className="text-slate-900">{haloPatientProfile.folderNumber || '—'}</dd>
+                <dt className="font-semibold text-slate-500">Ward</dt>
+                <dd className="text-slate-900">{haloPatientProfile.ward || '—'}</dd>
+                <dt className="font-semibold text-slate-500">Medical aid</dt>
+                <dd className="text-slate-900">{haloPatientProfile.medicalAidName || '—'}</dd>
+                <dt className="font-semibold text-slate-500">Plan / option</dt>
+                <dd className="text-slate-900">{haloPatientProfile.medicalAidPackage || '—'}</dd>
+                <dt className="font-semibold text-slate-500">Member no.</dt>
+                <dd className="text-slate-900">{haloPatientProfile.medicalAidMemberNumber || '—'}</dd>
+                <dt className="font-semibold text-slate-500">Scheme phone</dt>
+                <dd className="text-slate-900">{haloPatientProfile.medicalAidPhone || '—'}</dd>
+                <dt className="font-semibold text-slate-500">Notes</dt>
+                <dd className="whitespace-pre-wrap text-slate-800">{haloPatientProfile.rawNotes || '—'}</dd>
+                <dt className="font-semibold text-slate-500">Last updated</dt>
+                <dd className="text-xs text-slate-600">
+                  {haloPatientProfile.updatedAt
+                    ? new Date(haloPatientProfile.updatedAt).toLocaleString()
+                    : '—'}
+                </dd>
+              </dl>
+            ) : (
+              <p className="text-sm leading-relaxed text-slate-600">
+                No <span className="font-mono text-xs">HALO_patient_profile.json</span> in this folder yet. It is created when
+                you scan a wristband or sticker during admission.
+              </p>
+            )}
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setStickerProfileModalOpen(false)}
+                className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* EDIT PATIENT MODAL */}
       {editingPatient && (

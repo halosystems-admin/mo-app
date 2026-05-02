@@ -1,4 +1,4 @@
-import type { InpatientRecord } from '../../../types/clinical';
+import type { ClinicalTaskIndicator, InpatientRecord } from '../../../types/clinical';
 import { jsPDF } from 'jspdf';
 import { formatInpatientDisplayName } from '../shared/clinicalDisplay';
 import { formatWardDisplay } from '../shared/clinicalDisplay';
@@ -9,37 +9,92 @@ function csvEscape(cell: string): string {
   return s;
 }
 
-/** Columns aligned with the main inpatient grid (subset). */
+function taskIndicatorsToString(t: ClinicalTaskIndicator[] | undefined): string {
+  if (!t?.length) return '';
+  return t.map((x) => `${x.label}${x.urgent ? ' (!)' : ''}`).join('; ');
+}
+
+/** Full inpatient sheet row — every scalar field on `InpatientRecord` (matches Sheets UI columns). */
 function rowToCells(r: InpatientRecord): string[] {
   return [
+    r.currentlyAdmitted ? 'yes' : 'no',
     formatWardDisplay(r.ward),
     r.bed ?? '',
+    r.surname ?? '',
+    r.firstName ?? '',
     formatInpatientDisplayName(r.firstName, r.surname),
-    r.assignedDoctor ?? '',
+    r.dateOfBirth ?? '',
+    r.idNumber ?? '',
+    r.sex ?? '',
+    String(r.age ?? ''),
+    r.medicalAid ?? '',
+    r.medicalAidNumber ?? '',
+    r.medicalAidPhone ?? '',
     r.admissionDiagnosis ?? '',
-    r.surgeonPlan ?? '',
-    r.managementPlan ?? '',
-    r.inpatientNotes ?? '',
     r.dateOfAdmission?.slice(0, 10) ?? '',
     r.dateOfReview?.slice(0, 10) ?? '',
-    r.sheetStatus ?? '',
+    r.sheetAdmissionDateKind ?? '',
+    r.icd10Diagnoses ?? '',
+    r.procedure ?? '',
+    r.procedureCodes ?? '',
+    r.dateOfProcedure?.slice(0, 10) ?? '',
+    r.complications ?? '',
+    r.surgeonPlan ?? '',
+    r.managementPlan ?? '',
+    r.dateOfDischarge?.slice(0, 10) ?? '',
+    r.followUpPlan ?? '',
+    r.dateOfFollowUp?.slice(0, 10) ?? '',
+    r.inpatientNotes ?? '',
+    r.furtherComment ?? '',
     r.folderNumber ?? '',
+    taskIndicatorsToString(r.taskIndicators),
+    r.assignedDoctor ?? '',
+    r.linkedDrivePatientId ?? '',
+    r.contactNumber ?? '',
+    r.sheetStatus ?? '',
+    r.taskPendingVericlaimDone ? 'yes' : 'no',
+    r.taskDownloadSlipDone ? 'yes' : 'no',
   ];
 }
 
 const CSV_HEADERS = [
+  'Admitted',
   'Ward',
   'Bed',
-  'Name',
-  'Surgeon',
-  'Diagnosis',
+  'Surname',
+  'First name',
+  'Display name',
+  'DOB',
+  'ID number',
+  'Sex',
+  'Age',
+  'Medical aid',
+  'Aid member no',
+  'Aid phone',
+  'Admission diagnosis',
+  'DOA',
+  'Review date',
+  'DOA/FU mode',
+  'ICD-10',
+  'Procedure',
+  'Procedure codes',
+  'Procedure date',
+  'Complications',
   'Surgeon plan',
   'Management plan',
-  'Notes',
-  'DOA',
-  'Review',
-  'Status',
+  'Discharge date',
+  'Follow-up plan',
+  'Follow-up date',
+  'Inpatient notes',
+  'Further comment',
   'Folder',
+  'Tasks',
+  'Surgeon',
+  'Linked Drive patient',
+  'Contact',
+  'Sheet status',
+  'Vericlaim done',
+  'Download slip done',
 ];
 
 export function exportInpatientsCsv(rows: InpatientRecord[], filenameBase = 'inpatient-sheets'): void {
@@ -57,28 +112,25 @@ export function exportInpatientsCsv(rows: InpatientRecord[], filenameBase = 'inp
 
 export function exportInpatientsPdf(rows: InpatientRecord[], title = 'Inpatient sheets'): void {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const margin = 10;
+  const margin = 8;
   let y = margin;
-  doc.setFontSize(12);
+  doc.setFontSize(11);
   doc.text(title, margin, y);
-  y += 8;
-  doc.setFontSize(7);
+  y += 6;
+  doc.setFontSize(6);
 
-  const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+  const pageW = doc.internal.pageSize.getWidth() - margin * 2;
 
   for (const r of rows) {
-    const c = rowToCells(r);
-    const line = `${clip(c[0]!, 18)} | ${clip(c[1]!, 10)} | ${clip(c[2]!, 36)} | ${clip(c[3]!, 22)} | ${clip(
-      c[4]!,
-      56
-    )}`;
-    if (y > doc.internal.pageSize.getHeight() - 14) {
+    const cells = rowToCells(r);
+    const pairs = CSV_HEADERS.map((h, i) => `${h}: ${cells[i] ?? ''}`).join('  •  ');
+    if (y > doc.internal.pageSize.getHeight() - 12) {
       doc.addPage();
       y = margin;
     }
-    const wrapped = doc.splitTextToSize(line, doc.internal.pageSize.getWidth() - margin * 2);
+    const wrapped = doc.splitTextToSize(pairs, pageW);
     doc.text(wrapped, margin, y);
-    y += Math.max(5, wrapped.length * 3.6);
+    y += Math.max(4, wrapped.length * 2.8) + 2;
   }
 
   doc.save(`inpatient-sheets-${new Date().toISOString().slice(0, 10)}.pdf`);
@@ -96,14 +148,15 @@ export function printInpatientsTable(rows: InpatientRecord[], title = 'Inpatient
     .join('');
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(title)}</title>
 <style>
-  body { font-family: system-ui, sans-serif; font-size: 11px; margin: 12px; }
+  body { font-family: system-ui, sans-serif; font-size: 10px; margin: 12px; }
   h1 { font-size: 14px; margin: 0 0 10px; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; }
-  th { background: #f4f4f5; font-weight: 600; }
+  .wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: max-content; min-width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; white-space: nowrap; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; }
+  th { background: #f4f4f5; font-weight: 600; position: sticky; top: 0; }
 </style></head><body>
 <h1>${esc(title)}</h1>
-<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+<div class="wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
 <script>window.onload = () => { window.print(); };</script>
 </body></html>`;
   const w = window.open('', '_blank');
