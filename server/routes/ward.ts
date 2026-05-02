@@ -172,6 +172,16 @@ router.post('/kanban', async (req: Request, res: Response) => {
             updatedAt: typeof t.updatedAt === 'string' ? t.updatedAt : undefined,
           }));
 
+        const bedRaw = (p as any).bed;
+        const bed =
+          typeof bedRaw === 'string' && bedRaw.trim() ? bedRaw.trim().slice(0, 40) : undefined;
+        const wlRaw = (p as any).wardLabel;
+        const wardLabel =
+          typeof wlRaw === 'string' && wlRaw.trim() ? wlRaw.trim().slice(0, 80) : undefined;
+        const notesRaw = (p as any).notes;
+        const notes =
+          typeof notesRaw === 'string' && notesRaw.trim() ? notesRaw.trim().slice(0, 4000) : undefined;
+
         return patientId
           ? {
               patientId,
@@ -180,6 +190,9 @@ router.post('/kanban', async (req: Request, res: Response) => {
               ...(boardColumn ? { boardColumn } : {}),
               ...(columnOrder !== undefined ? { columnOrder } : {}),
               ...(tags && tags.length ? { tags } : {}),
+              ...(bed ? { bed } : {}),
+              ...(wardLabel ? { wardLabel } : {}),
+              ...(notes ? { notes } : {}),
             }
           : null;
       })

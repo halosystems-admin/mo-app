@@ -9,6 +9,7 @@ import type {
   NoteField,
   CalendarEvent,
   ScribeSession,
+  HaloPatientProfile,
 } from '../../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID, HALO_TEMPLATE_OPTIONS, HOSPITALS, type HospitalKey } from '../../../shared/haloTemplates';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
@@ -38,12 +39,14 @@ import {
   appendLongitudinalContextPdf,
   fetchPatientSessions,
   savePatientSession,
+  getPatientHaloProfile,
+  generatePatientLetterDocx,
 } from '../services/api';
 import { uploadAndExtractSmartContext } from '../services/smartContext';
 import {
   Upload, CheckCircle2, ChevronLeft, Loader2, Camera,
   CloudUpload, Pencil, X, Trash2, FolderOpen, MessageCircle,
-  FolderPlus, ChevronRight, ExternalLink, FileText, Layers, Plus,
+  FolderPlus, ChevronRight, ChevronDown, ExternalLink, FileText, Layers, Plus,
   History,
   Captions,
 } from 'lucide-react';
@@ -56,6 +59,7 @@ import { NoteEditor } from '../components/NoteEditor';
 import { PatientChat } from '../components/PatientChat';
 import { getErrorMessage } from '../utils/formatting';
 import { CLINICAL_BTN_PRIMARY } from '../features/clinical/shared/tableScrollClasses';
+import { formatPatientDisplayName } from '../features/clinical/shared/clinicalDisplay';
 
 const MAX_MAIN_COMPLAINT_LEN = 80;
 
@@ -231,6 +235,27 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const chatMessagesRef = useRef<ChatMessage[]>([]);
   const chatLongWaitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   chatMessagesRef.current = chatMessages;
+
+  const [haloPatientProfile, setHaloPatientProfile] = useState<HaloPatientProfile | null>(null);
+  const [haloProfileLoading, setHaloProfileLoading] = useState(true);
+  const [stickerProfileOpen, setStickerProfileOpen] = useState(false);
+  const [letterGenBusy, setLetterGenBusy] = useState<'motivation' | 'referral' | null>(null);
+
+  const refreshHaloPatientProfile = useCallback(async () => {
+    setHaloProfileLoading(true);
+    try {
+      const p = await getPatientHaloProfile(patient.id);
+      setHaloPatientProfile(p);
+    } catch {
+      setHaloPatientProfile(null);
+    } finally {
+      setHaloProfileLoading(false);
+    }
+  }, [patient.id]);
+
+  useEffect(() => {
+    void refreshHaloPatientProfile();
+  }, [refreshHaloPatientProfile]);
 
   useEffect(() => {
     if (typeof consultSubTab === 'number' && (consultSubTab < 0 || consultSubTab >= notes.length)) {
@@ -682,8 +707,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         tplId ||
         fallbackTitle ||
         'Note';
-      const raw = `${patient.name} - ${dateStr} - ${templateName}`;
-      return raw.replace(/[^\w\s-]/g, '').trim() || undefined;
+      const displayName = formatPatientDisplayName(patient.name);
+      const raw = `${displayName} - ${dateStr} - ${templateName}`;
+      return raw.replace(/[^\w\s\-,.]/g, '').trim() || undefined;
     },
     [patient.name, templateOptions]
   );
@@ -763,11 +789,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           template_id: tplId,
           text: payloadText,
           template_name: tplName,
+          patientId: patient.id,
         }),
         generateNotePreview({
           template_id: tplId,
           text: payloadText,
           template_name: tplName,
+          patientId: patient.id,
         }),
       ]);
       const first = preview.notes?.[0];
@@ -791,7 +819,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     } finally {
       setRegeneratingPdfIndex(null);
     }
-  }, [notes, onToast, templateId, templateOptions]);
+  }, [notes, onToast, templateId, templateOptions, patient.id]);
 
   const GENERATE_TIMEOUT_MS = 95_000;
 
@@ -826,6 +854,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 text: noteInput,
                 user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
                 template_name,
+                patientId: patient.id,
               });
               return { noteResult };
             })
@@ -866,6 +895,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   text: noteInput,
                   user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
                   template_name: templateNames[id],
+                  patientId: patient.id,
                 })
               )
             );
@@ -1094,6 +1124,41 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       }
     }
   };
+
+  const handleLetterDraft = useCallback(
+    async (kind: 'motivation' | 'referral') => {
+      const prompt =
+        kind === 'motivation'
+          ? 'Draft the body text for a medical motivation letter for this patient. Use a professional clinical tone. Include clear rationale for the requested investigation or treatment. Output body paragraphs only — no letterhead, addresses, or signature blocks.'
+          : 'Draft the body text for a referral letter for this patient. Summarize relevant history and the reason for referral. Output body paragraphs only — no letterhead, addresses, or signature blocks.';
+      setLetterGenBusy(kind);
+      try {
+        const { reply } = await askHalo(patient.id, prompt, chatMessagesRef.current);
+        const body = reply?.trim();
+        if (!body) {
+          onToast('HALO did not return letter text. Try again or ask in chat first.', 'error');
+          return;
+        }
+        await generatePatientLetterDocx({ patientId: patient.id, letterKind: kind, body });
+        await loadFolderContents(currentFolderId);
+        onDataChange();
+        void refreshHaloPatientProfile();
+        onToast(`${kind === 'motivation' ? 'Motivation' : 'Referral'} letter saved to Patient Notes.`, 'success');
+      } catch (err) {
+        onToast(getErrorMessage(err), 'error');
+      } finally {
+        setLetterGenBusy(null);
+      }
+    },
+    [
+      patient.id,
+      currentFolderId,
+      loadFolderContents,
+      onDataChange,
+      onToast,
+      refreshHaloPatientProfile,
+    ]
+  );
 
   // If opened from a calendar booking, generate a light prep note and start in the editor
   useEffect(() => {
@@ -1340,7 +1405,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           </button>
           <div className="group relative hidden min-w-0 md:block md:flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <h1 className="text-2xl font-semibold text-halo-text tracking-tight leading-snug truncate">{patient.name}</h1>
+              <h1 className="text-2xl font-semibold text-halo-text tracking-tight leading-snug truncate">
+                {formatPatientDisplayName(patient.name) || patient.name}
+              </h1>
               <button onClick={startEditPatient} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-halo-text-secondary hover:text-halo-primary hover:bg-halo-primary-muted rounded-full shrink-0">
                 <Pencil size={14} />
               </button>
@@ -1456,6 +1523,38 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {activeTab === 'overview' && (
+            <div className="mb-3 rounded-xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setStickerProfileOpen((o) => !o)}
+                className="flex w-full items-center justify-between px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-50"
+              >
+                <span>Sticker / billing profile (HALO_patient_profile.json)</span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 transition-transform ${stickerProfileOpen ? 'rotate-180' : ''}`}
+                  aria-hidden
+                />
+              </button>
+              {stickerProfileOpen && (
+                <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-3">
+                  {haloProfileLoading ? (
+                    <p className="text-xs text-slate-500">Loading…</p>
+                  ) : haloPatientProfile ? (
+                    <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-slate-700">
+                      {JSON.stringify(haloPatientProfile, null, 2)}
+                    </pre>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      No profile file in this patient folder yet. It is created when you scan a wristband or sticker during
+                      admission.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1994,13 +2093,18 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
           ) : (
             <PatientChat
-              patientName={patient.name}
+              patientName={formatPatientDisplayName(patient.name) || patient.name}
               chatMessages={chatMessages}
               chatInput={chatInput}
               onChatInputChange={setChatInput}
               chatLoading={chatLoading}
               chatLongWait={chatLongWait}
               onSendChat={handleSendChat}
+              letterActions={{
+                onMotivation: () => void handleLetterDraft('motivation'),
+                onReferral: () => void handleLetterDraft('referral'),
+                busy: letterGenBusy,
+              }}
             />
           )}
         </div>

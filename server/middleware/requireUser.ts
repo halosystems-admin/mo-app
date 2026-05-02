@@ -10,6 +10,8 @@ export type AppUser = {
   lastName: string;
   role: AppUserRole;
   haloUserId: string | null;
+  /** Ward board column id to focus after login (e.g. m, icu). */
+  defaultWardColumnId: string | null;
   isActive: boolean;
 };
 
@@ -47,7 +49,7 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
   }
   const { data, error } = await sb
     .from('app_users')
-    .select('id,email,first_name,last_name,role,halo_user_id,is_active')
+    .select('id,email,first_name,last_name,role,halo_user_id,default_ward_column_id,is_active')
     .eq('id', userId)
     .maybeSingle<{
       id: string;
@@ -56,6 +58,7 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
       last_name: string;
       role: AppUserRole;
       halo_user_id: string | null;
+      default_ward_column_id?: string | null;
       is_active: boolean;
     }>();
 
@@ -75,6 +78,7 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
     lastName: data.last_name,
     role: data.role,
     haloUserId: data.halo_user_id,
+    defaultWardColumnId: data.default_ward_column_id ?? null,
     isActive: data.is_active,
   };
 

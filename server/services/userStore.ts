@@ -13,6 +13,8 @@ export type AppUserRow = {
   last_name: string;
   role: AppRole;
   halo_user_id: string | null;
+  /** Set when migration 005 is applied. */
+  default_ward_column_id?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

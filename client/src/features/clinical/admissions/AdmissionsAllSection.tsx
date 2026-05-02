@@ -9,6 +9,7 @@ import { InpatientDetailPanel } from '../shared/InpatientDetailPanel';
 import { ClinicalTableScroll } from '../shared/ClinicalTableScroll';
 import { CLINICAL_TABLE_TH, CLINICAL_TABLE_TBODY_TR, CLINICAL_TABLE_THEAD } from '../shared/tableScrollClasses';
 import {
+  formatInpatientDisplayName,
   formatWardDisplay,
   resolvePatientIdFromClinicalNames,
   wardBadgeClass,
@@ -81,8 +82,7 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
               <tr>
                 <th className={`${CLINICAL_TABLE_TH} whitespace-nowrap`}>Admitted</th>
                 <th className={`${CLINICAL_TABLE_TH} whitespace-nowrap`}>Bed</th>
-                <th className={`${CLINICAL_TABLE_TH} whitespace-nowrap`}>Surname</th>
-                <th className={`${CLINICAL_TABLE_TH} whitespace-nowrap`}>Name</th>
+                <th className={`${CLINICAL_TABLE_TH} whitespace-nowrap min-w-[10rem]`}>Patient</th>
                 <th className={`${CLINICAL_TABLE_TH} min-w-[10rem]`}>Adm dx</th>
                 <th className={`${CLINICAL_TABLE_TH} whitespace-nowrap`}>DOB</th>
                 <th className={`${CLINICAL_TABLE_TH} whitespace-nowrap`}>ID</th>
@@ -126,8 +126,9 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
                   >
                     <td className="px-3 py-2 text-xs whitespace-nowrap">{r.currentlyAdmitted ? 'Y' : 'N'}</td>
                     <td className="px-3 py-2 text-xs whitespace-nowrap">{r.bed}</td>
-                    <td className="px-3 py-2 font-medium whitespace-nowrap">{r.surname}</td>
-                    <td className="px-3 py-2 font-medium whitespace-nowrap">{r.firstName}</td>
+                    <td className="px-3 py-2 font-medium whitespace-nowrap">
+                      {formatInpatientDisplayName(r.firstName, r.surname)}
+                    </td>
                     <td
                       className="px-3 py-2 text-xs align-top min-w-[10rem] max-w-[14rem] whitespace-normal break-words"
                       title={r.admissionDiagnosis}
@@ -236,7 +237,9 @@ export const AdmissionsAllSection: React.FC<Props> = ({ onToast, patients = [] }
         patients={patients}
         haloPatientId={dischargeRecord ? resolveHaloId(dischargeRecord) : null}
         patientDisplayName={
-          dischargeRecord ? `${dischargeRecord.firstName} ${dischargeRecord.surname}`.trim() : ''
+          dischargeRecord
+            ? formatInpatientDisplayName(dischargeRecord.firstName, dischargeRecord.surname)
+            : ''
         }
         clinicalContext={buildDischargeClinicalContext(dischargeRecord ?? undefined, dischargeKanbanRow ?? undefined)}
         initialSummaryText={dischargeRecord?.inpatientNotes?.trim() || ''}

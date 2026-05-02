@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import type { ClinicalWard, SurgeonName, SurgeonRoundRow } from '../../../types/clinical';
+import { formatInpatientDisplayName } from './clinicalDisplay';
 import { getClinicalWards, updateSurgeonRound } from '../../../services/clinicalData';
 import { formatWardDisplay } from './clinicalDisplay';
 import { MessageCircle, Pencil, Phone, X } from 'lucide-react';
 
-const SURGEONS: SurgeonName[] = ['Hoosain', 'Stanley', 'de Beer', 'Strydom'];
+const SURGEONS: SurgeonName[] = ['Hoosain', 'Stanley', 'de Beer', 'Strydom', 'Patel', 'Kruger'];
 const inp =
   'w-full px-2 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400';
 
@@ -73,7 +74,9 @@ export const SurgeonRoundDetailPanel: React.FC<Props> = ({ row: r, onClose, onSa
           </button>
           <div>
             <h2 id="surgeon-round-detail-title" className="text-lg font-bold text-slate-800">
-              {editing ? `${draft.firstName} ${draft.surname}` : `${r.firstName} ${r.surname}`}
+              {editing
+                ? formatInpatientDisplayName(draft.firstName, draft.surname)
+                : formatInpatientDisplayName(r.firstName, r.surname)}
             </h2>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {editing ? (

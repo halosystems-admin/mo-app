@@ -4,6 +4,7 @@ import {
   type AdmittedPatientKanban,
   type DoctorDiaryEntry,
   type DriveFile,
+  type HaloPatientProfile,
   type Patient,
   type ScribeSession,
   type UserSettings,
@@ -48,6 +49,10 @@ const SETTINGS_FILE_NAME = 'halo_user_settings.json';
 // Doctor-facing app state (stored in HALO root folder)
 const DOCTOR_DIARY_FILE_NAME = 'halo_doctor_diary.json';
 const DOCTOR_KANBAN_FILE_NAME = 'halo_doctor_kanban.json';
+const HALO_PATIENT_PROFILE_FILE = 'HALO_patient_profile.json';
+const MOTIVATION_TEMPLATE_DOCX = 'motivational_template.docx';
+/** Optional subfolder under Halo_Patients for letter templates (keeps root tidy). */
+const MOTIVATION_TEMPLATE_FOLDER = 'Templates';
 
 // In-memory cache for first page of file list (per folder).
 const FILES_CACHE_TTL_MS = 30_000; // 30 seconds
@@ -1304,6 +1309,71 @@ export const microsoftGraphAdapter: StorageAdapter = {
     }
     const created = (await res.json()) as { id: string };
     return created.id;
+  },
+
+  async getPatientHaloProfile({
+    token,
+    patientFolderId,
+    microsoftStorageMode,
+  }: {
+    token: string;
+    patientFolderId: string;
+    microsoftStorageMode?: MicrosoftStorageMode;
+  }): Promise<HaloPatientProfile | null> {
+    const storageMode = getEffectiveStorageMode(microsoftStorageMode);
+    const fileId = await findChildFileIdByName({
+      token,
+      parentFolderId: patientFolderId,
+      storageMode,
+      name: HALO_PATIENT_PROFILE_FILE,
+    });
+    if (!fileId) return null;
+    try {
+      const text = await downloadItemContentAsText({ token, fileId, storageMode });
+      const o = JSON.parse(text) as Record<string, unknown>;
+      if (!o || typeof o !== 'object' || o.version !== 1) return null;
+      if (typeof o.fullName !== 'string' || typeof o.dob !== 'string') return null;
+      if (o.sex !== 'M' && o.sex !== 'F') return null;
+      if (typeof o.updatedAt !== 'string') return null;
+      return o as unknown as HaloPatientProfile;
+    } catch {
+      return null;
+    }
+  },
+
+  async getMotivationLetterTemplateDocxBuffer({
+    token,
+    microsoftStorageMode,
+  }: {
+    token: string;
+    microsoftStorageMode?: MicrosoftStorageMode;
+  }): Promise<Buffer | null> {
+    const storageMode = getEffectiveStorageMode(microsoftStorageMode);
+    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const templatesFolderId = await findChildFolderIdByName({
+      token,
+      parentFolderId: rootId,
+      storageMode,
+      name: MOTIVATION_TEMPLATE_FOLDER,
+    });
+    let fileId =
+      templatesFolderId &&
+      (await findChildFileIdByName({
+        token,
+        parentFolderId: templatesFolderId,
+        storageMode,
+        name: MOTIVATION_TEMPLATE_DOCX,
+      }));
+    if (!fileId) {
+      fileId = await findChildFileIdByName({
+        token,
+        parentFolderId: rootId,
+        storageMode,
+        name: MOTIVATION_TEMPLATE_DOCX,
+      });
+    }
+    if (!fileId) return null;
+    return downloadItemContentAsBuffer({ token, fileId, storageMode });
   },
 
   async fetchAllFilesInFolder({

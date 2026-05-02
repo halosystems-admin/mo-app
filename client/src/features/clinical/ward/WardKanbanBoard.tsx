@@ -5,9 +5,12 @@ import {
   MeasuringStrategy,
   PointerSensor,
   closestCorners,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
   useDroppable,
+  type CollisionDetection,
   type DragEndEvent,
   type DragMoveEvent,
   type DragStartEvent,
@@ -17,7 +20,11 @@ import { CSS } from '@dnd-kit/utilities';
 import type { AdmittedPatientKanban, Patient } from '../../../../../shared/types';
 import type { InpatientRecord } from '../../../types/clinical';
 import { clinicalWardToBoardColumn, findInpatientMatchingHaloPatient } from '../../../services/clinicalData';
-import { formatWardDisplay } from '../shared/clinicalDisplay';
+import {
+  formatInpatientDisplayName,
+  formatPatientDisplayName,
+  formatWardDisplay,
+} from '../shared/clinicalDisplay';
 import { CLINICAL_HEADER_BAND } from '../shared/tableScrollClasses';
 import {
   WARD_BOARD_COLUMNS,
@@ -85,9 +92,9 @@ function applyDragToLayout(
   if (overRaw.startsWith(DROPPABLE_PREFIX)) {
     const targetCol = overRaw.slice(DROPPABLE_PREFIX.length);
     if (!Object.prototype.hasOwnProperty.call(next, targetCol)) return null;
-    const fromCol = findColumnForPatient(next, activePid);
-    if (!fromCol) return null;
-    next[fromCol] = next[fromCol].filter((id) => id !== activePid);
+    for (const k of Object.keys(next)) {
+      next[k] = next[k].filter((id) => id !== activePid);
+    }
     next[targetCol] = next[targetCol].filter((id) => id !== activePid);
     next[targetCol].push(activePid);
     return next;
@@ -105,7 +112,9 @@ function applyDragToLayout(
     next[fromCol] = arrayMove(arr, oldIndex, newIndex);
     return next;
   }
-  next[fromCol] = next[fromCol].filter((id) => id !== activePid);
+  for (const k of Object.keys(next)) {
+    next[k] = next[k].filter((id) => id !== activePid);
+  }
   const insertIdx = next[toCol].indexOf(overPid);
   const idx = insertIdx < 0 ? next[toCol].length : insertIdx;
   const merged = [...next[toCol]];
@@ -134,20 +143,36 @@ type Props = {
   onApplyBoardLayout: (layout: Record<string, string[]>) => void;
   onUpdatePatientTags: (patientId: string, tags: string[]) => void;
   onAddTodo: (patientId: string, title: string) => void;
+  /** Persist optional bed / ward label / notes on the ward card (HALO-linked rows). */
+  onUpdateBoardFields?: (
+    patientId: string,
+    patch: Partial<Pick<AdmittedPatientKanban, 'bed' | 'wardLabel' | 'notes'>>
+  ) => void;
+  /** Mobile: scroll this column into view once after login (ward id, e.g. `m`). */
+  initialScrollToColumnId?: string | null;
+  onInitialWardColumnScrolled?: () => void;
 };
 
 type ColumnProps = {
   col: WardColumnDef;
   ptCount: number;
   children: React.ReactNode;
+  colRef?: (el: HTMLDivElement | null) => void;
 };
 
-const WardColumnDropZone = memo(function WardColumnDropZone({ col, ptCount, children }: ColumnProps) {
+const WardColumnDropZone = memo(function WardColumnDropZone({ col, ptCount, children, colRef }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: droppableId(col.id) });
+  const setBothRefs = useCallback(
+    (node: HTMLDivElement | null) => {
+      setNodeRef(node);
+      colRef?.(node);
+    },
+    [setNodeRef, colRef]
+  );
   return (
     <div
-      ref={setNodeRef}
-      className={`ward-board-col flex snap-none md:snap-start flex-col ${wardColumnWidthClass} min-h-0 h-auto md:h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
+      ref={setBothRefs}
+      className={`ward-board-col flex max-md:snap-center md:snap-start flex-col ${wardColumnWidthClass} min-h-0 h-full overflow-hidden rounded-xl border bg-halo-card shadow-[var(--shadow-halo-soft)] ${
         isOver ? 'border-halo-primary ring-2 ring-halo-primary/35 shadow-md' : 'border-halo-border'
       }`}
     >
@@ -164,16 +189,23 @@ function WardDragOverlayCard({
   patientId,
   patientsById,
   inpatients,
+  admittedKanban,
 }: {
   patientId: string;
   patientsById: Map<string, Patient>;
   inpatients: InpatientRecord[];
+  admittedKanban: AdmittedPatientKanban[];
 }) {
   const p = patientsById.get(patientId);
-  const name = p?.name || patientId;
+  const name = formatPatientDisplayName(p?.name || '') || patientId;
+  const row = admittedKanban.find((r) => r.patientId === patientId);
   const ip = findInpatientMatchingHaloPatient(p, inpatients);
   const doctor = ip?.assignedDoctor ?? '—';
-  const bedLine = ip?.bed?.trim() || '—';
+  const kbBed = row?.bed?.trim();
+  const ipBed = ip?.bed?.trim();
+  const bedCore = kbBed || ipBed || '—';
+  const wl = row?.wardLabel?.trim();
+  const bedLine = wl ? `${bedCore} · ${wl}` : bedCore;
   return (
     <div
       className="w-[268px] rounded-lg border-2 border-teal-500 bg-white px-2 py-2 shadow-xl cursor-grabbing select-none will-change-transform"
@@ -222,10 +254,14 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
   onSubmitTagDraft,
 }: CompactRowProps) {
   const p = patientsById.get(row.patientId);
-  const name = p?.name || row.patientId;
+  const name = formatPatientDisplayName(p?.name || '') || row.patientId;
   const ip = findInpatientMatchingHaloPatient(p, inpatients);
   const doctor = ip?.assignedDoctor ?? '—';
-  const bedLine = ip?.bed?.trim() || '—';
+  const kbBed = row.bed?.trim();
+  const ipBed = ip?.bed?.trim();
+  const bedCore = kbBed || ipBed || '—';
+  const wl = row.wardLabel?.trim();
+  const bedLine = wl ? `${bedCore} · ${wl}` : bedCore;
   const todos = row.todos || [];
   const openCount = todos.filter((t) => t.status !== 'Done').length;
   const tags = (row.tags || []).map((t) => t.trim().toLowerCase()).filter(Boolean);
@@ -389,6 +425,7 @@ function WardPatientDetailSheet({
   onOpenPatient,
   onToggleTodoDone,
   onAddTodo,
+  onUpdateBoardFields,
 }: {
   target: DetailTarget | null;
   onClose: () => void;
@@ -400,6 +437,10 @@ function WardPatientDetailSheet({
   onOpenPatient: (patientId: string) => void;
   onToggleTodoDone: (patientId: string, todoId: string, done: boolean) => void;
   onAddTodo: (patientId: string, title: string) => void;
+  onUpdateBoardFields?: (
+    patientId: string,
+    patch: Partial<Pick<AdmittedPatientKanban, 'bed' | 'wardLabel' | 'notes'>>
+  ) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -439,14 +480,16 @@ function WardPatientDetailSheet({
   };
 
   const p = row ? patientsById.get(row.patientId) : undefined;
-  const haloName = row ? p?.name || row.patientId : '';
+  const haloName = row ? formatPatientDisplayName(p?.name || '') || row.patientId : '';
   const ip = row ? findInpatientMatchingHaloPatient(p, inpatients) : undefined;
   const doctor = ip?.assignedDoctor ?? '—';
-  const haloBedLine = ip
-    ? [ip.bed?.trim(), ip.ward ? formatWardDisplay(ip.ward) : '']
-        .filter((s) => Boolean(s && String(s).trim()))
-        .join(' · ') || '—'
-    : '—';
+  const kbBed = row?.bed?.trim();
+  const kbWl = row?.wardLabel?.trim();
+  const ipBed = ip?.bed?.trim();
+  const ipWard = ip?.ward ? formatWardDisplay(ip.ward) : '';
+  const bedShow = kbBed || ipBed || '—';
+  const wardShow = kbWl || ipWard;
+  const haloBedLine = ip ? (wardShow ? `${bedShow} · ${wardShow}` : bedShow) : '—';
   const unlinkedBedLine =
     target.kind === 'unlinked'
       ? [unlinked!.bed?.trim(), unlinked!.ward ? formatWardDisplay(unlinked!.ward) : '']
@@ -467,7 +510,9 @@ function WardPatientDetailSheet({
         <div className="flex items-start justify-between gap-2 px-4 py-3 border-b border-slate-100 shrink-0">
           <div className="min-w-0">
             <h2 id="ward-detail-sheet-title" className="text-base font-bold text-slate-900 truncate">
-              {target.kind === 'halo' ? haloName : `${unlinked!.firstName} ${unlinked!.surname}`}
+              {target.kind === 'halo'
+                ? haloName
+                : formatInpatientDisplayName(unlinked!.firstName, unlinked!.surname)}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5 truncate">
               {target.kind === 'halo' ? (
@@ -494,6 +539,55 @@ function WardPatientDetailSheet({
         <div className="overflow-y-auto flex-1 px-4 py-3 overscroll-contain">
           {target.kind === 'halo' && row ? (
             <>
+              {onUpdateBoardFields ? (
+                <div className="mb-4 space-y-2 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Board card</span>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Bed</span>
+                    <input
+                      type="text"
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      defaultValue={row.bed ?? ''}
+                      key={`bed-${row.patientId}`}
+                      disabled={kanbanSaving}
+                      onBlur={(e) =>
+                        onUpdateBoardFields(row.patientId, {
+                          bed: e.target.value.trim().slice(0, 40) || undefined,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Ward label</span>
+                    <input
+                      type="text"
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      defaultValue={row.wardLabel ?? ''}
+                      key={`wl-${row.patientId}`}
+                      disabled={kanbanSaving}
+                      onBlur={(e) =>
+                        onUpdateBoardFields(row.patientId, {
+                          wardLabel: e.target.value.trim().slice(0, 80) || undefined,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Notes</span>
+                    <textarea
+                      className="mt-0.5 w-full min-h-[72px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      defaultValue={row.notes ?? ''}
+                      key={`notes-${row.patientId}`}
+                      disabled={kanbanSaving}
+                      onBlur={(e) =>
+                        onUpdateBoardFields(row.patientId, {
+                          notes: e.target.value.trim().slice(0, 4000) || undefined,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              ) : null}
               <div className="flex items-center justify-between gap-2 mb-2">
                 <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Ward tasks</span>
                 <button
@@ -625,12 +719,17 @@ export const WardKanbanBoard: React.FC<Props> = ({
   onApplyBoardLayout,
   onUpdatePatientTags,
   onAddTodo,
+  onUpdateBoardFields,
+  initialScrollToColumnId,
+  onInitialWardColumnScrolled,
 }) => {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
   const [tagDraftPatientId, setTagDraftPatientId] = useState<string | null>(null);
   const [tagDraftValue, setTagDraftValue] = useState('');
   const boardScrollerRef = useRef<HTMLDivElement | null>(null);
+  const columnElRefs = useRef(new Map<string, HTMLDivElement>());
+  const didInitialColumnScroll = useRef(false);
   const dragPointerTypeRef = useRef<'touch' | 'mouse' | 'pen' | null>(null);
   const autoScrollDirRef = useRef<-1 | 0 | 1>(0);
   const autoScrollSpeedRef = useRef<number>(0);
@@ -639,6 +738,24 @@ export const WardKanbanBoard: React.FC<Props> = ({
   const columns = wardColumns?.length ? wardColumns : WARD_BOARD_COLUMNS;
   const validColumnIds = useMemo(() => new Set(columns.map((c) => c.id)), [columns]);
   const defaultColId = columns[0]?.id ?? 'm';
+
+  const wardCollisionDetection = useMemo<CollisionDetection>(
+    () => (args) => {
+      const byPointer = pointerWithin(args);
+      if (byPointer.length) return byPointer;
+      const byRect = rectIntersection(args);
+      if (byRect.length) return byRect;
+      return closestCorners(args);
+    },
+    []
+  );
+
+  const setColumnRef = useCallback((colId: string) => {
+    return (el: HTMLDivElement | null) => {
+      if (el) columnElRefs.current.set(colId, el);
+      else columnElRefs.current.delete(colId);
+    };
+  }, []);
 
   const resolveColumn = useCallback(
     (row: AdmittedPatientKanban): string => {
@@ -661,8 +778,8 @@ export const WardKanbanBoard: React.FC<Props> = ({
         const oa = typeof a.columnOrder === 'number' ? a.columnOrder : 1e6;
         const ob = typeof b.columnOrder === 'number' ? b.columnOrder : 1e6;
         if (oa !== ob) return oa - ob;
-        const na = patientsById.get(a.patientId)?.name || a.patientId;
-        const nb = patientsById.get(b.patientId)?.name || b.patientId;
+        const na = formatPatientDisplayName(patientsById.get(a.patientId)?.name || '') || a.patientId;
+        const nb = formatPatientDisplayName(patientsById.get(b.patientId)?.name || '') || b.patientId;
         return sortName(na, nb);
       });
     }
@@ -677,7 +794,12 @@ export const WardKanbanBoard: React.FC<Props> = ({
       m[col]!.push(r);
     }
     for (const col of columns) {
-      m[col.id]!.sort((a, b) => sortName(`${a.surname} ${a.firstName}`, `${b.surname} ${b.firstName}`));
+      m[col.id]!.sort((a, b) =>
+        sortName(
+          formatInpatientDisplayName(a.firstName, a.surname),
+          formatInpatientDisplayName(b.firstName, b.surname)
+        )
+      );
     }
     return m;
   }, [unlinkedAdmittedInpatients, columns, validColumnIds, defaultColId]);
@@ -691,6 +813,45 @@ export const WardKanbanBoard: React.FC<Props> = ({
     mq.addEventListener?.('change', apply);
     return () => mq.removeEventListener?.('change', apply);
   }, []);
+
+  useEffect(() => {
+    if (initialScrollToColumnId) {
+      didInitialColumnScroll.current = false;
+    }
+  }, [initialScrollToColumnId]);
+
+  useEffect(() => {
+    if (!initialScrollToColumnId || didInitialColumnScroll.current) return;
+    if (!columns.some((c) => c.id === initialScrollToColumnId)) {
+      onInitialWardColumnScrolled?.();
+      return;
+    }
+    const mq = window.matchMedia?.('(max-width: 768px)');
+    if (!mq?.matches) {
+      onInitialWardColumnScrolled?.();
+      return;
+    }
+    const colId = initialScrollToColumnId;
+    let attempts = 0;
+    const tryScroll = () => {
+      const colEl = columnElRefs.current.get(colId);
+      if (colEl) {
+        colEl.scrollIntoView({ behavior: 'auto', inline: 'center', block: 'nearest' });
+        didInitialColumnScroll.current = true;
+        onInitialWardColumnScrolled?.();
+        return;
+      }
+      if (attempts++ < 10) {
+        requestAnimationFrame(tryScroll);
+      } else {
+        onInitialWardColumnScrolled?.();
+      }
+    };
+    const t = window.setTimeout(() => {
+      requestAnimationFrame(tryScroll);
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [initialScrollToColumnId, columns, onInitialWardColumnScrolled]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -718,15 +879,9 @@ export const WardKanbanBoard: React.FC<Props> = ({
     const dir = autoScrollDirRef.current;
     const speed = autoScrollSpeedRef.current;
     if (dir === 0 || speed <= 0) return;
-    // Mobile: vertical stack → scroll the board along Y while dragging near top/bottom edges.
-    // Desktop: horizontal ward columns → scroll along X (touch-only; see handleDragMove).
-    if (isMobile) {
-      el.scrollBy({ top: dir * speed, behavior: 'auto' });
-    } else {
-      el.scrollBy({ left: dir * speed, behavior: 'auto' });
-    }
+    el.scrollBy({ left: dir * speed, behavior: 'auto' });
     autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
-  }, [isMobile]);
+  }, []);
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
@@ -749,22 +904,21 @@ export const WardKanbanBoard: React.FC<Props> = ({
       const r = event.active.rect.current.translated ?? event.active.rect.current.initial ?? null;
       if (!r) return;
 
-      // Mobile layout is a vertical stack of wards: auto-scroll the board scroller on Y when
-      // the drag hovers near the top/bottom of the scroll container (not horizontal).
+      // Horizontal kanban: auto-scroll the board when the drag hovers near the left/right edges.
       const sr = el.getBoundingClientRect();
-      const centerY = r.top + r.height / 2;
-      const edge = Math.max(28, sr.height * 0.12);
-      const topZone = sr.top + edge;
-      const bottomZone = sr.bottom - edge;
+      const centerX = r.left + r.width / 2;
+      const edge = Math.max(28, sr.width * 0.12);
+      const leftZone = sr.left + edge;
+      const rightZone = sr.right - edge;
 
-      if (centerY < topZone) {
-        const t = Math.min(1, Math.max(0, (topZone - centerY) / edge));
+      if (centerX < leftZone) {
+        const t = Math.min(1, Math.max(0, (leftZone - centerX) / edge));
         autoScrollDirRef.current = -1;
-        autoScrollSpeedRef.current = 2 + t * 2;
-      } else if (centerY > bottomZone) {
-        const t = Math.min(1, Math.max(0, (centerY - bottomZone) / edge));
+        autoScrollSpeedRef.current = 4 + t * 8;
+      } else if (centerX > rightZone) {
+        const t = Math.min(1, Math.max(0, (centerX - rightZone) / edge));
         autoScrollDirRef.current = 1;
-        autoScrollSpeedRef.current = 2 + t * 2;
+        autoScrollSpeedRef.current = 4 + t * 8;
       } else {
         autoScrollDirRef.current = 0;
         autoScrollSpeedRef.current = 0;
@@ -840,9 +994,9 @@ export const WardKanbanBoard: React.FC<Props> = ({
     <div className="flex flex-1 min-h-0 h-full min-w-0 flex-col">
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={wardCollisionDetection}
         measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-        // Mobile: vertical ward stack uses our Y-edge auto-scroll on the board scroller (touch).
+        // Touch drag auto-scroll uses horizontal board edges (see handleDragMove).
         autoScroll={false}
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
@@ -862,7 +1016,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
                 touchAction:
                   activeDragId && dragPointerTypeRef.current === 'touch'
                     ? 'none'
-                    : 'pan-y',
+                    : 'pan-x',
               }
             : { touchAction: 'auto' }
         }
@@ -873,6 +1027,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
           <WardColumnDropZone
             key={col.id}
             col={col}
+            colRef={setColumnRef(col.id)}
             ptCount={(grouped[col.id] ?? []).length + (unlinkedGrouped[col.id] ?? []).length}
           >
             <div
@@ -919,7 +1074,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
                   >
                     <div className="text-[9px] font-bold uppercase text-teal-600">No HALO link</div>
                     <div className="text-sm font-semibold text-slate-900 truncate">
-                      {record.firstName} {record.surname}
+                      {formatInpatientDisplayName(record.firstName, record.surname)}
                     </div>
                   </button>
                 ))}
@@ -935,6 +1090,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
             patientId={overlayPatientId}
             patientsById={patientsById}
             inpatients={inpatients}
+            admittedKanban={admittedKanban}
           />
         ) : null}
       </DragOverlay>
@@ -951,6 +1107,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
         onOpenPatient={onOpenPatient}
         onToggleTodoDone={onToggleTodoDone}
         onAddTodo={onAddTodo}
+        onUpdateBoardFields={onUpdateBoardFields}
       />
       </DndContext>
     </div>

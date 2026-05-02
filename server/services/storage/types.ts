@@ -1,4 +1,12 @@
-import type { AdmittedPatientKanban, DoctorDiaryEntry, DriveFile, Patient, ScribeSession, UserSettings } from '../../../shared/types';
+import type {
+  AdmittedPatientKanban,
+  DoctorDiaryEntry,
+  DriveFile,
+  HaloPatientProfile,
+  Patient,
+  ScribeSession,
+  UserSettings,
+} from '../../../shared/types';
 
 export type StorageProvider = 'google' | 'microsoft';
 
@@ -198,6 +206,19 @@ export interface StorageAdapter {
     patientFolderId: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<string>;
+
+  /** Read HALO_patient_profile.json from the patient folder (returns null if missing). */
+  getPatientHaloProfile(params: {
+    token: string;
+    patientFolderId: string;
+    microsoftStorageMode?: MicrosoftStorageMode;
+  }): Promise<HaloPatientProfile | null>;
+
+  /** motivational_template.docx: Halo_Patients/Templates first, else Halo_Patients root. */
+  getMotivationLetterTemplateDocxBuffer(params: {
+    token: string;
+    microsoftStorageMode?: MicrosoftStorageMode;
+  }): Promise<Buffer | null>;
 
   // Used by AI routes to read context from stored docs
   fetchAllFilesInFolder(params: {

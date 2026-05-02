@@ -128,6 +128,8 @@ export type CurrentUser = {
   lastName: string;
   role: AppUserRole;
   haloUserId: string | null;
+  /** Ward board column to focus after sign-in (admin-assignable). */
+  defaultWardColumnId?: string | null;
 };
 
 export const checkAuth = () => request<{ signedIn: boolean; user?: CurrentUser }>('/api/user-auth/me');
@@ -185,7 +187,14 @@ export const adminInviteUser = (params: {
 
 export const adminUpdateUser = (
   id: string,
-  params: { role?: AppUserRole; haloUserId?: string | null; isActive?: boolean; firstName?: string; lastName?: string }
+  params: {
+    role?: AppUserRole;
+    haloUserId?: string | null;
+    isActive?: boolean;
+    firstName?: string;
+    lastName?: string;
+    defaultWardColumnId?: string | null;
+  }
 ) =>
   request<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(params) });
 
@@ -613,6 +622,14 @@ export async function uploadPatientHaloProfile(
   return uploadFile(patientId, file, 'HALO_patient_profile.json');
 }
 
+/** Read persisted sticker/OCR profile JSON from the patient folder (null if missing). */
+export async function getPatientHaloProfile(patientId: string): Promise<HaloPatientProfile | null> {
+  const data = await request<{ profile: HaloPatientProfile | null }>(
+    `/api/drive/patients/${encodeURIComponent(patientId)}/halo-profile`
+  );
+  return data.profile ?? null;
+}
+
 // --- Halo API (note generation + templates) ---
 export const getHaloTemplates = (userId?: string) =>
   request<Record<string, unknown>>('/api/halo/templates', {
@@ -625,6 +642,8 @@ export const generateNotePreview = (params: {
   template_id: string;
   text: string;
   user_id?: string;
+  /** Patient folder id — server prepends HALO_patient_profile details into the Halo prompt. */
+  patientId?: string;
   /** Display name (e.g. Admission) — server composes structured Markdown prompt for Halo. */
   template_name?: string;
 }) =>
@@ -639,6 +658,7 @@ export const generateNotePreviewPdf = (params: {
   text: string;
   user_id?: string;
   template_name?: string;
+  patientId?: string;
 }) =>
   request<{ pdfBase64: string }>('/api/halo/generate-preview-pdf', {
     method: 'POST',
@@ -665,6 +685,19 @@ export const saveNoteAsDocx = (params: {
       user_id: params.user_id,
       ...(params.template_name ? { template_name: params.template_name } : {}),
     }),
+  });
+
+export type PatientLetterKind = 'motivation' | 'referral';
+
+/** Fill motivational_template.docx (OneDrive root) and upload to Patient Notes. */
+export const generatePatientLetterDocx = (params: {
+  patientId: string;
+  letterKind: PatientLetterKind;
+  body: string;
+}) =>
+  request<{ success: boolean; fileId: string; name: string }>('/api/halo/generate-letter-docx', {
+    method: 'POST',
+    body: JSON.stringify(params),
   });
 
 export const searchPatientsByConcept = async (

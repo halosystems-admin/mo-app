@@ -170,6 +170,27 @@ router.post('/patients', async (req: Request, res: Response) => {
   }
 });
 
+// GET /patients/:id/halo-profile — HALO_patient_profile.json from patient folder (sticker OCR / billing)
+router.get('/patients/:id/halo-profile', async (req: Request, res: Response) => {
+  try {
+    const token = req.session.accessToken!;
+    const id = routeParam(req.params.id);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const profile = await adapter.getPatientHaloProfile({
+      token,
+      patientFolderId: id,
+      microsoftStorageMode,
+    });
+
+    res.json({ profile });
+  } catch (err) {
+    console.error('Halo patient profile error:', err);
+    res.status(500).json({ error: 'Failed to load patient profile.' });
+  }
+});
+
 // PATCH /patients/:id
 router.patch('/patients/:id', async (req: Request, res: Response) => {
   try {

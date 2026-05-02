@@ -44,6 +44,7 @@ router.post('/login', async (req: Request, res: Response) => {
         lastName: user.last_name,
         role: user.role,
         haloUserId: user.halo_user_id,
+        defaultWardColumnId: user.default_ward_column_id ?? null,
       },
     });
   } catch (err) {
@@ -74,6 +75,7 @@ router.get('/me', async (req: Request, res: Response) => {
         lastName: u.lastName,
         role: u.role,
         haloUserId: u.haloUserId,
+        defaultWardColumnId: u.defaultWardColumnId,
       },
     });
   });

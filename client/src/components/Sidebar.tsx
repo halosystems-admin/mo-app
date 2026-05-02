@@ -3,6 +3,7 @@ import type { Patient } from '../../../shared/types';
 import { Plus, LogOut, Search, Trash2, ChevronRight, Users, Clock, Settings, LayoutGrid, FolderOpen, FileSpreadsheet } from 'lucide-react';
 import { searchPatientsByConcept } from '../services/api';
 import { patientAvatarClassWithSelection } from '../utils/patientAvatar';
+import { formatPatientDisplayName } from '../features/clinical/shared/clinicalDisplay';
 export type MainNavSection = 'ward' | 'sheets' | 'folders';
 
 interface SidebarProps {
@@ -107,10 +108,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             selectedPatientId === patient.id
           )}`}
         >
-          {patient.name.charAt(0)}
+          {(() => {
+            const disp = formatPatientDisplayName(patient.name) || patient.name.trim();
+            const ch = disp.includes(',')
+              ? disp.split(',')[0]?.trim().charAt(0)
+              : disp.charAt(0);
+            return (ch || '?').toUpperCase();
+          })()}
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-800 truncate">{patient.name}</p>
+          <p className="text-sm font-medium text-slate-800 truncate">
+            {formatPatientDisplayName(patient.name) || patient.name}
+          </p>
         </div>
       </div>
       <div className="flex items-center gap-0.5 shrink-0">

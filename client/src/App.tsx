@@ -43,6 +43,7 @@ import { WardPage } from './pages/WardPage';
 import { SheetsPage } from './pages/SheetsPage';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { StickerCameraModal } from './components/StickerCameraModal';
+import { formatPatientDisplayName } from './features/clinical/shared/clinicalDisplay';
 import type { MainNavSection } from './components/Sidebar';
 
 export const App = () => {
@@ -96,6 +97,8 @@ export const App = () => {
 
   const [mainNav, setMainNav] = useState<MainNavSection>('folders');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  /** Mobile ward board: scroll to this column once after password login. */
+  const [wardLoginScrollColumnId, setWardLoginScrollColumnId] = useState<string | null>(null);
 
   // Persist selected patient to sessionStorage so it survives page refresh
   // Also track recently opened patients in localStorage
@@ -225,6 +228,8 @@ export const App = () => {
       const { user } = await loginWithPassword(loginEmail, loginPassword);
       setCurrentUser(user);
       setIsSignedIn(true);
+      setWardLoginScrollColumnId(user.defaultWardColumnId ?? null);
+      setMainNav('ward');
       await refreshPatients();
       loadSettings()
         .then((res) => {
@@ -246,6 +251,7 @@ export const App = () => {
     setCurrentUser(null);
     selectPatient(null);
     setMainNav('folders');
+    setWardLoginScrollColumnId(null);
   };
 
   const openCreateModal = () => {
@@ -660,7 +666,7 @@ export const App = () => {
                 : mainNav === 'sheets'
                   ? 'Sheets'
                   : activePatient
-                    ? activePatient.name
+                    ? formatPatientDisplayName(activePatient.name) || activePatient.name
                     : 'Folders'}
             </h1>
           </header>
@@ -672,6 +678,8 @@ export const App = () => {
               openPatientWorkspace(id);
             }}
             onToast={showToast}
+            initialWardColumnScrollId={wardLoginScrollColumnId}
+            onInitialWardColumnScrolled={() => setWardLoginScrollColumnId(null)}
           />
         ) : mainNav === 'sheets' ? (
           <SheetsPage

@@ -63,44 +63,47 @@ body {
   }
 
   /*
-   * Mobile-only: vertical stack of wards (full width, no horizontal overflow).
-   * Spacing via gap only; horizontal padding on the scroller (not column margins).
+   * Mobile-only: horizontal Kanban (Trello-style) — one ward per “page”, scroll-snap, peek of next column.
    */
   .ward-board-scroller {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     flex-wrap: nowrap;
     align-items: stretch;
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    flex: 1 1 0;
+    min-height: 0;
     box-sizing: border-box;
-    overflow-x: hidden !important;
-    overflow-y: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: none;
-    gap: 1rem; /* 16px between wards */
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 0.75rem;
+    gap: 0.75rem;
     padding-top: 0.25rem !important;
-    padding-bottom: 0.75rem !important;
-    padding-left: 0.75rem !important; /* 12px inset */
+    padding-bottom: 0.5rem !important;
+    padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
     margin-left: 0 !important;
     margin-right: 0 !important;
-    scroll-snap-type: none;
   }
 
   .ward-board-col {
-    flex: 0 0 auto;
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
+    flex: 0 0 88vw;
+    width: 88vw;
+    min-width: 88vw;
+    max-width: 88vw;
     box-sizing: border-box;
     margin: 0 !important;
-    height: auto;
-    max-height: min(70dvh, 520px);
-    min-height: 12rem;
+    align-self: stretch;
+    min-height: 0;
+    height: 100%;
+    max-height: none;
     border-radius: 0.75rem;
-    scroll-snap-align: none;
+    scroll-snap-align: center;
   }
 
   /*

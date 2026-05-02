@@ -22,10 +22,12 @@ import {
 } from '../../../services/clinicalData';
 import type { AdmittedPatientKanban, Patient } from '../../../../../shared/types';
 import {
+  formatInpatientDisplayName,
   formatWardDisplay,
   resolvePatientIdFromClinicalNames,
   wardBadgeClass,
 } from '../shared/clinicalDisplay';
+import { exportInpatientsCsv, exportInpatientsPdf, printInpatientsTable } from './sheetsExports';
 import { fetchWardKanban } from '../../../services/wardBoardBackend';
 import { DischargePatientModal } from '../shared/DischargePatientModal';
 import { buildDischargeClinicalContext } from '../shared/dischargeContext';
@@ -38,7 +40,19 @@ import {
   CLINICAL_TABLE_TBODY_TR,
   CLINICAL_TABLE_THEAD,
 } from '../shared/tableScrollClasses';
-import { Camera, ChevronDown, FolderOpen, Loader, MessageCircle, Phone, Plus, Upload, X } from 'lucide-react';
+import {
+  Camera,
+  ChevronDown,
+  FileDown,
+  FolderOpen,
+  Loader,
+  MessageCircle,
+  Phone,
+  Plus,
+  Printer,
+  Upload,
+  X,
+} from 'lucide-react';
 import { SheetsDictateModal } from './SheetsDictateModal';
 import { StickerCameraModal } from '../../../components/StickerCameraModal';
 import { extractPatientFromStickerFile } from '../../../services/api';
@@ -86,12 +100,21 @@ function TableColumnFilter({
   );
 }
 
-const SURGEON_FILTER_OPTIONS: SurgeonName[] = ['Hoosain', 'Stanley', 'de Beer', 'Strydom'];
+const SURGEON_FILTER_OPTIONS: SurgeonName[] = [
+  'Hoosain',
+  'Stanley',
+  'de Beer',
+  'Strydom',
+  'Patel',
+  'Kruger',
+];
 
 function matchesAssignedSurgeon(record: InpatientRecord, surgeon: SurgeonName | ''): boolean {
   if (!surgeon) return true;
   const d = (record.assignedDoctor || '').toLowerCase();
   if (surgeon === 'Hoosain') return d.includes('hoosain') || d.includes('hoosen');
+  if (surgeon === 'Patel') return d.includes('patel');
+  if (surgeon === 'Kruger') return d.includes('kruger');
   return d.includes(surgeon.toLowerCase());
 }
 
@@ -349,10 +372,39 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-slate-800">All patients</h2>
-        <button type="button" onClick={openAddAdmissionModal} className={`${CLINICAL_BTN_PRIMARY} gap-1.5`}>
-          <Plus size={14} />
-          New admission
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            title="Download filtered rows as CSV"
+            onClick={() => exportInpatientsCsv(displayedRows)}
+            disabled={displayedRows.length === 0}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <FileDown size={14} /> CSV
+          </button>
+          <button
+            type="button"
+            title="Download filtered rows as PDF"
+            onClick={() => exportInpatientsPdf(displayedRows)}
+            disabled={displayedRows.length === 0}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <FileDown size={14} /> PDF
+          </button>
+          <button
+            type="button"
+            title="Print filtered rows"
+            onClick={() => printInpatientsTable(displayedRows)}
+            disabled={displayedRows.length === 0}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <Printer size={14} /> Print
+          </button>
+          <button type="button" onClick={openAddAdmissionModal} className={`${CLINICAL_BTN_PRIMARY} gap-1.5`}>
+            <Plus size={14} />
+            New admission
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white rounded-xl border border-slate-200 p-4">
@@ -490,7 +542,7 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
                 setDraft((d) => ({ ...d, surgeon: e.target.value as OtherSurgeonInpatientDraft['surgeon'] }))
               }
             >
-              {(['Hoosain', 'Stanley', 'de Beer', 'Strydom'] as const).map((s) => (
+              {(['Hoosain', 'Stanley', 'de Beer', 'Strydom', 'Patel', 'Kruger'] as const).map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
@@ -631,7 +683,7 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
                   </td>
                   <td className="px-2 py-2 text-[13px] align-top whitespace-nowrap">{r.bed}</td>
                   <td className="px-2 py-2 font-semibold text-[13px] align-top whitespace-nowrap">
-                    {r.firstName} {r.surname}
+                    {formatInpatientDisplayName(r.firstName, r.surname)}
                   </td>
                   <td className="px-2 py-2 text-[12px] align-top whitespace-nowrap">{r.assignedDoctor || '—'}</td>
                   <td className="px-2 py-2 text-[12px] align-top break-words max-w-[200px]" title={r.admissionDiagnosis}>
@@ -790,7 +842,11 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
         onClose={closeDischargeModal}
         patients={patients}
         haloPatientId={dischargeRecord ? resolveHaloId(dischargeRecord) : null}
-        patientDisplayName={dischargeRecord ? `${dischargeRecord.firstName} ${dischargeRecord.surname}`.trim() : ''}
+        patientDisplayName={
+          dischargeRecord
+            ? formatInpatientDisplayName(dischargeRecord.firstName, dischargeRecord.surname)
+            : ''
+        }
         clinicalContext={buildDischargeClinicalContext(dischargeRecord ?? undefined, dischargeKanbanRow ?? undefined)}
         initialSummaryText={dischargeRecord?.inpatientNotes?.trim() || ''}
         inpatientRecord={dischargeRecord}
@@ -857,7 +913,7 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
                   <option value="">— Blank —</option>
                   {MOCK_INPATIENTS.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.firstName} {m.surname} · {m.admissionDiagnosis || '—'}
+                      {formatInpatientDisplayName(m.firstName, m.surname)} · {m.admissionDiagnosis || '—'}
                     </option>
                   ))}
                 </select>

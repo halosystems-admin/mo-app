@@ -2,7 +2,44 @@
  * Centralized AI prompt templates for all Gemini interactions.
  */
 
+import type { HaloPatientProfile } from '../../shared/types';
+import { formatPatientDisplayName } from './patientDisplay';
+
 export const MAX_CONTENT_LENGTH = 5000;
+
+/** Prepended to Halo generate_note text so templates echo demographics / billing identifiers. */
+export function buildPatientDetailsBlock(profile: HaloPatientProfile | null): string {
+  if (!profile) return '';
+  const nameLine = formatPatientDisplayName(profile.fullName?.trim() || '');
+  const aidParts = [
+    profile.medicalAidName?.trim(),
+    profile.medicalAidPackage?.trim(),
+    profile.medicalAidMemberNumber?.trim(),
+    profile.medicalAidPhone?.trim(),
+  ].filter(Boolean);
+  const medicalAid = aidParts.length ? aidParts.join(' · ') : '';
+
+  const lines: string[] = ['=== PATIENT_DETAILS ==='];
+  if (nameLine) lines.push(`Name: ${nameLine}`);
+  const dob = profile.dob?.trim();
+  const sex = profile.sex;
+  if (dob || sex) {
+    const dobSex = [dob ? `DOB: ${dob}` : '', sex ? `Sex: ${sex}` : ''].filter(Boolean).join('  ');
+    if (dobSex) lines.push(dobSex);
+  }
+  const folder = profile.folderNumber?.trim();
+  const idNum = profile.idNumber?.trim();
+  if (folder || idNum) {
+    lines.push([folder ? `Folder #: ${folder}` : '', idNum ? `ID #: ${idNum}` : ''].filter(Boolean).join('    '));
+  }
+  const ward = profile.ward?.trim();
+  if (ward) lines.push(`Ward: ${ward}`);
+  if (medicalAid) lines.push(`Medical aid: ${medicalAid}`);
+  const raw = profile.rawNotes?.trim();
+  if (raw) lines.push(`Sticker notes: ${raw}`);
+  lines.push('=== END_PATIENT_DETAILS ===');
+  return lines.join('\n');
+}
 
 export function summaryPrompt(patientName: string, fileContext: string): string {
   return `

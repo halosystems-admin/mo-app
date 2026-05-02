@@ -18,6 +18,7 @@ import {
 import { PendingEditBody } from './pendingDetailEditors';
 import {
   formatBookingUrgency,
+  formatInpatientDisplayName,
   formatListUrgency,
   formatTheatreStatus,
   formatUploadedDocSummary,
@@ -70,13 +71,13 @@ export const PendingProcedureDetailPanel: React.FC<Props> = ({
   const titleName = useMemo(() => {
     const src = editing ? draft : row;
     return src.theatreBooking
-      ? `${src.theatreBooking.firstName} ${src.theatreBooking.surname}`.trim()
+      ? formatInpatientDisplayName(src.theatreBooking.firstName, src.theatreBooking.surname)
       : src.vericlaim
-        ? `${src.vericlaim.firstName} ${src.vericlaim.surname}`.trim()
+        ? formatInpatientDisplayName(src.vericlaim.firstName, src.vericlaim.surname)
         : src.endoscopySheet
-          ? `${src.endoscopySheet.firstName} ${src.endoscopySheet.surname}`.trim()
+          ? formatInpatientDisplayName(src.endoscopySheet.firstName, src.endoscopySheet.surname)
           : src.aslip
-            ? `${src.aslip.firstName} ${src.aslip.surname}`.trim()
+            ? formatInpatientDisplayName(src.aslip.firstName, src.aslip.surname)
             : src.patientDisplayName;
   }, [draft, editing, row]);
 

@@ -9,7 +9,7 @@ export type ClinicalWard =
   | 'emergency department'
   | 'labour ward';
 
-export type SurgeonName = 'Hoosain' | 'Stanley' | 'de Beer' | 'Strydom';
+export type SurgeonName = 'Hoosain' | 'Stanley' | 'de Beer' | 'Strydom' | 'Patel' | 'Kruger';
 
 export interface ClinicalTaskIndicator {
   label: string;

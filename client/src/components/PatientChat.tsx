@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import type { ChatMessage } from '../../../shared/types';
-import { MessageCircle, Send } from 'lucide-react';
+import { Loader2, MessageCircle, Send } from 'lucide-react';
 import { renderInlineMarkdown } from '../utils/formatting';
 
 interface PatientChatProps {
@@ -11,10 +11,23 @@ interface PatientChatProps {
   chatLoading: boolean;
   chatLongWait?: boolean;
   onSendChat: () => void;
+  /** Draft motivation/referral letters via HALO + DOCX template upload */
+  letterActions?: {
+    onMotivation: () => void;
+    onReferral: () => void;
+    busy: 'motivation' | 'referral' | null;
+  };
 }
 
 export const PatientChat: React.FC<PatientChatProps> = ({
-  patientName, chatMessages, chatInput, onChatInputChange, chatLoading, chatLongWait, onSendChat,
+  patientName,
+  chatMessages,
+  chatInput,
+  onChatInputChange,
+  chatLoading,
+  chatLongWait,
+  onSendChat,
+  letterActions,
 }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -29,6 +42,33 @@ export const PatientChat: React.FC<PatientChatProps> = ({
         <span className="text-sm font-bold text-teal-800 uppercase tracking-wider">Ask HALO</span>
         <span className="text-xs text-slate-400 ml-2">AI-powered patient data assistant</span>
       </div>
+
+      {letterActions && (
+        <div className="flex flex-wrap gap-2 border-b border-slate-100 bg-slate-50/90 px-3 py-2">
+          <button
+            type="button"
+            disabled={chatLoading || letterActions.busy !== null}
+            onClick={letterActions.onMotivation}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200/80 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-teal-900 shadow-sm transition hover:bg-teal-50 disabled:opacity-50"
+          >
+            {letterActions.busy === 'motivation' ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : null}
+            Motivation letter (DOCX)
+          </button>
+          <button
+            type="button"
+            disabled={chatLoading || letterActions.busy !== null}
+            onClick={letterActions.onReferral}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            {letterActions.busy === 'referral' ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : null}
+            Referral letter (DOCX)
+          </button>
+        </div>
+      )}
 
       {/* Chat messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">

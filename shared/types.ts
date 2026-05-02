@@ -233,6 +233,12 @@ export interface AdmittedPatientKanban {
   columnOrder?: number;
   /** User tags on the ward card (e.g. seen, unseen, custom). */
   tags?: string[];
+  /** Ward-board bed label (optional; falls back to Hospital Sheets bed when unset). Maps to `board_entries.bed`. */
+  bed?: string;
+  /** Optional ward/site label on the card. Maps to `board_entries.ward_label`. */
+  wardLabel?: string;
+  /** Short notes on the ward card. Maps to `board_entries.notes`. */
+  notes?: string;
 }
 
 export interface DoctorDiaryEntry {

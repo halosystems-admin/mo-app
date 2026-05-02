@@ -1,6 +1,15 @@
 import { config } from '../../config';
 import { refineMimeType } from '../../../shared/mimeFromFilename';
-import type { AdmittedPatientKanban, DoctorDiaryEntry, DriveFile, Patient, ScribeSession, UserSettings } from '../../../shared/types';
+import type {
+  AdmittedPatientKanban,
+  DoctorDiaryEntry,
+  DriveFile,
+  HaloPatientProfile,
+  Patient,
+  ScribeSession,
+  UserSettings,
+} from '../../../shared/types';
+import { FOLDER_MIME_TYPE } from '../../../shared/types';
 import type { MicrosoftStorageMode, StorageAdapter, StorageProvider } from './types';
 import {
   driveRequest,
@@ -65,6 +74,9 @@ const SESSIONS_FILE_NAME = 'halo_scribe_sessions.json';
 // Doctor-facing app state (stored in HALO root folder)
 const DOCTOR_DIARY_FILE_NAME = 'halo_doctor_diary.json';
 const DOCTOR_KANBAN_FILE_NAME = 'halo_doctor_kanban.json';
+const HALO_PATIENT_PROFILE_FILE = 'HALO_patient_profile.json';
+const MOTIVATION_TEMPLATE_DOCX = 'motivational_template.docx';
+const MOTIVATION_TEMPLATE_FOLDER = 'Templates';
 
 // In-memory cache for first page of file list (per folder).
 const FILES_CACHE_TTL_MS = 30_000; // 30 seconds
@@ -1046,6 +1058,46 @@ export const googleDriveAdapter: StorageAdapter = {
     return getOrCreatePatientNotesFolder(token, patientFolderId);
   },
 
+  async getPatientHaloProfile({
+    token,
+    patientFolderId,
+  }: {
+    token: string;
+    patientFolderId: string;
+    microsoftStorageMode?: MicrosoftStorageMode;
+  }): Promise<HaloPatientProfile | null> {
+    const fileId = await findPatientProfileFile(token, patientFolderId);
+    if (!fileId) return null;
+    const dlRes = await fetch(`${config.driveApi}/files/${fileId}?alt=media`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!dlRes.ok) return null;
+    const text = await dlRes.text();
+    return parseHaloPatientProfileJson(text);
+  },
+
+  async getMotivationLetterTemplateDocxBuffer({
+    token,
+  }: {
+    token: string;
+    microsoftStorageMode?: MicrosoftStorageMode;
+  }): Promise<Buffer | null> {
+    const rootId = await getHaloRootFolder(token);
+    const templatesId = await findTemplatesFolderId(token, rootId);
+    let fileId = templatesId
+      ? await findDocxByNameInFolder(token, templatesId, MOTIVATION_TEMPLATE_DOCX)
+      : null;
+    if (!fileId) {
+      fileId = await findDocxByNameInFolder(token, rootId, MOTIVATION_TEMPLATE_DOCX);
+    }
+    if (!fileId) return null;
+    try {
+      return await downloadFileBuffer(token, fileId);
+    } catch {
+      return null;
+    }
+  },
+
   async fetchAllFilesInFolder({
     token,
     folderId,
@@ -1151,5 +1203,47 @@ async function findDoctorJsonFile(token: string, rootId: string, fileName: strin
   );
   const data = await driveRequest(token, `/files?q=${query}&fields=files(id)`);
   return data.files && data.files.length > 0 ? data.files[0].id : null;
+}
+
+async function findPatientProfileFile(token: string, patientFolderId: string): Promise<string | null> {
+  const query = encodeURIComponent(
+    `'${patientFolderId}' in parents and name='${HALO_PATIENT_PROFILE_FILE}' and mimeType='application/json' and trashed=false`
+  );
+  const data = await driveRequest(token, `/files?q=${query}&fields=files(id)`);
+  return data.files && data.files.length > 0 ? data.files[0].id : null;
+}
+
+async function findTemplatesFolderId(token: string, rootId: string): Promise<string | null> {
+  const query = encodeURIComponent(
+    `'${rootId}' in parents and name='${MOTIVATION_TEMPLATE_FOLDER}' and mimeType='${FOLDER_MIME_TYPE}' and trashed=false`
+  );
+  const data = await driveRequest(token, `/files?q=${query}&fields=files(id)`);
+  return data.files && data.files.length > 0 ? data.files[0].id : null;
+}
+
+async function findDocxByNameInFolder(token: string, folderId: string, fileName: string): Promise<string | null> {
+  const query = encodeURIComponent(
+    `'${folderId}' in parents and name='${fileName}' and trashed=false`
+  );
+  const data = await driveRequest(token, `/files?q=${query}&fields=files(id,mimeType)`);
+  const files = data.files as Array<{ id: string; mimeType?: string }> | undefined;
+  if (!files?.length) return null;
+  const docx =
+    files.find((f) => f.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') ??
+    files[0];
+  return docx?.id ?? null;
+}
+
+function parseHaloPatientProfileJson(text: string): HaloPatientProfile | null {
+  try {
+    const o = JSON.parse(text) as Record<string, unknown>;
+    if (!o || typeof o !== 'object' || o.version !== 1) return null;
+    if (typeof o.fullName !== 'string' || typeof o.dob !== 'string') return null;
+    if (o.sex !== 'M' && o.sex !== 'F') return null;
+    if (typeof o.updatedAt !== 'string') return null;
+    return o as unknown as HaloPatientProfile;
+  } catch {
+    return null;
+  }
 }
 

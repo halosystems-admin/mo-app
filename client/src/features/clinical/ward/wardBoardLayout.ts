@@ -16,11 +16,12 @@ export const wardBoardGapClass = 'gap-6';
 export const wardColumnBodyPaddingClass = 'px-3';
 
 /** Board-level horizontal scroller: only this element scrolls on x (desktop). Mobile overrides in index.css. */
+/** Desktop (md+): horizontal scroll with snap. Mobile snap is set in `index.css` (max-width 768px). */
 export const wardBoardScrollerClass = [
   'flex min-h-0 flex-1 flex-nowrap items-stretch',
   wardBoardGapClass,
   'overflow-x-auto overflow-y-hidden',
   'overscroll-x-contain',
   'pb-3 pt-2 pl-4 pr-6 sm:pl-5 sm:pr-8',
-  'touch-pan-x snap-x snap-mandatory halo-hide-scrollbar-mobile',
+  'touch-pan-x md:snap-x md:snap-mandatory halo-hide-scrollbar-mobile',
 ].join(' ');

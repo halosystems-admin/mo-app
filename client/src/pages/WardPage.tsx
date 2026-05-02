@@ -6,7 +6,10 @@ import { fetchCurrentInpatients, mergeAdmittedRowWithMockKanbanSeeds } from '../
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { fetchWardBoardColumns, fetchWardKanban, saveWardKanban } from '../services/wardBoardBackend';
 import { syncAllHospitalWardTasksToKanban } from '../services/wardKanbanSync';
-import { resolvePatientIdFromClinicalNames } from '../features/clinical/shared/clinicalDisplay';
+import {
+  formatPatientDisplayName,
+  resolvePatientIdFromClinicalNames,
+} from '../features/clinical/shared/clinicalDisplay';
 import { Layers } from 'lucide-react';
 import { WARD_BOARD_COLUMNS } from '../features/clinical/shared/wardBoardColumns';
 import { CLINICAL_BTN_PRIMARY } from '../features/clinical/shared/tableScrollClasses';
@@ -27,9 +30,18 @@ interface WardPageProps {
   patients: Patient[];
   onOpenPatient: (patientId: string) => void;
   onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  /** After login: scroll the mobile ward board to this column once. */
+  initialWardColumnScrollId?: string | null;
+  onInitialWardColumnScrolled?: () => void;
 }
 
-export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onToast }) => {
+export const WardPage: React.FC<WardPageProps> = ({
+  patients,
+  onOpenPatient,
+  onToast,
+  initialWardColumnScrollId,
+  onInitialWardColumnScrolled,
+}) => {
   const [kanban, setKanban] = useState<AdmittedPatientKanban[]>([]);
   const [kanbanLoading, setKanbanLoading] = useState(false);
   const [kanbanSaving, setKanbanSaving] = useState(false);
@@ -252,6 +264,42 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
     [kanban, persistKanban]
   );
 
+  const updateBoardFields = useCallback(
+    (patientId: string, patch: Partial<Pick<AdmittedPatientKanban, 'bed' | 'wardLabel' | 'notes'>>) => {
+      const next = kanban.map((r) => {
+        if (r.patientId !== patientId) return r;
+        let x: AdmittedPatientKanban = { ...r };
+        if ('bed' in patch) {
+          const v = patch.bed?.trim();
+          if (v) x = { ...x, bed: v.slice(0, 40) };
+          else {
+            const { bed: _b, ...rest } = x;
+            x = rest as AdmittedPatientKanban;
+          }
+        }
+        if ('wardLabel' in patch) {
+          const v = patch.wardLabel?.trim();
+          if (v) x = { ...x, wardLabel: v.slice(0, 80) };
+          else {
+            const { wardLabel: _w, ...rest } = x;
+            x = rest as AdmittedPatientKanban;
+          }
+        }
+        if ('notes' in patch) {
+          const v = patch.notes?.trim();
+          if (v) x = { ...x, notes: v.slice(0, 4000) };
+          else {
+            const { notes: _n, ...rest } = x;
+            x = rest as AdmittedPatientKanban;
+          }
+        }
+        return x;
+      });
+      void persistKanban(next);
+    },
+    [kanban, persistKanban]
+  );
+
   return (
     <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden overscroll-x-none px-5 py-3 md:px-10 md:py-5 lg:px-12 bg-halo-bg">
       <div className="w-full max-w-[1600px] mx-auto flex flex-col flex-1 min-h-0 gap-4 md:gap-5">
@@ -269,7 +317,7 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
                 <option value="">Select…</option>
                 {patients.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}
+                    {formatPatientDisplayName(p.name) || p.name}
                   </option>
                 ))}
               </select>
@@ -300,7 +348,7 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
           </div>
         </div>
 
-        <section className="flex-1 min-h-0 flex flex-col bg-halo-card rounded-xl border border-halo-border shadow-[var(--shadow-halo-soft)] min-w-0 overflow-hidden">
+        <section className="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden max-md:border-0 max-md:shadow-none max-md:bg-transparent md:bg-halo-card md:rounded-xl md:border md:border-halo-border md:shadow-[var(--shadow-halo-soft)]">
           <div className="px-4 py-2.5 border-b border-halo-border flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               <Layers className="w-4 h-4 shrink-0 text-teal-500" />
@@ -334,6 +382,9 @@ export const WardPage: React.FC<WardPageProps> = ({ patients, onOpenPatient, onT
                   onApplyBoardLayout={applyBoardLayout}
                   onUpdatePatientTags={updatePatientTags}
                   onAddTodo={addKanbanTodo}
+                  onUpdateBoardFields={updateBoardFields}
+                  initialScrollToColumnId={initialWardColumnScrollId}
+                  onInitialWardColumnScrolled={onInitialWardColumnScrolled}
                 />
               </div>
             )}

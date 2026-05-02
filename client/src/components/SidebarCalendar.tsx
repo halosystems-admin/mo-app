@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { CalendarEvent, Patient } from '../../../shared/types';
 import { Calendar as CalendarIcon, Clock } from 'lucide-react';
+import { formatPatientDisplayName } from '../features/clinical/shared/clinicalDisplay';
 
 interface SidebarCalendarProps {
   events: CalendarEvent[];
@@ -98,7 +99,7 @@ const CalendarList: React.FC<CalendarListProps> = ({
               </span>
               {patient && (
                 <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-800/60 px-2 py-0.5 rounded-full">
-                  {patient.name}
+                  {formatPatientDisplayName(patient.name) || patient.name}
                 </span>
               )}
             </div>

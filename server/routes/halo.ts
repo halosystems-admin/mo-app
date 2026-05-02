@@ -6,7 +6,17 @@ import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { getTemplates, generateNote, type HaloNote } from '../services/haloApi';
 import { getStorageAdapter } from '../services/storage';
 import { generateText } from '../services/gemini';
-import { clinicalNoteMarkdownStructurePrompt, fallbackOrganisedNoteMarkdown } from '../utils/prompts';
+import {
+  buildPatientDetailsBlock,
+  clinicalNoteMarkdownStructurePrompt,
+  fallbackOrganisedNoteMarkdown,
+} from '../utils/prompts';
+import {
+  buildLetterReLine,
+  displayNameFromProfile,
+  renderPatientLetterDocx,
+  type PatientLetterKind,
+} from '../services/motivationLetter';
 
 const router = Router();
 router.use(requireAuth);
@@ -22,6 +32,28 @@ function isSmtpConfigured(): boolean {
 function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConfig?: boolean }): string {
   if (opts?.useMobileConfig) return config.haloMobileUserId;
   return opts?.userId || req.appUser?.haloUserId || config.haloUserId;
+}
+
+/** Prepend sticker/profile block for Halo generate_note when patient folder id is known. */
+async function prefixTextWithPatientProfile(
+  req: Request,
+  patientFolderId: string | undefined,
+  text: string
+): Promise<string> {
+  if (!patientFolderId || !req.session.accessToken) return text;
+  try {
+    const adapter = getStorageAdapter(req.session.provider);
+    const profile = await adapter.getPatientHaloProfile({
+      token: req.session.accessToken,
+      patientFolderId,
+      microsoftStorageMode: req.session.microsoftStorageMode,
+    });
+    const block = buildPatientDetailsBlock(profile);
+    return block ? `${block}\n\n${text}` : text;
+  } catch (e) {
+    console.warn('[Halo] Could not load HALO_patient_profile for prompt prefix:', e);
+    return text;
+  }
 }
 
 /** Halo sometimes echoes unstructured dictation — fill structured Markdown via Gemini when needed. */
@@ -181,13 +213,20 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       return;
     }
 
+    const composedText = await prefixTextWithPatientProfile(req, patientId, text);
+
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
-    console.log('[Halo] generate-note request:', { userId: userId.slice(0, 8) + '…', templateId, return_type, textLength: text.length });
+    console.log('[Halo] generate-note request:', {
+      userId: userId.slice(0, 8) + '…',
+      templateId,
+      return_type,
+      textLength: composedText.length,
+    });
     const result = await generateNote({
       user_id: userId,
       template_id: templateId,
-      text,
+      text: composedText,
       return_type,
       template_name: typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined,
     });
@@ -197,7 +236,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       const tplLabel =
         (typeof template_name === 'string' && template_name.trim() ? template_name.trim() : null) || templateId;
 
-      if (notes.length === 0 && text.trim()) {
+      if (notes.length === 0 && composedText.trim()) {
         notes = [
           {
             noteId: `note-${Date.now()}`,
@@ -219,7 +258,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
                 clinicalNoteMarkdownStructurePrompt({
                   templateDisplayName: tplLabel,
                   templateId,
-                  sourceText: text,
+                  sourceText: composedText,
                 })
               );
               const trimmed = md.trim();
@@ -234,7 +273,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
 
       notes = notes.map((note) => {
         if (noteHasDisplayableBody(note)) return note;
-        const fb = fallbackOrganisedNoteMarkdown(text, tplLabel);
+        const fb = fallbackOrganisedNoteMarkdown(composedText, tplLabel);
         return fb ? { ...note, content: fb } : note;
       });
 
@@ -296,12 +335,13 @@ router.post('/generate-note', async (req: Request, res: Response) => {
 // Generates a DOCX with Halo and converts to PDF for in-app preview only (no Drive save).
 router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
   try {
-    const { user_id, template_id, text, useMobileConfig, template_name } = req.body as {
+    const { user_id, template_id, text, useMobileConfig, template_name, patientId } = req.body as {
       user_id?: string;
       template_id?: string;
       text: string;
       useMobileConfig?: boolean;
       template_name?: string;
+      patientId?: string;
     };
 
     if (typeof text !== 'string' || !text.trim()) {
@@ -312,13 +352,18 @@ router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
       res.status(401).json({ error: 'Not authenticated.' });
       return;
     }
+    const composedText = await prefixTextWithPatientProfile(
+      req,
+      typeof patientId === 'string' ? patientId : undefined,
+      text
+    );
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
 
     const docx = await generateNote({
       user_id: userId,
       template_id: templateId,
-      text,
+      text: composedText,
       return_type: 'docx',
       template_name: typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined,
     });
@@ -363,12 +408,14 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
       return;
     }
 
+    const composedText = await prefixTextWithPatientProfile(req, patientId, text);
+
     const userId = config.haloMobileUserId;
     const templateId = config.haloMobileTemplateId;
     const result = await generateNote({
       user_id: userId,
       template_id: templateId,
-      text,
+      text: composedText,
       return_type: 'docx',
     });
 
@@ -428,6 +475,88 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
     const message = err instanceof Error ? err.message : 'Confirm and send failed.';
     const status = message.includes('502') ? 502 : message.includes('Invalid') ? 400 : 500;
     res.status(status).json({ error: message });
+  }
+});
+
+// POST /api/halo/generate-letter-docx
+// Body: { patientId, letterKind: 'motivation' | 'referral', body } — fills motivational_template.docx and uploads to Patient Notes.
+router.post('/generate-letter-docx', async (req: Request, res: Response) => {
+  try {
+    const { patientId, letterKind, body: letterBody } = req.body as {
+      patientId?: string;
+      letterKind?: PatientLetterKind;
+      body?: string;
+    };
+
+    if (!patientId || typeof letterBody !== 'string' || !letterBody.trim()) {
+      res.status(400).json({ error: 'patientId and body are required.' });
+      return;
+    }
+    if (letterKind !== 'motivation' && letterKind !== 'referral') {
+      res.status(400).json({ error: 'letterKind must be motivation or referral.' });
+      return;
+    }
+    if (!req.session.accessToken || !req.appUser) {
+      res.status(401).json({ error: 'Not authenticated.' });
+      return;
+    }
+
+    const token = req.session.accessToken;
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const templateBuf = await adapter.getMotivationLetterTemplateDocxBuffer({
+      token,
+      microsoftStorageMode,
+    });
+    if (!templateBuf) {
+      res.status(404).json({ error: 'motivational_template.docx not found in Halo_Patients root.' });
+      return;
+    }
+
+    const profile = await adapter.getPatientHaloProfile({
+      token,
+      patientFolderId: patientId,
+      microsoftStorageMode,
+    });
+
+    const doctorName =
+      [req.appUser.firstName, req.appUser.lastName].filter(Boolean).join(' ').trim() || 'Clinician';
+    const patientName = profile ? displayNameFromProfile(profile.fullName) : 'Patient';
+    const dob = profile?.dob?.trim() ?? '';
+
+    const docxBuffer = renderPatientLetterDocx(templateBuf, {
+      patient_name: patientName,
+      dob,
+      body: letterBody.trim(),
+      re: buildLetterReLine(letterKind),
+      doctor_name: doctorName,
+    });
+
+    const patientNotesFolderId = await adapter.getOrCreatePatientNotesFolder({
+      token,
+      patientFolderId: patientId,
+      microsoftStorageMode,
+    });
+
+    const dateStamp = new Date().toISOString().split('T')[0];
+    const baseLabel = letterKind === 'referral' ? 'Referral_Letter' : 'Motivation_Letter';
+    const finalFileName = `${baseLabel}_${dateStamp}.docx`;
+
+    const uploaded = await adapter.uploadFile({
+      token,
+      parentFolderId: patientNotesFolderId,
+      fileName: finalFileName,
+      fileType: DOCX_MIME,
+      base64Data: docxBuffer.toString('base64'),
+      microsoftStorageMode,
+    });
+
+    res.json({ success: true, fileId: uploaded.id, name: uploaded.name });
+  } catch (err) {
+    console.error('[Halo] generate-letter-docx error:', err);
+    const message = err instanceof Error ? err.message : 'Letter generation failed.';
+    res.status(500).json({ error: message });
   }
 });
 

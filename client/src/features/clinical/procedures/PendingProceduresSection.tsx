@@ -31,6 +31,7 @@ import { PendingProcedureDetailPanel } from '../shared/PendingProcedureDetailPan
 import { CLINICAL_DEMO_FIELD_LABELS } from '../shared/clinicalFieldLabels';
 import {
   formatBookingUrgency,
+  formatInpatientDisplayName,
   formatListUrgency,
   formatTheatreStatus,
   formatWardDisplay,
@@ -191,7 +192,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
   };
 
   const submitTheatre = async () => {
-    const name = `${tb.firstName} ${tb.surname}`.trim() || 'Unknown';
+    const name = formatInpatientDisplayName(tb.firstName, tb.surname).trim() || 'Unknown';
     await addPendingRow({
       bucket,
       patientDisplayName: name,
@@ -207,7 +208,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
   };
 
   const submitVericlaim = async () => {
-    const name = `${vc.firstName} ${vc.surname}`.trim() || 'Unknown';
+    const name = formatInpatientDisplayName(vc.firstName, vc.surname).trim() || 'Unknown';
     await addPendingRow({
       bucket: 'vericlaim',
       patientDisplayName: name,
@@ -221,7 +222,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
   };
 
   const submitEndoscopy = async () => {
-    const name = `${endo.firstName} ${endo.surname}`.trim() || 'Unknown';
+    const name = formatInpatientDisplayName(endo.firstName, endo.surname).trim() || 'Unknown';
     await addPendingRow({
       bucket: 'endoscopy',
       patientDisplayName: name,
@@ -237,7 +238,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
   };
 
   const submitAslip = async () => {
-    const name = `${aslipForm.firstName} ${aslipForm.surname}`.trim() || 'A-slip';
+    const name = formatInpatientDisplayName(aslipForm.firstName, aslipForm.surname).trim() || 'A-slip';
     const proc =
       (aslipForm.processPending as VericlaimProcessPending) || 'HALO';
     await addPendingRow({
@@ -274,7 +275,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
               onClick={() => setDetailRow(r)}
             >
               <td className="px-2 py-2">
-                {b ? `${b.firstName} ${b.surname}` : r.patientDisplayName}
+                {b ? formatInpatientDisplayName(b.firstName, b.surname) : r.patientDisplayName}
               </td>
               <td className="px-2 py-2 text-xs">
                 {b?.urgencyOfBooking ? formatBookingUrgency(b.urgencyOfBooking) : formatListUrgency(r.urgency)}
@@ -312,7 +313,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
               onClick={() => setDetailRow(r)}
             >
               <td className="px-2 py-2">
-                {e ? `${e.firstName} ${e.surname}` : r.patientDisplayName}
+                {e ? formatInpatientDisplayName(e.firstName, e.surname) : r.patientDisplayName}
               </td>
               <td className="px-2 py-2 text-xs">{e?.procedure || r.procedure}</td>
               <td className="px-2 py-2 text-xs">{e?.dateOfProcedure || r.scheduledDate}</td>
@@ -366,7 +367,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
               onClick={() => setDetailRow(r)}
             >
               <td className="px-2 py-2">
-                {v ? `${v.firstName} ${v.surname}` : r.patientDisplayName}
+                {v ? formatInpatientDisplayName(v.firstName, v.surname) : r.patientDisplayName}
               </td>
               <td className="px-2 py-2 text-xs">
                 {v ? `${formatWardDisplay(v.ward)} ${v.bed}` : '—'}
@@ -398,7 +399,9 @@ export const PendingProceduresSection: React.FC<Props> = ({
             onClick={() => setDetailRow(r)}
           >
             <td className="px-2 py-2">
-              {r.aslip ? `${r.aslip.firstName} ${r.aslip.surname}` : r.patientDisplayName}
+              {r.aslip
+                ? formatInpatientDisplayName(r.aslip.firstName, r.aslip.surname)
+                : r.patientDisplayName}
             </td>
               <td className="px-2 py-2 text-xs">
                 {r.aslip?.ward ? formatWardDisplay(r.aslip.ward) : '—'}
@@ -432,7 +435,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
             <option value="">— Select patient —</option>
             {pickerPatients.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.firstName} {p.surname} — {p.folderNumber}
+                {formatInpatientDisplayName(p.firstName, p.surname)} — {p.folderNumber}
               </option>
             ))}
           </select>
@@ -734,7 +737,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
           <option value="">— Select from admissions —</option>
           {pickerPatients.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.firstName} {p.surname}
+              {formatInpatientDisplayName(p.firstName, p.surname)}
             </option>
           ))}
         </select>
@@ -885,7 +888,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
           <option value="">— Select patient —</option>
           {pickerPatients.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.firstName} {p.surname}
+              {formatInpatientDisplayName(p.firstName, p.surname)}
             </option>
           ))}
         </select>
@@ -971,7 +974,7 @@ export const PendingProceduresSection: React.FC<Props> = ({
           <option value="">— Load patient —</option>
           {pickerPatients.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.firstName} {p.surname}
+              {formatInpatientDisplayName(p.firstName, p.surname)}
             </option>
           ))}
         </select>

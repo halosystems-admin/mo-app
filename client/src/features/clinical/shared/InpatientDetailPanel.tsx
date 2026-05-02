@@ -3,7 +3,7 @@ import type { Patient } from '../../../../../shared/types';
 import type { ClinicalWard, InpatientRecord } from '../../../types/clinical';
 import { getClinicalWards, updateInpatientRecord } from '../../../services/clinicalData';
 import { syncInpatientTasksToWardKanban } from '../../../services/wardKanbanSync';
-import { formatWardDisplay } from './clinicalDisplay';
+import { formatInpatientDisplayName, formatWardDisplay } from './clinicalDisplay';
 import { MessageCircle, Mic, Pencil, Phone, X } from 'lucide-react';
 
 const inp =
@@ -119,7 +119,9 @@ export const InpatientDetailPanel: React.FC<Props> = ({
           </button>
           <div className="min-w-0">
             <h2 id="inpatient-profile-title" className="text-lg font-bold text-slate-800">
-              {editing ? `${draft.firstName} ${draft.surname}` : `${record.firstName} ${record.surname}`}
+              {editing
+                ? formatInpatientDisplayName(draft.firstName, draft.surname)
+                : formatInpatientDisplayName(record.firstName, record.surname)}
             </h2>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {editing ? (
