@@ -226,9 +226,13 @@ export const App = () => {
     setLoginError(null);
     try {
       const { user } = await loginWithPassword(loginEmail, loginPassword);
-      setCurrentUser(user);
+      const auth = await checkAuth();
+      if (!auth.signedIn || !auth.user) {
+        throw new Error('Session could not be established. Please try signing in again.');
+      }
+      setCurrentUser(auth.user);
       setIsSignedIn(true);
-      setWardLoginScrollColumnId(user.defaultWardColumnId ?? null);
+      setWardLoginScrollColumnId(auth.user.defaultWardColumnId ?? null);
       setMainNav('ward');
       await refreshPatients();
       loadSettings()
