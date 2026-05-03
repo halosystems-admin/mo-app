@@ -15,8 +15,8 @@ export const wardBoardGapClass = 'gap-6';
 /** Horizontal padding inside column body (card area). */
 export const wardColumnBodyPaddingClass = 'px-3';
 
-/** Board-level horizontal scroller: only this element scrolls on x (desktop). Mobile overrides in index.css. */
-/** Desktop (md+): horizontal scroll with snap. Mobile snap is set in `index.css` (max-width 768px). */
+/** Board-level horizontal scroller: only this element scrolls on x (desktop). Mobile column widths live in `index.css` (max-width 768px). */
+/** Desktop (md+): horizontal scroll with snap. */
 export const wardBoardScrollerClass = [
   'flex min-h-0 flex-1 flex-nowrap items-stretch',
   wardBoardGapClass,

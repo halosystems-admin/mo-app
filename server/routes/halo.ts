@@ -560,4 +560,60 @@ router.post('/generate-letter-docx', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/halo/email-patient-doc — attach preview PDF; SMTP or mailto fallback
+router.post('/email-patient-doc', async (req: Request, res: Response) => {
+  try {
+    if (!req.appUser) {
+      res.status(401).json({ error: 'Not authenticated.' });
+      return;
+    }
+    const { patientId, to, subject, pdfBase64, attachmentName } = req.body as {
+      patientId?: string;
+      to?: string;
+      subject?: string;
+      pdfBase64?: string;
+      attachmentName?: string;
+    };
+    if (!patientId?.trim() || !to?.trim() || !subject?.trim() || !pdfBase64?.trim()) {
+      res.status(400).json({ error: 'patientId, to, subject, and pdfBase64 are required.' });
+      return;
+    }
+    let fname = String(attachmentName || 'clinical_note.pdf').trim() || 'clinical_note.pdf';
+    if (!fname.toLowerCase().endsWith('.pdf')) fname = `${fname}.pdf`;
+
+    const buf = Buffer.from(String(pdfBase64).trim(), 'base64');
+    if (!buf.length) {
+      res.status(400).json({ error: 'Invalid PDF data.' });
+      return;
+    }
+
+    if (isSmtpConfigured()) {
+      const transporter = nodemailer.createTransport({
+        host: config.smtpHost,
+        port: config.smtpPort,
+        secure: config.smtpSecure,
+        auth: { user: config.smtpUser, pass: config.smtpPass },
+      });
+      await transporter.sendMail({
+        from: config.adminEmail,
+        to: to.trim(),
+        subject: subject.trim(),
+        text: 'Please find the attached document from your HALO consultation.',
+        attachments: [{ filename: fname, content: buf, contentType: 'application/pdf' }],
+      });
+      res.json({ ok: true, smtpSent: true });
+      return;
+    }
+
+    const body =
+      'Please attach the PDF clinical note from HALO (Patient workspace — Note fields — PDF Preview) before sending.';
+    const mailtoUrl = `mailto:${encodeURIComponent(to.trim())}?subject=${encodeURIComponent(subject.trim())}&body=${encodeURIComponent(body)}`;
+    res.json({ ok: true, smtpSent: false, mailtoUrl });
+  } catch (err) {
+    console.error('[Halo] email-patient-doc error:', err);
+    const message = err instanceof Error ? err.message : 'Email failed.';
+    res.status(500).json({ error: message });
+  }
+});
+
 export default router;

@@ -413,6 +413,7 @@ router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
       name: '',
       dob: '',
       sex: null,
+      email: '',
       idNumber: '',
       folderNumber: '',
       ward: '',
@@ -439,6 +440,7 @@ router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
       medicalAidPackage: str(parsed.medicalAidPackage),
       medicalAidMemberNumber: str(parsed.medicalAidMemberNumber),
       medicalAidPhone: str(parsed.medicalAidPhone),
+      email: str((parsed as { email?: unknown }).email),
     });
   } catch (err) {
     console.error('[ai/extract-patient-sticker] error:', err);

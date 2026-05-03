@@ -63,6 +63,7 @@ const INPATIENT_RECORD_DEFAULTS: Omit<InpatientRecord, 'id'> = {
   folderNumber: '',
   taskIndicators: [],
   assignedDoctor: '',
+  email: '',
   contactNumber: '',
   sheetStatus: 'elective',
   taskPendingVericlaimDone: false,

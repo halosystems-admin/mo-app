@@ -7,6 +7,7 @@ import type {
   OtherSurgeonInpatientDraft,
   SurgeonName,
 } from '../../../types/clinical';
+import type { ExtractedPatientSticker } from '../../../../../shared/types';
 import {
   MOCK_INPATIENTS,
   addInpatientRecord,
@@ -56,6 +57,7 @@ import {
 import { SheetsDictateModal } from './SheetsDictateModal';
 import { StickerCameraModal } from '../../../components/StickerCameraModal';
 import { extractPatientFromStickerFile } from '../../../services/api';
+import { mergeStickerExtractionIntoDriveProfile } from '../../../services/haloPatientProfileMerge';
 
 const SHEET_STATUS_OPTIONS: InpatientSheetStatus[] = [
   'elective',
@@ -127,6 +129,50 @@ function ageFromIsoDob(dob: string): number {
   const m = t.getMonth() - b.getMonth();
   if (m < 0 || (m === 0 && t.getDate() < b.getDate())) a -= 1;
   return a < 0 ? 0 : a;
+}
+
+function mergeStickerOcrIntoDraft(
+  d: OtherSurgeonInpatientDraft,
+  ex: ExtractedPatientSticker
+): OtherSurgeonInpatientDraft {
+  let firstName = d.firstName;
+  let surname = d.surname;
+  const name = ex.name?.trim() ?? '';
+  if (name) {
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) {
+      surname = parts[0] ?? surname;
+    } else {
+      firstName = parts.slice(0, -1).join(' ') || firstName;
+      surname = parts[parts.length - 1] ?? surname;
+    }
+  }
+  const next: OtherSurgeonInpatientDraft = {
+    ...d,
+    firstName,
+    surname,
+  };
+  const dob = ex.dob?.trim() ?? '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    next.dateOfBirth = dob;
+    next.age = ageFromIsoDob(dob);
+  }
+  if (ex.sex === 'M' || ex.sex === 'F') next.sex = ex.sex;
+  if (ex.idNumber?.trim()) next.idNumber = ex.idNumber.trim();
+  if (ex.folderNumber?.trim()) next.folderNumber = ex.folderNumber.trim();
+  if (ex.ward?.trim()) next.ward = ex.ward.trim() as ClinicalWard;
+  if (ex.medicalAidName?.trim()) next.medicalAid = ex.medicalAidName.trim();
+  if (ex.medicalAidMemberNumber?.trim()) next.medicalAidNumber = ex.medicalAidMemberNumber.trim();
+  if (ex.medicalAidPhone?.trim()) next.medicalAidPhone = ex.medicalAidPhone.trim();
+  if (ex.email?.trim()) next.email = ex.email.trim();
+  const extra: string[] = [];
+  if (ex.medicalAidPackage?.trim()) extra.push(`Plan: ${ex.medicalAidPackage.trim()}`);
+  if (ex.rawNotes?.trim()) extra.push(ex.rawNotes.trim());
+  if (extra.length) {
+    const add = extra.join('\n');
+    next.furtherComment = d.furtherComment?.trim() ? `${d.furtherComment.trim()}\n${add}` : add;
+  }
+  return next;
 }
 
 /** Anchor for start/end date filters: admission first, then review, then follow-up date. */
@@ -320,46 +366,24 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
     try {
       const ex = await extractPatientFromStickerFile(file);
       setLastStickerScanFileName(file.name);
-      setDraft((d) => {
-        let firstName = d.firstName;
-        let surname = d.surname;
-        const name = ex.name?.trim() ?? '';
-        if (name) {
-          const parts = name.split(/\s+/).filter(Boolean);
-          if (parts.length === 1) {
-            surname = parts[0] ?? surname;
-          } else {
-            firstName = parts.slice(0, -1).join(' ') || firstName;
-            surname = parts[parts.length - 1] ?? surname;
-          }
+      const merged = mergeStickerOcrIntoDraft(draft, ex);
+      setDraft(merged);
+      const selectedRow = selectedId ? getInpatientById(selectedId) : undefined;
+      let driveId =
+        selectedRow?.linkedDrivePatientId?.trim() || merged.linkedDrivePatientId?.trim() || '';
+      if (!driveId) {
+        driveId = resolvePatientIdFromClinicalNames(patients, merged.firstName, merged.surname) || '';
+      }
+      if (driveId) {
+        try {
+          await mergeStickerExtractionIntoDriveProfile(driveId, ex);
+          onToast?.('Fields updated from sticker; HALO folder profile updated.', 'success');
+        } catch {
+          onToast?.('Fields updated from sticker; could not update HALO profile file.', 'error');
         }
-        const next: OtherSurgeonInpatientDraft = {
-          ...d,
-          firstName,
-          surname,
-        };
-        const dob = ex.dob?.trim() ?? '';
-        if (/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
-          next.dateOfBirth = dob;
-          next.age = ageFromIsoDob(dob);
-        }
-        if (ex.sex === 'M' || ex.sex === 'F') next.sex = ex.sex;
-        if (ex.idNumber?.trim()) next.idNumber = ex.idNumber.trim();
-        if (ex.folderNumber?.trim()) next.folderNumber = ex.folderNumber.trim();
-        if (ex.ward?.trim()) next.ward = ex.ward.trim() as ClinicalWard;
-        if (ex.medicalAidName?.trim()) next.medicalAid = ex.medicalAidName.trim();
-        if (ex.medicalAidMemberNumber?.trim()) next.medicalAidNumber = ex.medicalAidMemberNumber.trim();
-        if (ex.medicalAidPhone?.trim()) next.medicalAidPhone = ex.medicalAidPhone.trim();
-        const extra: string[] = [];
-        if (ex.medicalAidPackage?.trim()) extra.push(`Plan: ${ex.medicalAidPackage.trim()}`);
-        if (ex.rawNotes?.trim()) extra.push(ex.rawNotes.trim());
-        if (extra.length) {
-          const add = extra.join('\n');
-          next.furtherComment = d.furtherComment?.trim() ? `${d.furtherComment.trim()}\n${add}` : add;
-        }
-        return next;
-      });
-      onToast?.('Fields updated from sticker.', 'success');
+      } else {
+        onToast?.('Fields updated from sticker.', 'success');
+      }
     } catch {
       onToast?.('Could not read sticker image.', 'error');
       setLastStickerScanFileName(null);
@@ -565,6 +589,7 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
         {[
           ['Surname', 'surname'],
           ['First Name', 'firstName'],
+          ['Patient email', 'email'],
           ['Folder Number', 'folderNumber'],
           ['Bed', 'bed'],
           ['Date of Birth', 'dateOfBirth'],

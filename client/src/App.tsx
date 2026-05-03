@@ -71,6 +71,7 @@ export const App = () => {
     medicalAidPackage: '',
     medicalAidMemberNumber: '',
     medicalAidPhone: '',
+    email: '',
     rawNotes: '',
   });
   const [stickerProfile, setStickerProfile] = useState(emptyStickerProfile);
@@ -278,6 +279,7 @@ export const App = () => {
         medicalAidPackage: ex.medicalAidPackage?.trim() ?? '',
         medicalAidMemberNumber: ex.medicalAidMemberNumber?.trim() ?? '',
         medicalAidPhone: ex.medicalAidPhone?.trim() ?? '',
+        email: ex.email?.trim() ?? '',
         rawNotes: ex.rawNotes?.trim() ?? '',
       });
       showToast('Review fields, then create folder.', 'success');
@@ -325,6 +327,7 @@ export const App = () => {
             medicalAidPackage: stickerProfile.medicalAidPackage.trim() || undefined,
             medicalAidMemberNumber: stickerProfile.medicalAidMemberNumber.trim() || undefined,
             medicalAidPhone: stickerProfile.medicalAidPhone.trim() || undefined,
+            email: stickerProfile.email.trim() || undefined,
             rawNotes: stickerProfile.rawNotes.trim() || undefined,
             updatedAt: new Date().toISOString(),
           });
@@ -832,6 +835,10 @@ export const App = () => {
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Scheme phone (authorisation)</label>
                       <input type="text" value={stickerProfile.medicalAidPhone} onChange={(e) => setStickerProfile((p) => ({ ...p, medicalAidPhone: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Patient email (outpatient)</label>
+                      <input type="email" value={stickerProfile.email} onChange={(e) => setStickerProfile((p) => ({ ...p, email: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" placeholder="name@example.com" />
                     </div>
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Other notes from sticker</label>

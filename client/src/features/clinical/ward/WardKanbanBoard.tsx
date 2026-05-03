@@ -879,7 +879,9 @@ export const WardKanbanBoard: React.FC<Props> = ({
     const dir = autoScrollDirRef.current;
     const speed = autoScrollSpeedRef.current;
     if (dir === 0 || speed <= 0) return;
-    el.scrollBy({ left: dir * speed, behavior: 'auto' });
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    const next = el.scrollLeft + dir * speed;
+    el.scrollLeft = Math.max(0, Math.min(maxScroll, next));
     autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
   }, []);
 
@@ -888,11 +890,10 @@ export const WardKanbanBoard: React.FC<Props> = ({
       setActiveDragId(String(event.active.id));
       dragPointerTypeRef.current = getPointerTypeFromEvent(event.activatorEvent);
       if (!(isMobile && dragPointerTypeRef.current === 'touch')) return;
-      // Start loop only for mobile touch drags.
       stopAutoScroll();
-      autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
+      // Auto-scroll RAF is started from handleDragMove once a direction is known (avoids useless ticks).
     },
-    [isMobile, stopAutoScroll, tickAutoScroll]
+    [isMobile, stopAutoScroll]
   );
 
   const handleDragMove = useCallback(
@@ -901,24 +902,36 @@ export const WardKanbanBoard: React.FC<Props> = ({
       const el = boardScrollerRef.current;
       if (!el) return;
 
-      const r = event.active.rect.current.translated ?? event.active.rect.current.initial ?? null;
-      if (!r) return;
-
-      // Horizontal kanban: auto-scroll the board when the drag hovers near the left/right edges.
       const sr = el.getBoundingClientRect();
-      const centerX = r.left + r.width / 2;
-      const edge = Math.max(28, sr.width * 0.12);
+      const initial = event.active.rect.current.initial;
+      const translated = event.active.rect.current.translated;
+      const { delta } = event;
+
+      // Touch: `translated` can lag or stall when moving toward smaller scroll offsets; use
+      // initial rect + drag delta so auto-scroll works both left and right.
+      let centerX: number | null = null;
+      if (initial && typeof delta.x === 'number') {
+        centerX = initial.left + initial.width / 2 + delta.x;
+      } else if (translated) {
+        centerX = translated.left + translated.width / 2;
+      } else if (initial) {
+        centerX = initial.left + initial.width / 2;
+      }
+      if (centerX == null) return;
+
+      // Wider middle band (no scroll) + softer edge speeds so the board does not whip past targets.
+      const edge = Math.max(40, sr.width * 0.2);
       const leftZone = sr.left + edge;
       const rightZone = sr.right - edge;
 
       if (centerX < leftZone) {
         const t = Math.min(1, Math.max(0, (leftZone - centerX) / edge));
         autoScrollDirRef.current = -1;
-        autoScrollSpeedRef.current = 4 + t * 8;
+        autoScrollSpeedRef.current = 1.25 + t * 2.25;
       } else if (centerX > rightZone) {
         const t = Math.min(1, Math.max(0, (centerX - rightZone) / edge));
         autoScrollDirRef.current = 1;
-        autoScrollSpeedRef.current = 4 + t * 8;
+        autoScrollSpeedRef.current = 1.25 + t * 2.25;
       } else {
         autoScrollDirRef.current = 0;
         autoScrollSpeedRef.current = 0;

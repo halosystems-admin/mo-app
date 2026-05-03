@@ -38,6 +38,8 @@ export interface ExtractedPatientSticker {
   name: string;
   dob: string;
   sex: 'M' | 'F' | null;
+  /** Patient email when captured separately (not on sticker). */
+  email?: string;
   idNumber?: string;
   folderNumber?: string;
   ward?: string;
@@ -61,6 +63,8 @@ export interface HaloPatientProfile {
   fullName: string;
   dob: string;
   sex: 'M' | 'F';
+  /** Outpatient email for scripts / certificates (not from sticker OCR). */
+  email?: string;
   idNumber?: string;
   folderNumber?: string;
   ward?: string;

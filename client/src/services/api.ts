@@ -630,6 +630,26 @@ export async function getPatientHaloProfile(patientId: string): Promise<HaloPati
   return data.profile ?? null;
 }
 
+/** Email PDF to patient when SMTP is configured; otherwise server returns mailtoUrl. */
+export async function emailPatientDoc(params: {
+  patientId: string;
+  to: string;
+  subject: string;
+  pdfBase64: string;
+  attachmentName?: string;
+}): Promise<{ ok: boolean; smtpSent: boolean; mailtoUrl?: string }> {
+  return request('/api/halo/email-patient-doc', {
+    method: 'POST',
+    body: JSON.stringify({
+      patientId: params.patientId,
+      to: params.to,
+      subject: params.subject,
+      pdfBase64: params.pdfBase64,
+      attachmentName: params.attachmentName ?? 'clinical_note.pdf',
+    }),
+  });
+}
+
 // --- Halo API (note generation + templates) ---
 export const getHaloTemplates = (userId?: string) =>
   request<Record<string, unknown>>('/api/halo/templates', {

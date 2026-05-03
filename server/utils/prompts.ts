@@ -37,6 +37,8 @@ export function buildPatientDetailsBlock(profile: HaloPatientProfile | null): st
   if (medicalAid) lines.push(`Medical aid: ${medicalAid}`);
   const raw = profile.rawNotes?.trim();
   if (raw) lines.push(`Sticker notes: ${raw}`);
+  const em = profile.email?.trim();
+  if (em) lines.push(`Patient email: ${em}`);
   lines.push('=== END_PATIENT_DETAILS ===');
   return lines.join('\n');
 }
@@ -117,6 +119,7 @@ STRICT RULES:
 - Organize facts under the correct headings. Do NOT output a single continuous paragraph.
 - Do not repeat filler phrases from poor speech-to-text verbatim when you can condense clinically.
 - If information for a section is missing, write "N/A" or "Not discussed".
+- If the dictation or context includes "History of Presenting Complaint" (or HPC) and "Presenting Complaint" (or PC), merge ALL history-of-presenting content into the Presenting Complaint section. Do not leave a separate HPC-only section that might be dropped from downstream documents.
 - Output ONLY the clinical note. No preamble or explanation.
 
 SOURCE:
@@ -140,6 +143,7 @@ export function haloGenerateNoteInputEnvelope(params: {
     'Use explicit Markdown headings: ## for each major section required by this template; ### for subsections if needed.',
     'Do NOT output a single continuous paragraph. Separate sections with blank lines.',
     'Populate sections only from the transcript/context; where nothing applies, write "N/A" or "Not discussed".',
+    'If both history of presenting complaint and presenting complaint appear, merge the full clinical story (onset, course, context) under Presenting Complaint; do not isolate history in a section that may not map to the final document.',
     'Output ONLY the finished clinical note in Markdown after processing. Do not repeat these instructions.',
     '=== END SCRIBE_INSTRUCTIONS ===',
     '',
@@ -184,7 +188,7 @@ ${customTemplate}`;
 export function patientStickerExtractionPrompt(): string {
   return `You extract patient and billing identifiers from a photo of a hospital wristband, ward sticker, ID label, admissions armband, or handwritten clinical note.
 Read all visible text. Return ONLY valid JSON (no markdown) with this exact shape:
-{"name":"string","dob":"YYYY-MM-DD or empty","sex":"M"|"F"|null,"idNumber":"","folderNumber":"","ward":"","medicalAidName":"","medicalAidPackage":"","medicalAidMemberNumber":"","medicalAidPhone":"","rawNotes":""}
+{"name":"string","dob":"YYYY-MM-DD or empty","sex":"M"|"F"|null,"email":"","idNumber":"","folderNumber":"","ward":"","medicalAidName":"","medicalAidPackage":"","medicalAidMemberNumber":"","medicalAidPhone":"","rawNotes":""}
 Rules:
 - name: patient full name; if several names, use the primary patient name.
 - dob: use YYYY-MM-DD when possible; otherwise best-effort or empty string.
@@ -197,6 +201,7 @@ Rules:
 - medicalAidMemberNumber: member, beneficiary, or dependent number if visible.
 - medicalAidPhone: scheme or authorisation phone if visible.
 - rawNotes: other legible text not captured above (short).
+- email: only if an email address is clearly visible on the image; otherwise empty string (often absent on ward stickers).
 Use empty strings for missing string fields. If the image has no patient text, return empty strings and null for sex.`;
 }
 

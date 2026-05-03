@@ -65,6 +65,49 @@ function flattenToFields(input: unknown, prefix = ''): NoteField[] {
   return out;
 }
 
+function isHistoryOfPresentingComplaintLabel(label: string): boolean {
+  const s = label.trim().toLowerCase();
+  if (/\bhistory\s+of\s+presenting\s+complaint\b/.test(s)) return true;
+  if (/\bhpc\b/.test(s)) return true;
+  return s.includes('history') && s.includes('presenting') && s.includes('complaint');
+}
+
+function isPresentingComplaintLabel(label: string): boolean {
+  if (isHistoryOfPresentingComplaintLabel(label)) return false;
+  const s = label.trim().toLowerCase();
+  return /\bpresenting\s+complaint\b/.test(s) || /\bchief\s+complaint\b/.test(s);
+}
+
+/** Merge HPC bodies into the first Presenting / Chief complaint field so DOCX pipelines see one block. */
+function mergeHpcIntoPresentingComplaintFields(fields: NoteField[]): NoteField[] {
+  const extras: string[] = [];
+  const out: NoteField[] = [];
+  let pcIndex = -1;
+  for (const f of fields) {
+    const lab = String(f.label || '');
+    if (isHistoryOfPresentingComplaintLabel(lab)) {
+      const b = String(f.body ?? '').trim();
+      if (b) extras.push(b);
+      continue;
+    }
+    if (isPresentingComplaintLabel(lab)) {
+      if (pcIndex === -1) {
+        pcIndex = out.length;
+        out.push({ ...f });
+      } else {
+        out.push(f);
+      }
+      continue;
+    }
+    out.push(f);
+  }
+  if (pcIndex === -1 || extras.length === 0) return fields;
+  const pc = out[pcIndex];
+  const mergedBody = [String(pc.body ?? '').trim(), ...extras].filter(Boolean).join('\n\n');
+  out[pcIndex] = { ...pc, body: mergedBody };
+  return out;
+}
+
 /**
  * Extract editable NoteField[] from wherever the data lives on a HaloNote.
  * Priority: explicit fields array → parsed from raw → parsed from content JSON.
@@ -189,7 +232,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     return () => mq.removeEventListener?.('change', apply);
   }, []);
 
-  const fields = useMemo(() => (activeNote ? extractNoteFields(activeNote) : []), [activeNote]);
+  const fields = useMemo(() => {
+    if (!activeNote) return [];
+    return mergeHpcIntoPresentingComplaintFields(extractNoteFields(activeNote));
+  }, [activeNote]);
 
   const displayContent = useMemo(() => {
     if (activeNote?.content?.trim()) return activeNote.content;

@@ -41,6 +41,8 @@ import {
   savePatientSession,
   getPatientHaloProfile,
   generatePatientLetterDocx,
+  uploadPatientHaloProfile,
+  emailPatientDoc,
 } from '../services/api';
 import { uploadAndExtractSmartContext } from '../services/smartContext';
 import {
@@ -239,6 +241,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [haloPatientProfile, setHaloPatientProfile] = useState<HaloPatientProfile | null>(null);
   const [haloProfileLoading, setHaloProfileLoading] = useState(true);
   const [stickerProfileModalOpen, setStickerProfileModalOpen] = useState(false);
+  const [stickerProfileDraft, setStickerProfileDraft] = useState<HaloPatientProfile | null>(null);
+  const [stickerProfileSaving, setStickerProfileSaving] = useState(false);
   const [letterGenBusy, setLetterGenBusy] = useState<'motivation' | 'referral' | null>(null);
 
   const refreshHaloPatientProfile = useCallback(async () => {
@@ -261,6 +265,21 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   useEffect(() => {
     void refreshHaloPatientProfile();
   }, [refreshHaloPatientProfile]);
+
+  useEffect(() => {
+    if (!stickerProfileModalOpen || haloProfileLoading) return;
+    setStickerProfileDraft(
+      haloPatientProfile
+        ? { ...haloPatientProfile }
+        : {
+            version: 1,
+            fullName: patient.name?.trim() || '',
+            dob: patient.dob?.trim() || '',
+            sex: patient.sex,
+            updatedAt: new Date().toISOString(),
+          }
+    );
+  }, [stickerProfileModalOpen, haloProfileLoading, haloPatientProfile, patient.name, patient.dob, patient.sex]);
 
   useEffect(() => {
     if (typeof consultSubTab === 'number' && (consultSubTab < 0 || consultSubTab >= notes.length)) {
@@ -777,9 +796,73 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setStatus(AppStatus.IDLE);
   }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions]);
 
-  const handleEmail = useCallback((_noteIndex: number) => {
-    onToast('Email not implemented yet.', 'info');
-  }, [onToast]);
+  const handleEmail = useCallback(
+    async (noteIndex: number) => {
+      const note = notes[noteIndex];
+      const text = note ? getNoteText(note) : '';
+      if (!text.trim()) {
+        onToast('Nothing to email.', 'info');
+        return;
+      }
+      let pdfB64 = note?.previewPdfBase64?.trim();
+      if (!pdfB64) {
+        const tplId = note.template_id || templateId;
+        const tplName = templateOptions.find((t) => t.id === tplId)?.name;
+        setRegeneratingPdfIndex(noteIndex);
+        try {
+          const { pdfBase64 } = await generateNotePreviewPdf({
+            template_id: tplId,
+            text: text.trim(),
+            template_name: tplName,
+            patientId: patient.id,
+          });
+          pdfB64 = pdfBase64;
+          setNotes((prev) =>
+            prev.map((n, i) => (i === noteIndex ? { ...n, previewPdfBase64: pdfBase64 } : n))
+          );
+        } catch (err) {
+          onToast(getErrorMessage(err), 'error');
+          return;
+        } finally {
+          setRegeneratingPdfIndex(null);
+        }
+      }
+      if (!pdfB64) {
+        onToast('Could not build PDF for email.', 'error');
+        return;
+      }
+      let profile: HaloPatientProfile | null = null;
+      try {
+        profile = await getPatientHaloProfile(patient.id);
+      } catch {
+        profile = null;
+      }
+      const to = profile?.email?.trim();
+      if (!to) {
+        onToast('Add a patient email under Sticker & billing details (green name), then try again.', 'info');
+        return;
+      }
+      const subject = `${note?.title?.trim() || 'Clinical note'} — ${formatPatientDisplayName(patient.name) || patient.name}`;
+      try {
+        const res = await emailPatientDoc({
+          patientId: patient.id,
+          to,
+          subject,
+          pdfBase64: pdfB64,
+          attachmentName: `${(note?.title || 'note').replace(/[^\w\-]+/g, '_').slice(0, 60)}.pdf`,
+        });
+        if (res.mailtoUrl) {
+          window.location.href = res.mailtoUrl;
+          onToast('Your mail app should open — attach the PDF from the preview if needed.', 'info');
+        } else {
+          onToast('Email sent.', 'success');
+        }
+      } catch (err) {
+        onToast(getErrorMessage(err), 'error');
+      }
+    },
+    [notes, patient.id, patient.name, templateId, templateOptions, onToast]
+  );
 
   const handleRegeneratePdf = useCallback(async (noteIndex: number, text: string) => {
     const note = notes[noteIndex];
@@ -2115,50 +2198,170 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 <Loader2 className="h-5 w-5 shrink-0 animate-spin text-teal-600" />
                 Loading profile…
               </div>
-            ) : haloPatientProfile ? (
-              <dl className="grid grid-cols-[8.5rem_1fr] gap-x-3 gap-y-2.5 text-sm">
-                <dt className="font-semibold text-slate-500">Name</dt>
-                <dd className="text-slate-900">{haloPatientProfile.fullName || '—'}</dd>
-                <dt className="font-semibold text-slate-500">DOB</dt>
-                <dd className="text-slate-900">{haloPatientProfile.dob || '—'}</dd>
-                <dt className="font-semibold text-slate-500">Sex</dt>
-                <dd className="text-slate-900">{haloPatientProfile.sex || '—'}</dd>
-                <dt className="font-semibold text-slate-500">ID number</dt>
-                <dd className="text-slate-900">{haloPatientProfile.idNumber || '—'}</dd>
-                <dt className="font-semibold text-slate-500">Folder</dt>
-                <dd className="text-slate-900">{haloPatientProfile.folderNumber || '—'}</dd>
-                <dt className="font-semibold text-slate-500">Ward</dt>
-                <dd className="text-slate-900">{haloPatientProfile.ward || '—'}</dd>
-                <dt className="font-semibold text-slate-500">Medical aid</dt>
-                <dd className="text-slate-900">{haloPatientProfile.medicalAidName || '—'}</dd>
-                <dt className="font-semibold text-slate-500">Plan / option</dt>
-                <dd className="text-slate-900">{haloPatientProfile.medicalAidPackage || '—'}</dd>
-                <dt className="font-semibold text-slate-500">Member no.</dt>
-                <dd className="text-slate-900">{haloPatientProfile.medicalAidMemberNumber || '—'}</dd>
-                <dt className="font-semibold text-slate-500">Scheme phone</dt>
-                <dd className="text-slate-900">{haloPatientProfile.medicalAidPhone || '—'}</dd>
-                <dt className="font-semibold text-slate-500">Notes</dt>
-                <dd className="whitespace-pre-wrap text-slate-800">{haloPatientProfile.rawNotes || '—'}</dd>
-                <dt className="font-semibold text-slate-500">Last updated</dt>
-                <dd className="text-xs text-slate-600">
-                  {haloPatientProfile.updatedAt
-                    ? new Date(haloPatientProfile.updatedAt).toLocaleString()
-                    : '—'}
-                </dd>
-              </dl>
+            ) : stickerProfileDraft ? (
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-1 gap-2.5">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Full name</span>
+                    <input
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.fullName}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, fullName: e.target.value } : d))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">DOB</span>
+                    <input
+                      type="date"
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.dob?.slice(0, 10) || ''}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, dob: e.target.value } : d))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Sex</span>
+                    <select
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.sex}
+                      onChange={(e) =>
+                        setStickerProfileDraft((d) =>
+                          d ? { ...d, sex: e.target.value === 'F' ? 'F' : 'M' } : d
+                        )
+                      }
+                    >
+                      <option value="M">M</option>
+                      <option value="F">F</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Patient email (scripts / certificates)</span>
+                    <input
+                      type="email"
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.email ?? ''}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, email: e.target.value } : d))}
+                      placeholder="name@example.com"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">ID number</span>
+                    <input
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.idNumber ?? ''}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, idNumber: e.target.value } : d))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Folder number</span>
+                    <input
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.folderNumber ?? ''}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, folderNumber: e.target.value } : d))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Ward</span>
+                    <input
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.ward ?? ''}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, ward: e.target.value } : d))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Medical aid</span>
+                    <input
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.medicalAidName ?? ''}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, medicalAidName: e.target.value } : d))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Plan / option</span>
+                    <input
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.medicalAidPackage ?? ''}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, medicalAidPackage: e.target.value } : d))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Member number</span>
+                    <input
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.medicalAidMemberNumber ?? ''}
+                      onChange={(e) =>
+                        setStickerProfileDraft((d) => (d ? { ...d, medicalAidMemberNumber: e.target.value } : d))
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Scheme phone</span>
+                    <input
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      value={stickerProfileDraft.medicalAidPhone ?? ''}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, medicalAidPhone: e.target.value } : d))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Notes</span>
+                    <textarea
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 min-h-[4rem]"
+                      value={stickerProfileDraft.rawNotes ?? ''}
+                      onChange={(e) => setStickerProfileDraft((d) => (d ? { ...d, rawNotes: e.target.value } : d))}
+                    />
+                  </label>
+                </div>
+              </div>
             ) : (
-              <p className="text-sm leading-relaxed text-slate-600">
-                No <span className="font-mono text-xs">HALO_patient_profile.json</span> in this folder yet. It is created when
-                you scan a wristband or sticker during admission.
-              </p>
+              <p className="text-sm text-slate-600">Could not load form.</p>
             )}
-            <div className="mt-5 flex justify-end">
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setStickerProfileModalOpen(false)}
                 className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
               >
                 Close
+              </button>
+              <button
+                type="button"
+                disabled={stickerProfileSaving || haloProfileLoading || !stickerProfileDraft}
+                onClick={() => {
+                  if (!stickerProfileDraft) return;
+                  void (async () => {
+                    setStickerProfileSaving(true);
+                    try {
+                      const d = stickerProfileDraft;
+                      const toSave: HaloPatientProfile = {
+                        ...d,
+                        version: 1,
+                        fullName: d.fullName.trim(),
+                        dob: d.dob.trim(),
+                        sex: d.sex === 'F' ? 'F' : 'M',
+                        email: d.email?.trim() || undefined,
+                        idNumber: d.idNumber?.trim() || undefined,
+                        folderNumber: d.folderNumber?.trim() || undefined,
+                        ward: d.ward?.trim() || undefined,
+                        medicalAidName: d.medicalAidName?.trim() || undefined,
+                        medicalAidPackage: d.medicalAidPackage?.trim() || undefined,
+                        medicalAidMemberNumber: d.medicalAidMemberNumber?.trim() || undefined,
+                        medicalAidPhone: d.medicalAidPhone?.trim() || undefined,
+                        rawNotes: d.rawNotes?.trim() || undefined,
+                        updatedAt: new Date().toISOString(),
+                      };
+                      await uploadPatientHaloProfile(patient.id, toSave);
+                      await refreshHaloPatientProfile();
+                      onToast('Sticker / billing profile saved.', 'success');
+                      setStickerProfileModalOpen(false);
+                    } catch (err) {
+                      onToast(getErrorMessage(err), 'error');
+                    } finally {
+                      setStickerProfileSaving(false);
+                    }
+                  })();
+                }}
+                className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+              >
+                {stickerProfileSaving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>

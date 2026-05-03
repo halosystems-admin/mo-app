@@ -10,6 +10,7 @@ import type {
   UserSettings,
 } from '../../../shared/types';
 import { FOLDER_MIME_TYPE } from '../../../shared/types';
+import { parseHaloPatientProfileJson } from '../../../shared/haloPatientProfileParse';
 import type { MicrosoftStorageMode, StorageAdapter, StorageProvider } from './types';
 import {
   driveRequest,
@@ -1232,18 +1233,5 @@ async function findDocxByNameInFolder(token: string, folderId: string, fileName:
     files.find((f) => f.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') ??
     files[0];
   return docx?.id ?? null;
-}
-
-function parseHaloPatientProfileJson(text: string): HaloPatientProfile | null {
-  try {
-    const o = JSON.parse(text) as Record<string, unknown>;
-    if (!o || typeof o !== 'object' || o.version !== 1) return null;
-    if (typeof o.fullName !== 'string' || typeof o.dob !== 'string') return null;
-    if (o.sex !== 'M' && o.sex !== 'F') return null;
-    if (typeof o.updatedAt !== 'string') return null;
-    return o as unknown as HaloPatientProfile;
-  } catch {
-    return null;
-  }
 }
 

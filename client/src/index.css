@@ -91,11 +91,15 @@ body {
     margin-right: 0 !important;
   }
 
+  /*
+   * Column width vs scroller (not viewport): 88vw was wider than the padded Ward layout,
+   * so cards could spill past the screen edges. Size each column from the scroller width.
+   */
   .ward-board-col {
-    flex: 0 0 88vw;
-    width: 88vw;
-    min-width: 88vw;
-    max-width: 88vw;
+    flex: 0 0 calc(100% - 1.25rem);
+    width: calc(100% - 1.25rem);
+    min-width: calc(100% - 1.25rem);
+    max-width: calc(100% - 1.25rem);
     box-sizing: border-box;
     margin: 0 !important;
     align-self: stretch;

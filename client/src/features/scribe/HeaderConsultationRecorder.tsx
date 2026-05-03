@@ -291,15 +291,30 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
           type="button"
           onClick={isLive ? () => void stopLive() : () => void startLive()}
           disabled={isBusy}
+          title={isLive ? 'Stop recording (Done)' : 'Start recording'}
           className={`inline-flex items-center gap-2 rounded-[10px] px-3 py-1.5 text-xs font-semibold shadow-[var(--shadow-halo-soft)] transition-all ${
             isLive
               ? 'bg-rose-500/95 hover:bg-rose-500 text-white'
               : 'bg-halo-primary hover:bg-halo-primary-hover text-white'
           } ${isBusy ? 'opacity-70 cursor-not-allowed' : ''}`}
         >
-          <Mic className={`h-4 w-4 shrink-0 ${isLive ? 'text-white' : 'text-white'}`} />
-          <span className="tabular-nums">
-            {isBusy ? '…' : isLive ? displayTime : 'Record'}
+          {isLive ? (
+            <span
+              className="h-2 w-2 shrink-0 rounded-full bg-white shadow-sm animate-pulse"
+              aria-hidden
+            />
+          ) : (
+            <Mic className="h-4 w-4 shrink-0 text-white" />
+          )}
+          <span className="tabular-nums text-left">
+            {isBusy ? '…' : isLive ? (
+              <>
+                {displayTime}
+                <span className="hidden sm:inline font-medium opacity-95"> · Done</span>
+              </>
+            ) : (
+              'Record'
+            )}
           </span>
         </button>
       </div>

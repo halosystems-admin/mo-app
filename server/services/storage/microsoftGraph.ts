@@ -9,6 +9,7 @@ import {
   type ScribeSession,
   type UserSettings,
 } from '../../../shared/types';
+import { parseHaloPatientProfileJson } from '../../../shared/haloPatientProfileParse';
 import { refineMimeType } from '../../../shared/mimeFromFilename';
 import type { MicrosoftStorageMode, StorageAdapter } from './types';
 import { parseFolderString } from '../drive';
@@ -1330,12 +1331,7 @@ export const microsoftGraphAdapter: StorageAdapter = {
     if (!fileId) return null;
     try {
       const text = await downloadItemContentAsText({ token, fileId, storageMode });
-      const o = JSON.parse(text) as Record<string, unknown>;
-      if (!o || typeof o !== 'object' || o.version !== 1) return null;
-      if (typeof o.fullName !== 'string' || typeof o.dob !== 'string') return null;
-      if (o.sex !== 'M' && o.sex !== 'F') return null;
-      if (typeof o.updatedAt !== 'string') return null;
-      return o as unknown as HaloPatientProfile;
+      return parseHaloPatientProfileJson(text);
     } catch {
       return null;
     }

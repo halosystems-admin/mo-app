@@ -356,6 +356,16 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                       placeholder="+27… patient or family mobile"
                     />
                   </label>
+                  <label className="block sm:col-span-2">
+                    <span className="text-xs font-semibold text-slate-600">Patient email (outpatient scripts / certs)</span>
+                    <input
+                      type="email"
+                      className={`mt-0.5 ${inp}`}
+                      value={draft.email ?? ''}
+                      onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+                      placeholder="name@example.com"
+                    />
+                  </label>
                 </div>
               </section>
 
@@ -484,6 +494,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                 <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Medical aid</h3>
                 <Field label="Scheme" value={record.medicalAid} />
                 <Field label="Member Number" value={record.medicalAidNumber} />
+                <Field label="Patient email" value={record.email ?? ''} />
                 <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-1 text-sm border-b border-slate-100 py-2 items-center">
                   <div className="text-slate-500 font-medium">Contact Number</div>
                   <div className="flex flex-wrap items-center gap-2">

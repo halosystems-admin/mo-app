@@ -62,6 +62,8 @@ export interface InpatientRecord {
   taskIndicators: ClinicalTaskIndicator[];
   assignedDoctor: string;
   linkedDrivePatientId?: string;
+  /** Outpatient email (scripts / certificates); not from ward sticker. */
+  email?: string;
   /** Primary contact for Sheets (defaults from medical aid phone when blank). */
   contactNumber: string;
   sheetStatus: InpatientSheetStatus;
