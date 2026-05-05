@@ -122,9 +122,9 @@ export async function driveRequest(token: string, path: string, options: Request
 /**
  * Find or create the Halo_Patients root folder in Google Drive.
  */
-export async function getHaloRootFolder(token: string): Promise<string> {
+export async function getHaloRootFolder(token: string, folderName = 'Halo_Patients'): Promise<string> {
   const searchQuery = encodeURIComponent(
-    "mimeType='application/vnd.google-apps.folder' and name='Halo_Patients' and trashed=false"
+    `mimeType='application/vnd.google-apps.folder' and name='${folderName.replace(/'/g, "\\'")}' and trashed=false`
   );
   const data = await driveRequest(token, `/files?q=${searchQuery}`);
 
@@ -139,13 +139,13 @@ export async function getHaloRootFolder(token: string): Promise<string> {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      name: 'Halo_Patients',
+      name: folderName,
       mimeType: 'application/vnd.google-apps.folder',
     }),
   });
 
   if (!createRes.ok) {
-    throw new Error(`[Drive ${createRes.status}] Failed to create Halo_Patients folder`);
+    throw new Error(`[Drive ${createRes.status}] Failed to create ${folderName} folder`);
   }
 
   const folder = (await createRes.json()) as { id: string };

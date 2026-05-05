@@ -95,11 +95,22 @@ function invalidateFilesCacheForFolder(folderId: string): void {
 export const googleDriveAdapter: StorageAdapter = {
   provider,
 
-  async listPatients({ token, page, pageSize }: { token: string; page?: string; pageSize: number }): Promise<{
+  async listPatients({
+    token,
+    page,
+    pageSize,
+    rootFolderName,
+  }: {
+    token: string;
+    page?: string;
+    pageSize: number;
+    rootFolderName?: string;
+    microsoftStorageMode?: MicrosoftStorageMode;
+  }): Promise<{
     patients: Patient[];
     nextPage: string | null;
   }> {
-    const rootId = await getHaloRootFolder(token);
+    const rootId = await getHaloRootFolder(token, rootFolderName);
 
     const actualPageSize = Math.min(pageSize || DEFAULT_PAGE_SIZE, 100);
     const pageToken = page;
@@ -153,11 +164,14 @@ export const googleDriveAdapter: StorageAdapter = {
     name,
     dob,
     sex,
+    rootFolderName,
   }: {
     token: string;
     name: string;
     dob: string;
     sex: 'M' | 'F';
+    rootFolderName?: string;
+    microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<Patient> {
     const finalName = sanitizeString(name);
     const finalDob = sanitizeString(dob);
@@ -173,7 +187,7 @@ export const googleDriveAdapter: StorageAdapter = {
       throw new Error('Sex must be M or F.');
     }
 
-    const rootId = await getHaloRootFolder(token);
+    const rootId = await getHaloRootFolder(token, rootFolderName);
 
     const createRes = await fetch(`${config.driveApi}/files`, {
       method: 'POST',
@@ -917,11 +931,13 @@ export const googleDriveAdapter: StorageAdapter = {
 
   async getDoctorDiary({
     token,
+    rootFolderName,
   }: {
     token: string;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ entries: DoctorDiaryEntry[] }> {
-    const rootId = await getHaloRootFolder(token);
+    const rootId = await getHaloRootFolder(token, rootFolderName);
     const fileId = await findDoctorJsonFile(token, rootId, DOCTOR_DIARY_FILE_NAME);
     if (!fileId) return { entries: [] };
 
@@ -939,12 +955,14 @@ export const googleDriveAdapter: StorageAdapter = {
   async saveDoctorDiary({
     token,
     entries,
+    rootFolderName,
   }: {
     token: string;
     entries: DoctorDiaryEntry[];
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ success: true }> {
-    const rootId = await getHaloRootFolder(token);
+    const rootId = await getHaloRootFolder(token, rootFolderName);
     const existingFileId = await findDoctorJsonFile(token, rootId, DOCTOR_DIARY_FILE_NAME);
     const content = JSON.stringify(entries);
 
@@ -984,11 +1002,13 @@ export const googleDriveAdapter: StorageAdapter = {
 
   async getDoctorKanban({
     token,
+    rootFolderName,
   }: {
     token: string;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ kanban: AdmittedPatientKanban[] }> {
-    const rootId = await getHaloRootFolder(token);
+    const rootId = await getHaloRootFolder(token, rootFolderName);
     const fileId = await findDoctorJsonFile(token, rootId, DOCTOR_KANBAN_FILE_NAME);
     if (!fileId) return { kanban: [] };
 
@@ -1006,12 +1026,14 @@ export const googleDriveAdapter: StorageAdapter = {
   async saveDoctorKanban({
     token,
     kanban,
+    rootFolderName,
   }: {
     token: string;
     kanban: AdmittedPatientKanban[];
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ success: true }> {
-    const rootId = await getHaloRootFolder(token);
+    const rootId = await getHaloRootFolder(token, rootFolderName);
     const existingFileId = await findDoctorJsonFile(token, rootId, DOCTOR_KANBAN_FILE_NAME);
     const content = JSON.stringify(kanban);
 
@@ -1079,11 +1101,13 @@ export const googleDriveAdapter: StorageAdapter = {
 
   async getMotivationLetterTemplateDocxBuffer({
     token,
+    rootFolderName,
   }: {
     token: string;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<Buffer | null> {
-    const rootId = await getHaloRootFolder(token);
+    const rootId = await getHaloRootFolder(token, rootFolderName);
     const templatesId = await findTemplatesFolderId(token, rootId);
     let fileId = templatesId
       ? await findDocxByNameInFolder(token, templatesId, MOTIVATION_TEMPLATE_DOCX)

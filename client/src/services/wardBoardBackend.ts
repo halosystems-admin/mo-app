@@ -6,15 +6,20 @@ import {
   fetchWardKanbanFromSupabase,
   saveWardKanbanToSupabase,
 } from './wardBoard/wardBoardSupabase';
+import { getActiveWorkspaceId } from './workspace';
 
 export { fetchWardBoardColumns };
+
+function activeWorkspaceSlug(): string {
+  return getActiveWorkspaceId().trim() || 'halo_patients';
+}
 
 /**
  * Ward kanban persistence: Supabase when VITE_SUPABASE_* is set, otherwise legacy Drive/Graph JSON file.
  */
 export async function fetchWardKanban(): Promise<AdmittedPatientKanban[]> {
   if (isSupabaseConfigured()) {
-    return fetchWardKanbanFromSupabase();
+    return fetchWardKanbanFromSupabase(activeWorkspaceSlug());
   }
   const { kanban } = await fetchDoctorKanban();
   return Array.isArray(kanban) ? kanban : [];
@@ -28,8 +33,9 @@ export async function saveWardKanban(
   patients: Patient[]
 ): Promise<AdmittedPatientKanban[]> {
   if (isSupabaseConfigured()) {
-    await saveWardKanbanToSupabase(kanban, patients);
-    return fetchWardKanbanFromSupabase();
+    const slug = activeWorkspaceSlug();
+    await saveWardKanbanToSupabase(kanban, patients, slug);
+    return fetchWardKanbanFromSupabase(slug);
   }
   const { kanban: saved } = await saveDoctorKanban(kanban);
   return Array.isArray(saved) ? saved : kanban;

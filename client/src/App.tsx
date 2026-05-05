@@ -37,6 +37,9 @@ import {
   FileSpreadsheet,
   FolderOpen,
   Mic,
+  Pause,
+  Play,
+  Square,
 } from 'lucide-react';
 import { requestOpenSheetsDictate } from './lib/sheetsDictateBridge';
 import { WardPage } from './pages/WardPage';
@@ -44,6 +47,15 @@ import { SheetsPage } from './pages/SheetsPage';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { StickerCameraModal } from './components/StickerCameraModal';
 import type { MainNavSection } from './components/Sidebar';
+import { useConsultationRecorderUiState } from './features/scribe/consultationRecorderStore';
+import { formatDoctorSidebarTitle, getPracticeMarkImageSrc } from './utils/practiceBranding';
+import {
+  fetchWorkspaces,
+  setActiveWorkspaceId,
+  clearActiveWorkspaceId,
+  getActiveWorkspaceId,
+  type WorkspaceInfo,
+} from './services/workspace';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -54,9 +66,14 @@ export const App = () => {
   const [loading, setLoading] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState(() =>
+    typeof window !== 'undefined' ? getActiveWorkspaceId() : ''
+  );
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
+  const consultationRecUi = useConsultationRecorderUiState();
 
   const [newPatientName, setNewPatientName] = useState("");
   const [newPatientDob, setNewPatientDob] = useState("");
@@ -157,6 +174,37 @@ export const App = () => {
     return data;
   }, []);
 
+  const refreshWorkspaces = useCallback(async () => {
+    const list = await fetchWorkspaces();
+    setWorkspaces(list);
+    let next = getActiveWorkspaceId();
+    if (!next && list.length > 0) {
+      const own = list.find((w) => w.isOwn) ?? list[0];
+      next = own.id;
+      setActiveWorkspaceId(next);
+    }
+    setActiveWorkspaceIdState(next);
+  }, []);
+
+  const handleSwitchWorkspace = useCallback(
+    async (id: string) => {
+      setActiveWorkspaceId(id);
+      setActiveWorkspaceIdState(id);
+      const loadedPatients = await refreshPatients();
+      const storedId = sessionStorage.getItem('halo_selectedPatientId');
+      if (storedId && !loadedPatients.find((p) => p.id === storedId)) {
+        selectPatient(null);
+      }
+      const prefetchId = storedId && loadedPatients.some((p) => p.id === storedId)
+        ? storedId
+        : loadedPatients[0]?.id;
+      if (prefetchId) {
+        warmAndListFiles(prefetchId, 24).catch(() => {});
+      }
+    },
+    [refreshPatients, selectPatient]
+  );
+
   // Check if user has an active session
   useEffect(() => {
     const checkSession = async () => {
@@ -171,6 +219,7 @@ export const App = () => {
         if (auth.signedIn && auth.user) {
           setIsSignedIn(true);
           setCurrentUser(auth.user);
+          await refreshWorkspaces();
           const loadedPatients = await refreshPatients();
           // Validate stored patient selection — clear if patient no longer exists
           const storedId = sessionStorage.getItem('halo_selectedPatientId');
@@ -226,6 +275,7 @@ export const App = () => {
       const { user } = await loginWithPassword(loginEmail, loginPassword);
       setCurrentUser(user);
       setIsSignedIn(true);
+      await refreshWorkspaces();
       await refreshPatients();
       loadSettings()
         .then((res) => {
@@ -242,6 +292,9 @@ export const App = () => {
   };
 
   const handleLogout = async () => {
+    clearActiveWorkspaceId();
+    setWorkspaces([]);
+    setActiveWorkspaceIdState('');
     await logout();
     setIsSignedIn(false);
     setCurrentUser(null);
@@ -619,6 +672,12 @@ export const App = () => {
                 setShowSettings(true);
               }}
               currentUser={currentUser ? { firstName: currentUser.firstName, lastName: currentUser.lastName, email: currentUser.email } : undefined}
+              workspaces={workspaces}
+              activeWorkspaceId={activeWorkspaceId}
+              onSwitchWorkspace={(id) => {
+                void handleSwitchWorkspace(id);
+                setMobileSidebarOpen(false);
+              }}
             />
           </div>
         </div>
@@ -637,6 +696,9 @@ export const App = () => {
           onLogout={handleLogout}
           onOpenSettings={() => setShowSettings(true)}
           currentUser={currentUser ? { firstName: currentUser.firstName, lastName: currentUser.lastName, email: currentUser.email } : undefined}
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
+          onSwitchWorkspace={(id) => void handleSwitchWorkspace(id)}
         />
       </div>
 
@@ -695,9 +757,9 @@ export const App = () => {
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-slate-300 relative overflow-hidden">
-            {/* Background logo — large watermark */}
+            {/* Background logo — large watermark (practice-specific) */}
             <img
-              src="/halo-logo.png"
+              src={getPracticeMarkImageSrc(currentUser)}
               alt=""
               aria-hidden="true"
               className="absolute opacity-[0.04] pointer-events-none select-none w-[70vw] max-w-[700px] min-w-[300px] md:w-[55vw] lg:w-[45vw]"
@@ -706,8 +768,8 @@ export const App = () => {
             {/* Foreground content */}
             <div className="relative z-10 flex flex-col items-center text-center px-6">
               <img
-                src="/halo-logo.png"
-                alt="Dr Mohamed Patel"
+                src={getPracticeMarkImageSrc(currentUser)}
+                alt={formatDoctorSidebarTitle(currentUser)}
                 className="w-44 h-44 md:w-56 md:h-56 lg:w-64 lg:h-64 object-contain mb-6 opacity-20"
                 draggable={false}
               />
@@ -918,24 +980,65 @@ export const App = () => {
           </nav>
 
           {mainNav === 'folders' && !mobileSidebarOpen ? (
-            <button
-              type="button"
-              onClick={() => {
-                // Patient workspace: trigger consultation dictation (same logic as the header pill button).
-                if (activePatient) {
-                  window.dispatchEvent(new Event('halo:toggle-consultation-dictation'));
-                  return;
-                }
-                // Fallback: open the Sheets dictate flow (used outside PatientWorkspace).
-                requestOpenSheetsDictate();
-              }}
-              className="md:hidden fixed bottom-[calc(84px+env(safe-area-inset-bottom))] left-1/2 z-50 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full bg-teal-600 text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-transform border-4"
-              style={{ borderColor: 'var(--color-halo-bg)' }}
-              aria-label="Dictate"
-              title="Dictate"
-            >
-              <Mic size={26} strokeWidth={2} />
-            </button>
+            <>
+              {consultationRecUi.isLive ? (
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new Event('halo:toggle-consultation-pause'))}
+                  className={`md:hidden fixed bottom-[calc(84px+env(safe-area-inset-bottom))] left-[calc(50%-54px)] z-50 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full shadow-lg shadow-slate-900/15 active:scale-95 transition-all border-4 ${
+                    consultationRecUi.isPaused
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-white text-slate-700'
+                  }`}
+                  style={{ borderColor: 'var(--color-halo-bg)' }}
+                  aria-label={consultationRecUi.isPaused ? 'Resume dictation' : 'Pause dictation'}
+                  title={consultationRecUi.isPaused ? 'Resume' : 'Pause'}
+                >
+                  {consultationRecUi.isPaused ? <Play size={22} strokeWidth={2.25} /> : <Pause size={22} strokeWidth={2.25} />}
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => {
+                  // Patient workspace: trigger consultation dictation (same logic as the header pill button).
+                  if (activePatient) {
+                    window.dispatchEvent(new Event('halo:toggle-consultation-dictation'));
+                    return;
+                  }
+                  // Fallback: open the Sheets dictate flow (used outside PatientWorkspace).
+                  requestOpenSheetsDictate();
+                }}
+                className={`md:hidden fixed bottom-[calc(84px+env(safe-area-inset-bottom))] left-1/2 z-50 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-all border-4 ${
+                  consultationRecUi.isBusy
+                    ? 'bg-slate-500'
+                    : consultationRecUi.isLive
+                      ? consultationRecUi.isPaused
+                        ? 'bg-amber-500'
+                        : 'bg-rose-500'
+                      : 'bg-teal-600'
+                }`}
+                style={{ borderColor: 'var(--color-halo-bg)' }}
+                aria-label={consultationRecUi.isLive ? 'Stop dictation' : 'Dictate'}
+                title={consultationRecUi.isLive ? 'Stop (Done)' : 'Dictate'}
+              >
+                {consultationRecUi.isBusy ? (
+                  <Loader className="animate-spin" size={22} />
+                ) : consultationRecUi.isLive ? (
+                  <div className="flex flex-col items-center leading-none">
+                    <span className="flex items-center gap-1">
+                      {!consultationRecUi.isPaused ? (
+                        <span className="inline-block h-2 w-2 rounded-full bg-white animate-pulse" aria-hidden />
+                      ) : null}
+                      <Square size={18} strokeWidth={2.75} />
+                    </span>
+                    <span className="text-[9px] font-bold tabular-nums mt-0.5">{consultationRecUi.displayTime}</span>
+                  </div>
+                ) : (
+                  <Mic size={26} strokeWidth={2} />
+                )}
+              </button>
+            </>
           ) : null}
         </>
       )}

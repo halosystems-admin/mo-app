@@ -14,6 +14,7 @@ import type {
   ClinicalContextStructured,
 } from '../../../shared/types';
 import { mimeFromFilename } from '../../../shared/mimeFromFilename';
+import { getActiveWorkspaceId } from './workspace';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -60,16 +61,20 @@ export class ApiError extends Error {
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${path}`;
+  const ws = getActiveWorkspaceId();
+  const workspaceHeaderRoute =
+    path.startsWith('/api/drive') || path.startsWith('/api/halo') || path.startsWith('/api/ward');
+
+  const headers = new Headers(options.headers ?? undefined);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (workspaceHeaderRoute && ws) headers.set('x-halo-workspace', ws);
 
   let res: Response;
   try {
     res = await fetch(url, {
       ...options,
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
-      },
+      headers,
     });
   } catch (error) {
     console.error('[API] Network error:', error);
@@ -84,7 +89,13 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
     if (!path.startsWith('/api/auth/') && !path.startsWith('/api/user-auth/')) {
       window.location.href = '/';
     }
-    throw new ApiError('Not authenticated', 401);
+    // Prefer server-provided message (e.g. "Invalid email or password.") so login errors are clear.
+    try {
+      const data = (await res.json()) as { error?: string };
+      throw new ApiError(data?.error || 'Not authenticated', 401);
+    } catch {
+      throw new ApiError('Not authenticated', 401);
+    }
   }
 
   let data: unknown;
@@ -128,8 +139,6 @@ export type CurrentUser = {
   lastName: string;
   role: AppUserRole;
   haloUserId: string | null;
-  /** Ward board column to focus after sign-in (admin-assignable). */
-  defaultWardColumnId?: string | null;
 };
 
 export const checkAuth = () => request<{ signedIn: boolean; user?: CurrentUser }>('/api/user-auth/me');
@@ -193,7 +202,6 @@ export const adminUpdateUser = (
     isActive?: boolean;
     firstName?: string;
     lastName?: string;
-    defaultWardColumnId?: string | null;
   }
 ) =>
   request<{ ok: boolean }>(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(params) });

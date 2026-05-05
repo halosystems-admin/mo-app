@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import nodemailer from 'nodemailer';
 import { requireAuth } from '../middleware/requireAuth';
+import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { config } from '../config';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { getTemplates, generateNote, type HaloNote } from '../services/haloApi';
@@ -20,6 +21,7 @@ import {
 
 const router = Router();
 router.use(requireAuth);
+router.use(resolveWorkspace);
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const PDF_MIME = 'application/pdf';
@@ -507,6 +509,7 @@ router.post('/generate-letter-docx', async (req: Request, res: Response) => {
 
     const templateBuf = await adapter.getMotivationLetterTemplateDocxBuffer({
       token,
+      rootFolderName: req.workspaceFolderName,
       microsoftStorageMode,
     });
     if (!templateBuf) {
@@ -595,7 +598,7 @@ router.post('/email-patient-doc', async (req: Request, res: Response) => {
         auth: { user: config.smtpUser, pass: config.smtpPass },
       });
       await transporter.sendMail({
-        from: config.adminEmail,
+        from: `${(config.smtpFromName || 'HALO').trim()} <${(config.smtpFrom || config.smtpUser).trim()}>`,
         to: to.trim(),
         subject: subject.trim(),
         text: 'Please find the attached document from your HALO consultation.',

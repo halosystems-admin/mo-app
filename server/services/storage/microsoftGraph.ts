@@ -252,9 +252,11 @@ async function findChildFileIdByName({
 async function getOrCreateHaloRootFolderId({
   token,
   storageMode,
+  folderName,
 }: {
   token: string;
   storageMode: MicrosoftStorageMode;
+  folderName: string;
 }): Promise<string> {
   let pageToken: string | undefined;
   const pageSize = 100;
@@ -268,7 +270,7 @@ async function getOrCreateHaloRootFolderId({
     });
 
     for (const item of items) {
-      if (item?.name === 'Halo_Patients' && item?.folder) return item.id as string;
+      if (item?.name === folderName && item?.folder) return item.id as string;
     }
 
     if (!nextPageToken) break;
@@ -279,11 +281,11 @@ async function getOrCreateHaloRootFolderId({
   const res = await fetchWithTimeout(`${driveBase}/root/children`, token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'Halo_Patients', folder: {} }),
+    body: JSON.stringify({ name: folderName, folder: {} }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`[Graph ${res.status}] Failed to create Halo_Patients folder: ${text}`);
+    throw new Error(`[Graph ${res.status}] Failed to create ${folderName} folder: ${text}`);
   }
   const created = (await res.json()) as { id: string };
   return created.id;
@@ -417,15 +419,21 @@ export const microsoftGraphAdapter: StorageAdapter = {
     token,
     page,
     pageSize,
+    rootFolderName,
     microsoftStorageMode,
   }: {
     token: string;
     page?: string;
     pageSize: number;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ patients: Patient[]; nextPage: string | null }> {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
-    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const rootId = await getOrCreateHaloRootFolderId({
+      token,
+      storageMode,
+      folderName: rootFolderName?.trim() || 'Halo_Patients',
+    });
 
     const actualPageSize = Math.min(Number(pageSize) || DEFAULT_PAGE_SIZE, 100);
 
@@ -474,16 +482,22 @@ export const microsoftGraphAdapter: StorageAdapter = {
     name,
     dob,
     sex,
+    rootFolderName,
     microsoftStorageMode,
   }: {
     token: string;
     name: string;
     dob: string;
     sex: 'M' | 'F';
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<Patient> {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
-    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const rootId = await getOrCreateHaloRootFolderId({
+      token,
+      storageMode,
+      folderName: rootFolderName?.trim() || 'Halo_Patients',
+    });
 
     const safeName = await ensureFolderNameParts(name);
     const safeDob = await ensureFolderNameParts(dob);
@@ -1060,7 +1074,7 @@ export const microsoftGraphAdapter: StorageAdapter = {
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ settings: UserSettings | null }> {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
-    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode, folderName: 'Halo_Patients' });
     const fileId = await findChildFileIdByName({
       token,
       parentFolderId: rootId,
@@ -1084,7 +1098,7 @@ export const microsoftGraphAdapter: StorageAdapter = {
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ success: true }> {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
-    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode, folderName: 'Halo_Patients' });
 
     const existingFileId = await findChildFileIdByName({
       token,
@@ -1124,13 +1138,19 @@ export const microsoftGraphAdapter: StorageAdapter = {
 
   async getDoctorDiary({
     token,
+    rootFolderName,
     microsoftStorageMode,
   }: {
     token: string;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ entries: DoctorDiaryEntry[] }> {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
-    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const rootId = await getOrCreateHaloRootFolderId({
+      token,
+      storageMode,
+      folderName: rootFolderName?.trim() || 'Halo_Patients',
+    });
     const fileId = await findChildFileIdByName({
       token,
       parentFolderId: rootId,
@@ -1156,14 +1176,20 @@ export const microsoftGraphAdapter: StorageAdapter = {
   async saveDoctorDiary({
     token,
     entries,
+    rootFolderName,
     microsoftStorageMode,
   }: {
     token: string;
     entries: DoctorDiaryEntry[];
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ success: true }> {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
-    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const rootId = await getOrCreateHaloRootFolderId({
+      token,
+      storageMode,
+      folderName: rootFolderName?.trim() || 'Halo_Patients',
+    });
 
     const existingFileId = await findChildFileIdByName({
       token,
@@ -1203,13 +1229,19 @@ export const microsoftGraphAdapter: StorageAdapter = {
 
   async getDoctorKanban({
     token,
+    rootFolderName,
     microsoftStorageMode,
   }: {
     token: string;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ kanban: AdmittedPatientKanban[] }> {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
-    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const rootId = await getOrCreateHaloRootFolderId({
+      token,
+      storageMode,
+      folderName: rootFolderName?.trim() || 'Halo_Patients',
+    });
     const fileId = await findChildFileIdByName({
       token,
       parentFolderId: rootId,
@@ -1235,14 +1267,20 @@ export const microsoftGraphAdapter: StorageAdapter = {
   async saveDoctorKanban({
     token,
     kanban,
+    rootFolderName,
     microsoftStorageMode,
   }: {
     token: string;
     kanban: AdmittedPatientKanban[];
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ success: true }> {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
-    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const rootId = await getOrCreateHaloRootFolderId({
+      token,
+      storageMode,
+      folderName: rootFolderName?.trim() || 'Halo_Patients',
+    });
 
     const existingFileId = await findChildFileIdByName({
       token,
@@ -1339,13 +1377,19 @@ export const microsoftGraphAdapter: StorageAdapter = {
 
   async getMotivationLetterTemplateDocxBuffer({
     token,
+    rootFolderName,
     microsoftStorageMode,
   }: {
     token: string;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<Buffer | null> {
     const storageMode = getEffectiveStorageMode(microsoftStorageMode);
-    const rootId = await getOrCreateHaloRootFolderId({ token, storageMode });
+    const rootId = await getOrCreateHaloRootFolderId({
+      token,
+      storageMode,
+      folderName: rootFolderName?.trim() || 'Halo_Patients',
+    });
     const templatesFolderId = await findChildFolderIdByName({
       token,
       parentFolderId: rootId,

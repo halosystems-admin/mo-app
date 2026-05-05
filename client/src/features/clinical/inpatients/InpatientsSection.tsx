@@ -185,6 +185,12 @@ function sheetListAnchorDate(r: InpatientRecord): string {
   );
 }
 
+/** Default to the full calendar year so new admissions (“today”) are not hidden behind a stale demo range. */
+function defaultSheetRoundDateFilter(): Pick<RoundFilters, 'startDate' | 'endDate'> {
+  const y = new Date().getFullYear();
+  return { startDate: `${y}-01-01`, endDate: `${y}-12-31` };
+}
+
 /** Start/end filters use the first available of: date of admission, date of review, follow-up date. */
 function inpatientInDateWindow(r: InpatientRecord, start?: string, end?: string): boolean {
   if (!start && !end) return true;
@@ -224,8 +230,7 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
   const [taskFilter, setTaskFilter] = useState<'' | 'vericlaim_open' | 'aslip_open'>('');
 
   const [roundFilters, setRoundFilters] = useState<RoundFilters>(() => ({
-    startDate: '2026-04-01',
-    endDate: '2026-04-30',
+    ...defaultSheetRoundDateFilter(),
     surgeon: '',
     ward: '',
   }));
@@ -274,6 +279,12 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    const onWorkspaceChange = () => void load();
+    window.addEventListener('halo:workspace-changed', onWorkspaceChange);
+    return () => window.removeEventListener('halo:workspace-changed', onWorkspaceChange);
   }, [load]);
 
   useEffect(() => {

@@ -1,5 +1,7 @@
 /** Mock clinical / inpatient types — future Supabase can mirror these shapes. */
 
+import type { KanbanTodoItem, WardBoardColumnId } from '../../../shared/types';
+
 export type ClinicalWard =
   | 'ICU'
   | 'F-ward (4th)'
@@ -71,6 +73,18 @@ export interface InpatientRecord {
   taskPendingVericlaimDone: boolean;
   /** When checked, Download-a-Slip task is done. */
   taskDownloadSlipDone: boolean;
+  /** User-editable to-do list shown on the unlinked ward card detail panel. */
+  wardTodos?: KanbanTodoItem[];
+  /** Optional ward-board bed label (separate from the sheet `bed` so editing one doesn't overwrite the other). */
+  boardBed?: string;
+  /** Optional ward-board free-form ward label. */
+  boardWardLabel?: string;
+  /** Optional ward-board free-form notes for the card. */
+  boardNotes?: string;
+  /** Kanban column for unlinked ward cards (HALO-linked use board_entries column). */
+  wardBoardColumn?: WardBoardColumnId;
+  /** Order within merged column list (linked + unlinked cards). */
+  wardColumnOrder?: number;
 }
 
 export interface OtherSurgeonInpatientDraft extends InpatientRecord {

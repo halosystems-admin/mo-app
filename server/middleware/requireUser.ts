@@ -10,6 +10,7 @@ export type AppUser = {
   lastName: string;
   role: AppUserRole;
   haloUserId: string | null;
+  driveRootFolderName: string | null;
   isActive: boolean;
 };
 
@@ -45,6 +46,7 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
     res.status(500).json({ error: 'Server misconfigured: Supabase admin client unavailable.' });
     return;
   }
+  // Auth must never depend on optional columns; keep this query minimal and stable.
   const { data, error } = await sb
     .from('app_users')
     .select('id,email,first_name,last_name,role,halo_user_id,is_active')
@@ -75,6 +77,7 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
     lastName: data.last_name,
     role: data.role,
     haloUserId: data.halo_user_id,
+    driveRootFolderName: null,
     isActive: data.is_active,
   };
 

@@ -6,6 +6,7 @@ import {
   FileText, Upload, Check, AlertCircle, Send, Plus,
 } from 'lucide-react';
 import { requestNewTemplate } from '../services/api';
+import { displayDoctorLegalName } from '../utils/practiceBranding';
 import { AdminOneDrivePanel } from './AdminOneDrivePanel';
 import { AdminTeamPanel } from './AdminTeamPanel';
 
@@ -182,7 +183,7 @@ export const SettingsModal: React.FC<Props> = ({
               <h2 className="text-white font-bold text-lg">Profile & Settings</h2>
               {currentUser ? (
                 <p className="text-[11px] text-white/70 mt-0.5">
-                  {`${currentUser.firstName} ${currentUser.lastName}`.trim() || currentUser.email}
+                  {displayDoctorLegalName(currentUser) || currentUser.email}
                   {currentUser.role === 'admin' ? ' · admin' : ''}
                 </p>
               ) : null}

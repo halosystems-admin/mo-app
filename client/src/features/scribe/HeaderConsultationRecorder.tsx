@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Mic, Pause, Play } from 'lucide-react';
 import { getTranscribeWebSocketUrl, transcribeAudio } from '../../services/api';
+import { setConsultationRecorderUiState } from './consultationRecorderStore';
 
 export interface HeaderConsultationRecorderProps {
   onLiveTranscriptUpdate: (transcript: string) => void;
@@ -266,6 +267,25 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   const displayTime = `${minutes.toString().padStart(2, '0')}:${(seconds % 60)
     .toString()
     .padStart(2, '0')}`;
+
+  useEffect(() => {
+    setConsultationRecorderUiState({
+      isLive,
+      isPaused,
+      isBusy: connectionState === 'connecting',
+      displayTime,
+    });
+  }, [isLive, isPaused, connectionState, displayTime]);
+
+  useEffect(() => {
+    const onTogglePause = () => {
+      togglePause();
+    };
+    window.addEventListener('halo:toggle-consultation-pause', onTogglePause as EventListener);
+    return () => {
+      window.removeEventListener('halo:toggle-consultation-pause', onTogglePause as EventListener);
+    };
+  }, [togglePause]);
 
   return (
     <div className="consultation-recorder-pill flex items-center gap-1.5">

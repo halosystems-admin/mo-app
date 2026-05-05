@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
+import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { config } from '../config';
 import { getStorageAdapter } from '../services/storage';
 import mammoth from 'mammoth';
@@ -20,6 +21,7 @@ import { buildContextSectionPdf, mergePdfBuffers } from '../services/longitudina
 
 const router = Router();
 router.use(requireAuth);
+router.use(resolveWorkspace);
 
 const { driveApi, uploadApi } = config;
 
@@ -84,6 +86,7 @@ router.get('/patients', async (req: Request, res: Response) => {
       token,
       page: pageToken,
       pageSize,
+      rootFolderName: req.workspaceFolderName,
       microsoftStorageMode,
     });
 
@@ -160,6 +163,7 @@ router.post('/patients', async (req: Request, res: Response) => {
       name,
       dob,
       sex,
+      rootFolderName: req.workspaceFolderName,
       microsoftStorageMode,
     });
 

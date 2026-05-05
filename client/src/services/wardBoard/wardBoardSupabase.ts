@@ -58,9 +58,11 @@ export async function fetchWardBoardColumns(): Promise<Array<{ id: string; label
   return rows.map(({ id, label }) => ({ id, label }));
 }
 
-export async function fetchWardKanbanFromSupabase(): Promise<AdmittedPatientKanban[]> {
+export async function fetchWardKanbanFromSupabase(workspaceId: string): Promise<AdmittedPatientKanban[]> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
+
+  const ws = workspaceId.trim() || 'halo_patients';
 
   const { data, error } = await supabase
     .from('board_entries')
@@ -90,6 +92,7 @@ export async function fetchWardKanbanFromSupabase(): Promise<AdmittedPatientKanb
       )
     `
     )
+    .eq('workspace_id', ws)
     .order('ward_column_id', { ascending: true })
     .order('sort_order', { ascending: true });
 
@@ -144,20 +147,26 @@ export async function fetchWardKanbanFromSupabase(): Promise<AdmittedPatientKanb
  */
 export async function saveWardKanbanToSupabase(
   kanban: AdmittedPatientKanban[],
-  patients: Patient[]
+  patients: Patient[],
+  workspaceId: string
 ): Promise<void> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) throw new Error('Supabase is not configured.');
 
+  const ws = workspaceId.trim() || 'halo_patients';
+
   const byHaloId = new Map(patients.map((p) => [p.id, p] as const));
   const clientPatientIds = new Set(kanban.map((k) => k.patientId));
 
-  const { data: existingEntries, error: exErr } = await supabase.from('board_entries').select(
-    `
+  const { data: existingEntries, error: exErr } = await supabase
+    .from('board_entries')
+    .select(
+      `
     id,
     patients!inner ( halo_patient_id )
   `
-  );
+    )
+    .eq('workspace_id', ws);
   if (exErr) throw new Error(exErr.message);
 
   type Ex = { id: string; patients: { halo_patient_id: string | null } | { halo_patient_id: string | null }[] };
@@ -250,6 +259,7 @@ export async function saveWardKanbanToSupabase(
         .upsert(
           {
             patient_id: patientUuid,
+            workspace_id: ws,
             ward_column_id: col,
             admitted: row.admitted,
             sort_order: sortIdx,
@@ -258,7 +268,7 @@ export async function saveWardKanbanToSupabase(
             ward_label: boardWardLabel,
             notes: boardNotes,
           },
-          { onConflict: 'patient_id' }
+          { onConflict: 'patient_id,workspace_id' }
         )
         .select('id')
         .single();

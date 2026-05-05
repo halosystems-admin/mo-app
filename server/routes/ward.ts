@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/requireAuth';
+import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { getStorageAdapter } from '../services/storage';
 import type { AdmittedPatientKanban, DoctorDiaryEntry } from '../../shared/types';
 
 const router = Router();
 router.use(requireAuth);
+router.use(resolveWorkspace);
 
 function sanitizeDiaryEntry(input: Partial<DoctorDiaryEntry> & { id?: string }): DoctorDiaryEntry | null {
   const date = typeof input.date === 'string' ? input.date.trim() : '';
@@ -34,7 +36,11 @@ router.get('/diary', async (req: Request, res: Response) => {
     const token = req.session.accessToken!;
     const adapter = getStorageAdapter(req.session.provider);
     const microsoftStorageMode = req.session.microsoftStorageMode;
-    const { entries } = await adapter.getDoctorDiary({ token, microsoftStorageMode });
+    const { entries } = await adapter.getDoctorDiary({
+      token,
+      rootFolderName: req.workspaceFolderName,
+      microsoftStorageMode,
+    });
     res.json({ entries });
   } catch (err) {
     console.error('[Ward] get diary error:', err);
@@ -64,7 +70,11 @@ router.post('/diary', async (req: Request, res: Response) => {
       return;
     }
 
-    const { entries: current } = await adapter.getDoctorDiary({ token, microsoftStorageMode });
+    const { entries: current } = await adapter.getDoctorDiary({
+      token,
+      rootFolderName: req.workspaceFolderName,
+      microsoftStorageMode,
+    });
     const currentById = new Map(current.map((e) => [e.id, e] as const));
 
     const nowIso = new Date().toISOString();
@@ -93,7 +103,12 @@ router.post('/diary', async (req: Request, res: Response) => {
     for (const u of next) updatedById.set(u.id, u);
     const merged = Array.from(updatedById.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-    await adapter.saveDoctorDiary({ token, microsoftStorageMode, entries: merged });
+    await adapter.saveDoctorDiary({
+      token,
+      rootFolderName: req.workspaceFolderName,
+      microsoftStorageMode,
+      entries: merged,
+    });
     res.json({ entries: merged });
   } catch (err) {
     console.error('[Ward] save diary error:', err);
@@ -106,7 +121,11 @@ router.get('/kanban', async (req: Request, res: Response) => {
     const token = req.session.accessToken!;
     const adapter = getStorageAdapter(req.session.provider);
     const microsoftStorageMode = req.session.microsoftStorageMode;
-    const { kanban } = await adapter.getDoctorKanban({ token, microsoftStorageMode });
+    const { kanban } = await adapter.getDoctorKanban({
+      token,
+      rootFolderName: req.workspaceFolderName,
+      microsoftStorageMode,
+    });
     res.json({ kanban });
   } catch (err) {
     console.error('[Ward] get kanban error:', err);
@@ -198,7 +217,12 @@ router.post('/kanban', async (req: Request, res: Response) => {
       })
       .filter((p): p is AdmittedPatientKanban => p !== null);
 
-    await adapter.saveDoctorKanban({ token, microsoftStorageMode, kanban: safe });
+    await adapter.saveDoctorKanban({
+      token,
+      rootFolderName: req.workspaceFolderName,
+      microsoftStorageMode,
+      kanban: safe,
+    });
     res.json({ kanban: safe });
   } catch (err) {
     console.error('[Ward] save kanban error:', err);

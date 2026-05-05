@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Patient } from '../../../shared/types';
-import { Plus, LogOut, Search, Trash2, ChevronRight, Users, Clock, Settings, LayoutGrid, FolderOpen, FileSpreadsheet } from 'lucide-react';
+import { Plus, LogOut, Search, Trash2, ChevronRight, ChevronDown, Check, Users, Clock, Settings, LayoutGrid, FolderOpen, FileSpreadsheet } from 'lucide-react';
 import { searchPatientsByConcept } from '../services/api';
 import { patientAvatarClassWithSelection } from '../utils/patientAvatar';
 import { formatPatientDisplayName } from '../features/clinical/shared/clinicalDisplay';
+import type { WorkspaceInfo } from '../services/workspace';
+import { displayDoctorLegalName, formatDoctorSidebarTitle } from '../utils/practiceBranding';
 export type MainNavSection = 'ward' | 'sheets' | 'folders';
 
 interface SidebarProps {
@@ -18,6 +20,9 @@ interface SidebarProps {
   onLogout: () => void;
   onOpenSettings: () => void;
   currentUser?: { firstName: string; lastName: string; email: string };
+  workspaces?: WorkspaceInfo[];
+  activeWorkspaceId?: string;
+  onSwitchWorkspace?: (id: string) => void;
 }
 
 const navItem = (active: boolean) =>
@@ -37,11 +42,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   onOpenSettings,
   currentUser,
+  workspaces = [],
+  activeWorkspaceId = '',
+  onSwitchWorkspace,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [aiSearchResults, setAiSearchResults] = useState<string[] | null>(null);
   const [isAiSearching, setIsAiSearching] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!workspaceMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const el = workspaceMenuRef.current;
+      if (el && !el.contains(e.target as Node)) setWorkspaceMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [workspaceMenuOpen]);
 
   const localFiltered = patients.filter(
     (p) =>
@@ -165,7 +185,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="text-[0.82rem] font-semibold leading-none tracking-[0.16em] text-[#0f1c56]">HALO</span>
               </div>
               <div className="min-w-0 self-center pt-0.5">
-                <p className="truncate text-[0.92rem] font-semibold text-slate-500">Dr Mohamed Patel</p>
+                <p className="truncate text-[0.92rem] font-semibold text-slate-500" title={formatDoctorSidebarTitle(currentUser ?? null)}>
+                  {formatDoctorSidebarTitle(currentUser ?? null)}
+                </p>
               </div>
             </div>
           </div>
@@ -252,9 +274,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         )}
         {currentUser ? (
-          <div className="mb-2 px-0.5 min-w-0">
-            <p className="text-[11px] font-semibold text-slate-700 truncate" title={`${currentUser.firstName} ${currentUser.lastName}`.trim()}>
-              {`${currentUser.firstName} ${currentUser.lastName}`.trim() || currentUser.email}
+          <div className="mb-2 px-0.5 min-w-0 space-y-1.5" ref={workspaceMenuRef}>
+            {workspaces.length >= 2 && onSwitchWorkspace ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setWorkspaceMenuOpen((o) => !o)}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-white px-2 py-1.5 text-left hover:bg-slate-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Workspace</span>
+                    <span className="block text-[11px] font-semibold text-slate-800 truncate">
+                      {workspaces.find((w) => w.id === activeWorkspaceId)?.label ?? 'Default'}
+                    </span>
+                  </span>
+                  <ChevronDown size={14} className="shrink-0 text-slate-400" />
+                </button>
+                {workspaceMenuOpen ? (
+                  <div className="rounded-lg border border-slate-200 bg-white py-1 shadow-sm">
+                    {workspaces.map((w) => (
+                      <button
+                        key={w.id}
+                        type="button"
+                        onClick={() => {
+                          onSwitchWorkspace(w.id);
+                          setWorkspaceMenuOpen(false);
+                        }}
+                        className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-slate-50"
+                      >
+                        <span className="truncate">
+                          {w.label}
+                          {!w.isOwn ? <span className="ml-1 text-slate-400 font-normal">(shared)</span> : null}
+                        </span>
+                        {w.id === activeWorkspaceId ? <Check size={14} className="shrink-0 text-teal-600" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+            <p
+              className="text-[11px] font-semibold text-slate-700 truncate"
+              title={displayDoctorLegalName(currentUser)}
+            >
+              {displayDoctorLegalName(currentUser) || currentUser.email}
             </p>
             <p className="text-[10px] text-slate-400 truncate" title={currentUser.email}>
               {currentUser.email}

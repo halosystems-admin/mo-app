@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { adminDeactivateUser, adminInviteUser, adminListUsers, adminUpdateUser, type AppUserRole } from '../services/api';
-import { WARD_BOARD_COLUMNS } from '../features/clinical/shared/wardBoardColumns';
 
 type Row = {
   id: string;
@@ -9,7 +8,6 @@ type Row = {
   last_name: string;
   role: AppUserRole;
   halo_user_id: string | null;
-  default_ward_column_id?: string | null;
   is_active: boolean;
   created_at: string;
   last_login_at: string | null;
@@ -27,12 +25,7 @@ export const AdminTeamPanel: React.FC<{ onToast?: (m: string, t: 'success' | 'er
     setLoading(true);
     try {
       const r = await adminListUsers();
-      setUsers(
-        r.users.map((u) => ({
-          ...(u as Row),
-          default_ward_column_id: (u as { default_ward_column_id?: string | null }).default_ward_column_id ?? null,
-        }))
-      );
+      setUsers(r.users.map((u) => ({ ...(u as Row) })));
     } catch (e) {
       onToast?.(e instanceof Error ? e.message : 'Could not load users.', 'error');
     } finally {
@@ -154,7 +147,6 @@ export const AdminTeamPanel: React.FC<{ onToast?: (m: string, t: 'success' | 'er
               <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide">Name</th>
               <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide">Role</th>
               <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide">Halo user id</th>
-              <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide">Default ward</th>
               <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide">Status</th>
               <th className="text-right px-3 py-2 text-[11px] font-bold uppercase tracking-wide">Actions</th>
             </tr>
@@ -191,26 +183,6 @@ export const AdminTeamPanel: React.FC<{ onToast?: (m: string, t: 'success' | 'er
                   />
                 </td>
                 <td className="px-3 py-2">
-                  <select
-                    value={u.default_ward_column_id ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setUsers((prev) =>
-                        prev.map((x) => (x.id === u.id ? { ...x, default_ward_column_id: v ? v : null } : x))
-                      );
-                    }}
-                    className="max-w-[9rem] rounded border border-slate-200 bg-white px-2 py-1 text-sm"
-                    disabled={loading}
-                  >
-                    <option value="">(none)</option>
-                    {WARD_BOARD_COLUMNS.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-3 py-2">
                   <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${u.is_active ? 'bg-teal-50 text-teal-700' : 'bg-slate-100 text-slate-500'}`}>
                     {u.is_active ? 'active' : 'disabled'}
                   </span>
@@ -226,7 +198,6 @@ export const AdminTeamPanel: React.FC<{ onToast?: (m: string, t: 'success' | 'er
                         adminUpdateUser(u.id, {
                           role: u.role,
                           haloUserId: u.halo_user_id,
-                          defaultWardColumnId: u.default_ward_column_id,
                         })
                           .then(() => onToast?.('User updated.', 'success'))
                           .catch((e) => onToast?.(e instanceof Error ? e.message : 'Update failed.', 'error'))

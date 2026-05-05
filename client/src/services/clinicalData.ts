@@ -14,10 +14,17 @@ import type {
   VericlaimFields,
 } from '../types/clinical';
 
+import { getActiveWorkspaceId } from './workspace';
+
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;
+}
+
+/** Must match slug used server-side for default workspace (`Halo_Patients` → halo_patients). */
+function getActiveWorkspaceKey(): string {
+  return getActiveWorkspaceId() || 'halo_patients';
 }
 
 const WARDS: ClinicalWard[] = [
@@ -68,6 +75,10 @@ const INPATIENT_RECORD_DEFAULTS: Omit<InpatientRecord, 'id'> = {
   sheetStatus: 'elective',
   taskPendingVericlaimDone: false,
   taskDownloadSlipDone: false,
+  wardTodos: [],
+  boardBed: undefined,
+  boardWardLabel: undefined,
+  boardNotes: undefined,
 };
 
 function ip(partial: Partial<Omit<InpatientRecord, 'id'>> & { id: string }): InpatientRecord {
@@ -83,7 +94,7 @@ function ip(partial: Partial<Omit<InpatientRecord, 'id'>> & { id: string }): Inp
   return { ...merged, contactNumber: contact };
 }
 
-export const MOCK_INPATIENTS: InpatientRecord[] = [
+const BASE_MOCK_INPATIENTS: InpatientRecord[] = [
   ip({
     id: 'in-1',
     currentlyAdmitted: true,
@@ -349,6 +360,21 @@ export const MOCK_INPATIENTS: InpatientRecord[] = [
   }),
 ];
 
+// Back-compat export for places that import this constant (do not mutate this).
+export const MOCK_INPATIENTS: InpatientRecord[] = BASE_MOCK_INPATIENTS;
+
+const MOCK_INPATIENTS_BY_WORKSPACE: Record<string, InpatientRecord[]> = Object.create(null);
+
+function getMockInpatientsArray(): InpatientRecord[] {
+  const ws = getActiveWorkspaceKey();
+  if (!MOCK_INPATIENTS_BY_WORKSPACE[ws]) {
+    // Only the canonical default workspace gets the bundled demo rows — same seed for every
+    // workspace made Mo vs Henk look identical. Other workspaces start empty (own data only).
+    MOCK_INPATIENTS_BY_WORKSPACE[ws] = ws === 'halo_patients' ? clone(BASE_MOCK_INPATIENTS) : [];
+  }
+  return MOCK_INPATIENTS_BY_WORKSPACE[ws]!;
+}
+
 function buildMockRounds(): SurgeonRoundRow[] {
   return MOCK_INPATIENTS.filter((x) => x.currentlyAdmitted).map((p, i) => ({
     id: `rnd-${p.id}`,
@@ -587,12 +613,12 @@ export function findInpatientMatchingHaloPatient(
 
 export async function fetchCurrentInpatients(): Promise<InpatientRecord[]> {
   await delay(180);
-  return clone(MOCK_INPATIENTS.filter((x) => x.currentlyAdmitted));
+  return clone(getMockInpatientsArray().filter((x) => x.currentlyAdmitted));
 }
 
 export async function fetchAdmissionsAll(): Promise<InpatientRecord[]> {
   await delay(180);
-  return clone(MOCK_INPATIENTS);
+  return clone(getMockInpatientsArray());
 }
 
 export interface RoundFilters {
@@ -654,10 +680,70 @@ export async function updateInpatientRecord(
   patch: Partial<InpatientRecord>
 ): Promise<InpatientRecord | null> {
   await delay(120);
-  const idx = MOCK_INPATIENTS.findIndex((p) => p.id === id);
+  const arr = getMockInpatientsArray();
+  const idx = arr.findIndex((p) => p.id === id);
   if (idx < 0) return null;
-  MOCK_INPATIENTS[idx] = { ...MOCK_INPATIENTS[idx], ...patch } as InpatientRecord;
-  return clone(MOCK_INPATIENTS[idx]);
+  arr[idx] = { ...arr[idx], ...patch } as InpatientRecord;
+  return clone(arr[idx]);
+}
+
+/** Append a user-editable to-do for an unlinked ward card. */
+export async function addWardTodoToInpatient(
+  id: string,
+  title: string
+): Promise<InpatientRecord | null> {
+  const trimmed = title.trim().slice(0, 200);
+  if (!trimmed) return null;
+  await delay(80);
+  const arr = getMockInpatientsArray();
+  const idx = arr.findIndex((p) => p.id === id);
+  if (idx < 0) return null;
+  const now = new Date().toISOString();
+  const existing = Array.isArray(arr[idx].wardTodos) ? arr[idx].wardTodos! : [];
+  const newTodo: KanbanTodoItem = {
+    id:
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `todo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: trimmed,
+    status: 'To do',
+    createdAt: now,
+    updatedAt: now,
+  };
+  arr[idx] = { ...arr[idx], wardTodos: [...existing, newTodo] };
+  return clone(arr[idx]);
+}
+
+/** Toggle a single user-editable to-do done/open. */
+export async function setWardTodoDone(
+  id: string,
+  todoId: string,
+  done: boolean
+): Promise<InpatientRecord | null> {
+  await delay(60);
+  const arr = getMockInpatientsArray();
+  const idx = arr.findIndex((p) => p.id === id);
+  if (idx < 0) return null;
+  const now = new Date().toISOString();
+  const existing = Array.isArray(arr[idx].wardTodos) ? arr[idx].wardTodos! : [];
+  const next = existing.map((t) =>
+    t.id === todoId ? { ...t, status: done ? 'Done' : 'To do', updatedAt: now } : t
+  );
+  arr[idx] = { ...arr[idx], wardTodos: next };
+  return clone(arr[idx]);
+}
+
+/** Update Bed / Ward label / Notes shown on the unlinked ward card detail panel. */
+export async function updateInpatientBoardFields(
+  id: string,
+  patch: Partial<Pick<InpatientRecord, 'boardBed' | 'boardWardLabel' | 'boardNotes'>>
+): Promise<InpatientRecord | null> {
+  await delay(60);
+  const arr = getMockInpatientsArray();
+  const idx = arr.findIndex((p) => p.id === id);
+  if (idx < 0) return null;
+  arr[idx] = { ...arr[idx], ...patch };
+  return clone(arr[idx]);
 }
 
 export async function updateSurgeonRound(
@@ -748,7 +834,7 @@ export function routeTranscriptSegments(
 }
 
 export function getInpatientById(id: string): InpatientRecord | undefined {
-  return MOCK_INPATIENTS.find((p) => p.id === id);
+  return getMockInpatientsArray().find((p) => p.id === id);
 }
 
 function newInpatientId(): string {
@@ -770,7 +856,7 @@ export async function addInpatientRecord(record: InpatientRecord): Promise<Inpat
   await delay(120);
   const id = record.id?.trim() || newInpatientId();
   const next: InpatientRecord = { ...record, id };
-  MOCK_INPATIENTS.push(next);
+  getMockInpatientsArray().push(next);
   return clone(next);
 }
 
@@ -806,7 +892,7 @@ export function applyHaloPatientToAdmissionDraft(
 
 /** Copy an existing demo admission as a new row (new id, optional link cleared). */
 export function duplicateInpatientFromTemplate(templateId: string): InpatientRecord {
-  const t = MOCK_INPATIENTS.find((p) => p.id === templateId);
+  const t = getMockInpatientsArray().find((p) => p.id === templateId);
   if (!t) return createEmptyInpatientRecord();
   const copy = clone(t);
   const next: InpatientRecord = {
@@ -821,17 +907,17 @@ export function duplicateInpatientFromTemplate(templateId: string): InpatientRec
 
 /** All mock inpatients (admissions + current) for picklists / autofill. */
 export function listMockInpatientsForPicker(): InpatientRecord[] {
-  return clone(MOCK_INPATIENTS);
+  return clone(getMockInpatientsArray());
 }
 
 export function findInpatientAutofill(surname: string, firstName: string): InpatientRecord | undefined {
   const s = surname.trim().toLowerCase();
   const f = firstName.trim().toLowerCase();
-  const exact = MOCK_INPATIENTS.find(
+  const exact = getMockInpatientsArray().find(
     (p) => p.surname.toLowerCase() === s && p.firstName.toLowerCase() === f
   );
   if (exact) return clone(exact);
-  return clone(MOCK_INPATIENTS.find((p) => p.surname.toLowerCase() === s));
+  return clone(getMockInpatientsArray().find((p) => p.surname.toLowerCase() === s));
 }
 
 export function emptyTheatreBooking(defaultUrgency: 'emergency' | 'elective'): TheatreBookingFields {

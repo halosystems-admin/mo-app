@@ -44,6 +44,7 @@ router.post('/login', async (req: Request, res: Response) => {
         lastName: user.last_name,
         role: user.role,
         haloUserId: user.halo_user_id,
+        driveRootFolderName: user.drive_root_folder_name ?? null,
       },
     });
   } catch (err) {
@@ -74,6 +75,7 @@ router.get('/me', async (req: Request, res: Response) => {
         lastName: u.lastName,
         role: u.role,
         haloUserId: u.haloUserId,
+        driveRootFolderName: u.driveRootFolderName ?? null,
       },
     });
   });

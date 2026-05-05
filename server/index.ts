@@ -15,6 +15,7 @@ import calendarRoutes from './routes/calendar';
 import requestTemplateRoutes from './routes/requestTemplate';
 import { attachTranscribeWebSocket } from './ws/transcribe';
 import wardRoutes from './routes/ward';
+import workspaceRoutes from './routes/workspaces';
 // Conversion scheduler disabled — was running in background for txt→docx→pdf
 // import { startScheduler } from './jobs/scheduler';
 
@@ -22,7 +23,8 @@ const app = express();
 
 // Heroku terminates TLS; X-Forwarded-Proto / Host must be trusted so req.secure, cookies, and rate limits behave.
 // Use full trust on the platform router (see https://expressjs.com/en/guide/behind-proxies.html).
-app.set('trust proxy', true);
+// Note: express-rate-limit rejects permissive `true` trustProxy. Trust only the first proxy hop.
+app.set('trust proxy', config.isProduction ? 1 : false);
 
 // --- Global Rate Limiter ---
 const globalLimiter = rateLimit({
@@ -107,6 +109,7 @@ app.use('/api/halo', aiLimiter, haloRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/ward', wardRoutes);
 app.use('/api/request-template', requestTemplateRoutes);
+app.use('/api/workspaces', workspaceRoutes);
 
 // Health check
 app.get('/api/health', (_req: Request, res: Response) => {

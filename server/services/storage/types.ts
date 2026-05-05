@@ -53,6 +53,7 @@ export interface StorageAdapter {
     token: string;
     page?: string;
     pageSize: number;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<ListPatientsResult>;
 
@@ -61,6 +62,7 @@ export interface StorageAdapter {
     name: string;
     dob: string;
     sex: 'M' | 'F';
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<Patient>;
 
@@ -180,23 +182,27 @@ export interface StorageAdapter {
 
   getDoctorDiary(params: {
     token: string;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ entries: DoctorDiaryEntry[] }>;
 
   saveDoctorDiary(params: {
     token: string;
     entries: DoctorDiaryEntry[];
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ success: true }>;
 
   getDoctorKanban(params: {
     token: string;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ kanban: AdmittedPatientKanban[] }>;
 
   saveDoctorKanban(params: {
     token: string;
     kanban: AdmittedPatientKanban[];
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ success: true }>;
 
@@ -217,6 +223,7 @@ export interface StorageAdapter {
   /** motivational_template.docx: Halo_Patients/Templates first, else Halo_Patients root. */
   getMotivationLetterTemplateDocxBuffer(params: {
     token: string;
+    rootFolderName?: string;
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<Buffer | null>;
 

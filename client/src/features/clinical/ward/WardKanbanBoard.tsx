@@ -39,6 +39,13 @@ import { ExternalLink, GripVertical, Plus, X } from 'lucide-react';
 
 const DROPPABLE_PREFIX = 'ward-col:';
 
+/** Prefix for `@dnd-kit` sortable ids for non–HALO-linked ward rows (keep in sync with WardPage persist). */
+export const UNLINK_WARD_DRAG_ID_PREFIX = 'ulink:' as const;
+
+type UnifiedColumnItem =
+  | { kind: 'halo'; sortId: string; sortOrder: number; row: AdmittedPatientKanban }
+  | { kind: 'unlinked'; sortId: string; sortOrder: number; record: InpatientRecord };
+
 function droppableId(col: string): string {
   return `${DROPPABLE_PREFIX}${col}`;
 }
@@ -71,13 +78,52 @@ function findColumnForPatient(layout: Record<string, string[]>, patientId: strin
   return null;
 }
 
-function buildLayoutFromGrouped(
+function mergeColumnItemsForSort(
+  haloRows: AdmittedPatientKanban[],
+  unlinkRows: InpatientRecord[],
+  patientsById: Map<string, Patient>
+): UnifiedColumnItem[] {
+  const haloItems: UnifiedColumnItem[] = haloRows.map((row, i) => ({
+    kind: 'halo',
+    sortId: row.patientId,
+    sortOrder: typeof row.columnOrder === 'number' ? row.columnOrder : i,
+    row,
+  }));
+  const unItems: UnifiedColumnItem[] = unlinkRows.map((record, j) => ({
+    kind: 'unlinked',
+    sortId: `${UNLINK_WARD_DRAG_ID_PREFIX}${record.id}`,
+    sortOrder: typeof record.wardColumnOrder === 'number' ? record.wardColumnOrder : haloRows.length + j,
+    record,
+  }));
+  const merged = [...haloItems, ...unItems];
+  merged.sort((a, b) => {
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    if (a.kind !== b.kind) return a.kind === 'halo' ? -1 : 1;
+    if (a.kind === 'halo' && b.kind === 'halo') {
+      const na =
+        formatPatientDisplayName(patientsById.get(a.row.patientId)?.name || '') || a.row.patientId;
+      const nb =
+        formatPatientDisplayName(patientsById.get(b.row.patientId)?.name || '') || b.row.patientId;
+      return sortName(na, nb);
+    }
+    if (a.kind === 'unlinked' && b.kind === 'unlinked') {
+      return sortName(
+        formatInpatientDisplayName(a.record.firstName, a.record.surname),
+        formatInpatientDisplayName(b.record.firstName, b.record.surname)
+      );
+    }
+    return 0;
+  });
+  return merged;
+}
+
+function buildUnifiedLayoutFromMerge(
   columns: Array<{ id: string }>,
-  grouped: Record<string, AdmittedPatientKanban[]>
+  mergedByCol: Record<string, UnifiedColumnItem[]>
 ): Record<string, string[]> {
   const layout: Record<string, string[]> = {};
   for (const c of columns) {
-    layout[c.id] = (grouped[c.id] ?? []).map((r) => r.patientId);
+    layout[c.id] = (mergedByCol[c.id] ?? []).map((item) => item.sortId);
   }
   return layout;
 }
@@ -138,6 +184,7 @@ type Props = {
   inpatients: InpatientRecord[];
   kanbanSaving: boolean;
   onOpenPatient: (patientId: string) => void;
+  onRequestRemoveFromWard: (target: DetailTarget) => void;
   onToggleTodoDone: (patientId: string, todoId: string, done: boolean) => void;
   /** Patient id order per ward column (persisted with column + sort index). */
   onApplyBoardLayout: (layout: Record<string, string[]>) => void;
@@ -147,6 +194,15 @@ type Props = {
   onUpdateBoardFields?: (
     patientId: string,
     patch: Partial<Pick<AdmittedPatientKanban, 'bed' | 'wardLabel' | 'notes'>>
+  ) => void;
+  /** Add a user-editable to-do for an unlinked ward card. */
+  onAddUnlinkedTodo?: (recordId: string, title: string) => void;
+  /** Toggle a user-editable to-do done/open for an unlinked ward card. */
+  onToggleUnlinkedTodoDone?: (recordId: string, todoId: string, done: boolean) => void;
+  /** Persist board-only Bed / Ward label / Notes on an unlinked ward card. */
+  onUpdateUnlinkedBoardFields?: (
+    recordId: string,
+    patch: Partial<{ boardBed?: string; boardWardLabel?: string; boardNotes?: string }>
   ) => void;
   /** Mobile: scroll this column into view once after login (ward id, e.g. `m`). */
   initialScrollToColumnId?: string | null;
@@ -223,6 +279,116 @@ function WardDragOverlayCard({
     </div>
   );
 }
+
+function WardUnlinkedDragOverlayCard({ record }: { record: InpatientRecord }) {
+  const name = formatInpatientDisplayName(record.firstName, record.surname);
+  const bed = record.boardBed?.trim() || record.bed?.trim() || '—';
+  const wardLbl =
+    record.boardWardLabel?.trim() || (record.ward ? formatWardDisplay(record.ward) : '');
+  const bedLine = wardLbl ? `${bed} · ${wardLbl}` : bed;
+  const doctor = record.assignedDoctor?.trim() || '—';
+  const openTodos = (record.wardTodos || []).filter((t) => t.status !== 'Done').length;
+  return (
+    <div
+      className="w-[268px] rounded-lg border-2 border-teal-500 bg-slate-50 px-2 py-2 shadow-xl cursor-grabbing select-none will-change-transform"
+      style={{ touchAction: 'none' }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-start gap-1.5">
+          <GripVertical size={14} className="text-teal-500 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <div className="text-[9px] font-bold uppercase text-teal-600">No HALO link</div>
+            <div className="text-sm font-semibold text-slate-900 truncate">{name}</div>
+            <div className="text-[10px] text-slate-600 truncate">
+              {bedLine} · {doctor}
+            </div>
+          </div>
+        </div>
+        {openTodos > 0 ? (
+          <span className="inline-flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-halo-primary-muted px-1.5 text-[10px] font-bold tabular-nums text-halo-text ring-1 ring-halo-primary/30">
+            {openTodos > 9 ? '9+' : openTodos}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const UnlinkedSortableCompactRow = memo(function UnlinkedSortableCompactRow({
+  record,
+  onOpenDetail,
+}: {
+  record: InpatientRecord;
+  onOpenDetail: () => void;
+}) {
+  const sortId = `${UNLINK_WARD_DRAG_ID_PREFIX}${record.id}`;
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: sortId });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  const bed = record.boardBed?.trim() || record.bed?.trim() || '';
+  const wardLbl =
+    record.boardWardLabel?.trim() || (record.ward ? formatWardDisplay(record.ward) : '');
+  const chipLine = [bed, wardLbl].filter(Boolean).join(' · ');
+  const openTodos = (record.wardTodos || []).filter((t) => t.status !== 'Done').length;
+  const name = formatInpatientDisplayName(record.firstName, record.surname);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`grid w-full min-w-0 grid-cols-[40px_minmax(0,1fr)_48px] items-stretch gap-0 rounded-[10px] border border-slate-200 bg-slate-50 shadow-sm my-2 overflow-hidden ${
+        isDragging ? 'opacity-40 ring-2 ring-teal-400/50 z-10' : ''
+      }`}
+    >
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        {...listeners}
+        {...attributes}
+        className="flex h-full min-h-[3.5rem] items-center justify-center cursor-grab active:cursor-grabbing touch-none text-halo-muted hover:text-teal-600 hover:bg-teal-50/80"
+        style={{ touchAction: 'none' }}
+        aria-label={`Drag ${name}`}
+      >
+        <GripVertical size={16} strokeWidth={2} />
+      </button>
+      <div className="min-w-0 flex flex-col min-h-[3.5rem] max-md:[touch-action:pan-x_pan-y]">
+        <button
+          type="button"
+          onClick={onOpenDetail}
+          className="min-w-0 px-1 py-2 text-left hover:bg-slate-100/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-inset"
+          aria-label={`Open ward details for ${name}`}
+        >
+          <div className="text-[9px] font-bold uppercase text-teal-600">No HALO link</div>
+          <div className="text-sm font-semibold text-slate-900 leading-tight truncate">{name}</div>
+          {chipLine ? (
+            <div className="text-[10px] text-slate-500 truncate mt-0.5 max-md:[touch-action:pan-x_pan-y]">
+              {chipLine}
+            </div>
+          ) : null}
+        </button>
+      </div>
+      <div className="flex h-full min-h-[3.5rem] items-center justify-end border-l border-slate-200 bg-slate-100/80 pr-2.5 pl-1 box-border">
+        {openTodos > 0 ? (
+          <span className="inline-flex min-h-[1.5rem] min-w-[1.5rem] max-w-[2rem] shrink-0 items-center justify-center px-1 text-[10px] font-bold tabular-nums rounded-full bg-halo-primary-muted text-halo-text ring-1 ring-halo-primary/30">
+            {openTodos > 9 ? '9+' : openTodos}
+          </span>
+        ) : (
+          <span
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[10px] text-slate-400 tabular-nums select-none"
+            aria-hidden
+          >
+            ·
+          </span>
+        )}
+      </div>
+    </div>
+  );
+});
 
 type CompactRowProps = {
   row: AdmittedPatientKanban;
@@ -423,9 +589,13 @@ function WardPatientDetailSheet({
   inpatients,
   kanbanSaving,
   onOpenPatient,
+  onRequestRemoveFromWard,
   onToggleTodoDone,
   onAddTodo,
   onUpdateBoardFields,
+  onAddUnlinkedTodo,
+  onToggleUnlinkedTodoDone,
+  onUpdateUnlinkedBoardFields,
 }: {
   target: DetailTarget | null;
   onClose: () => void;
@@ -435,11 +605,18 @@ function WardPatientDetailSheet({
   inpatients: InpatientRecord[];
   kanbanSaving: boolean;
   onOpenPatient: (patientId: string) => void;
+  onRequestRemoveFromWard: (target: DetailTarget) => void;
   onToggleTodoDone: (patientId: string, todoId: string, done: boolean) => void;
   onAddTodo: (patientId: string, title: string) => void;
   onUpdateBoardFields?: (
     patientId: string,
     patch: Partial<Pick<AdmittedPatientKanban, 'bed' | 'wardLabel' | 'notes'>>
+  ) => void;
+  onAddUnlinkedTodo?: (recordId: string, title: string) => void;
+  onToggleUnlinkedTodoDone?: (recordId: string, todoId: string, done: boolean) => void;
+  onUpdateUnlinkedBoardFields?: (
+    recordId: string,
+    patch: Partial<{ boardBed?: string; boardWardLabel?: string; boardNotes?: string }>
   ) => void;
 }) {
   const [adding, setAdding] = useState(false);
@@ -472,10 +649,15 @@ function WardPatientDetailSheet({
   if (target.kind === 'unlinked' && !unlinked) return null;
 
   const submitNew = () => {
-    if (!row) return;
     const t = newTitle.trim().slice(0, 200);
     if (!t) return;
-    onAddTodo(row.patientId, t);
+    if (row) {
+      onAddTodo(row.patientId, t);
+    } else if (unlinked && onAddUnlinkedTodo) {
+      onAddUnlinkedTodo(unlinked.id, t);
+    } else {
+      return;
+    }
     resetAdd();
   };
 
@@ -663,24 +845,165 @@ function WardPatientDetailSheet({
               </div>
             </>
           ) : unlinked ? (
-            <div className="space-y-2">
-              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-2">
-                Link a HALO folder to edit board tasks and open the workspace.
+            <>
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-2 mb-3">
+                Link a HALO folder to open the patient workspace.
               </p>
+              {onUpdateUnlinkedBoardFields ? (
+                <div className="mb-4 space-y-2 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Board card</span>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Bed</span>
+                    <input
+                      type="text"
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      defaultValue={unlinked.boardBed ?? unlinked.bed ?? ''}
+                      key={`u-bed-${unlinked.id}`}
+                      disabled={kanbanSaving}
+                      onBlur={(e) =>
+                        onUpdateUnlinkedBoardFields(unlinked.id, {
+                          boardBed: e.target.value.trim().slice(0, 40) || undefined,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Ward label</span>
+                    <input
+                      type="text"
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      defaultValue={
+                        unlinked.boardWardLabel ?? (unlinked.ward ? formatWardDisplay(unlinked.ward) : '')
+                      }
+                      key={`u-wl-${unlinked.id}`}
+                      disabled={kanbanSaving}
+                      onBlur={(e) =>
+                        onUpdateUnlinkedBoardFields(unlinked.id, {
+                          boardWardLabel: e.target.value.trim().slice(0, 80) || undefined,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-600">Notes</span>
+                    <textarea
+                      className="mt-0.5 w-full min-h-[72px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      defaultValue={unlinked.boardNotes ?? ''}
+                      key={`u-notes-${unlinked.id}`}
+                      disabled={kanbanSaving}
+                      onBlur={(e) =>
+                        onUpdateUnlinkedBoardFields(unlinked.id, {
+                          boardNotes: e.target.value.trim().slice(0, 4000) || undefined,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              ) : null}
+
               {unlinked.taskIndicators?.length ? (
-                <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
-                  {unlinked.taskIndicators.map((c, i) => (
-                    <li key={i}>{c.label}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-slate-400">No tasks in Hospital row.</p>
-              )}
-            </div>
+                <div className="mb-4">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">From hospital sheet</span>
+                  <ul className="mt-1 list-disc pl-5 text-sm text-slate-700 space-y-1">
+                    {unlinked.taskIndicators.map((c, i) => (
+                      <li key={i}>{c.label}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {onAddUnlinkedTodo && onToggleUnlinkedTodoDone ? (
+                <>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Ward tasks</span>
+                    <button
+                      type="button"
+                      disabled={kanbanSaving}
+                      onClick={() => setAdding((v) => !v)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-slate-200 bg-white text-teal-500 text-[11px] font-semibold hover:bg-teal-50/80 disabled:opacity-50"
+                    >
+                      <Plus size={14} strokeWidth={2.5} /> Add
+                    </button>
+                  </div>
+                  {adding ? (
+                    <div className="flex flex-col gap-2 mb-3 p-2 rounded-lg bg-slate-50 border border-slate-100">
+                      <input
+                        type="text"
+                        value={newTitle}
+                        onChange={(e) => setNewTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            submitNew();
+                          }
+                          if (e.key === 'Escape') resetAdd();
+                        }}
+                        placeholder="New task…"
+                        disabled={kanbanSaving}
+                        className="w-full text-sm px-2 py-2 rounded-lg border border-slate-200"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={kanbanSaving || !newTitle.trim()}
+                          onClick={submitNew}
+                          className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-teal-500 text-white disabled:opacity-50"
+                        >
+                          Add task
+                        </button>
+                        <button type="button" onClick={resetAdd} className="text-xs px-3 py-1.5 text-slate-600">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="space-y-1">
+                    {(unlinked.wardTodos?.length ?? 0) === 0 && !adding ? (
+                      <p className="text-sm text-slate-400 py-2">No tasks yet.</p>
+                    ) : null}
+                    {(unlinked.wardTodos ?? []).map((t) => {
+                      const done = t.status === 'Done';
+                      return (
+                        <label
+                          key={t.id}
+                          className="flex items-start gap-2 cursor-pointer select-none rounded-lg px-1 py-1.5 hover:bg-slate-50 border border-transparent hover:border-slate-100"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={done}
+                            disabled={kanbanSaving}
+                            onChange={() => onToggleUnlinkedTodoDone(unlinked.id, t.id, !done)}
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-teal-500"
+                          />
+                          <span
+                            className={`text-sm leading-snug min-w-0 flex-1 ${
+                              done ? 'text-slate-400 line-through' : 'text-slate-800'
+                            }`}
+                          >
+                            {t.title}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : null}
+            </>
           ) : null}
         </div>
 
         <div className="border-t border-slate-100 px-4 py-3 flex flex-col sm:flex-row gap-2 shrink-0 bg-slate-50/80">
+          <button
+            type="button"
+            disabled={kanbanSaving}
+            onClick={() => {
+              onRequestRemoveFromWard(target);
+            }}
+            className="inline-flex items-center justify-center gap-1.5 min-h-[36px] flex-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[11px] font-semibold hover:bg-slate-50 disabled:opacity-50"
+          >
+            Remove from ward
+          </button>
           {target.kind === 'halo' && row ? (
             <button
               type="button"
@@ -715,11 +1038,15 @@ export const WardKanbanBoard: React.FC<Props> = ({
   inpatients,
   kanbanSaving,
   onOpenPatient,
+  onRequestRemoveFromWard,
   onToggleTodoDone,
   onApplyBoardLayout,
   onUpdatePatientTags,
   onAddTodo,
   onUpdateBoardFields,
+  onAddUnlinkedTodo,
+  onToggleUnlinkedTodoDone,
+  onUpdateUnlinkedBoardFields,
   initialScrollToColumnId,
   onInitialWardColumnScrolled,
 }) => {
@@ -789,20 +1116,26 @@ export const WardKanbanBoard: React.FC<Props> = ({
   const unlinkedGrouped = useMemo(() => {
     const m = emptyWardColumnMapForColumns<InpatientRecord>(columns);
     for (const r of unlinkedAdmittedInpatients) {
-      const target = clinicalWardToBoardColumn(r.ward);
+      const stored =
+        r.wardBoardColumn && validColumnIds.has(r.wardBoardColumn) ? r.wardBoardColumn : null;
+      const target = stored ?? clinicalWardToBoardColumn(r.ward);
       const col = validColumnIds.has(target) ? target : defaultColId;
       m[col]!.push(r);
     }
-    for (const col of columns) {
-      m[col.id]!.sort((a, b) =>
-        sortName(
-          formatInpatientDisplayName(a.firstName, a.surname),
-          formatInpatientDisplayName(b.firstName, b.surname)
-        )
-      );
-    }
     return m;
   }, [unlinkedAdmittedInpatients, columns, validColumnIds, defaultColId]);
+
+  const mergedByColumn = useMemo(() => {
+    const out: Record<string, UnifiedColumnItem[]> = {};
+    for (const c of columns) {
+      out[c.id] = mergeColumnItemsForSort(
+        grouped[c.id] ?? [],
+        unlinkedGrouped[c.id] ?? [],
+        patientsById
+      );
+    }
+    return out;
+  }, [columns, grouped, unlinkedGrouped, patientsById]);
 
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -952,11 +1285,11 @@ export const WardKanbanBoard: React.FC<Props> = ({
       if (!over) return;
       const activePid = String(active.id);
       const overRaw = String(over.id);
-      const layout = buildLayoutFromGrouped(columns, grouped);
+      const layout = buildUnifiedLayoutFromMerge(columns, mergedByColumn);
       const next = applyDragToLayout(layout, activePid, overRaw);
       if (next) onApplyBoardLayout(next);
     },
-    [columns, grouped, onApplyBoardLayout, stopAutoScroll]
+    [columns, mergedByColumn, onApplyBoardLayout, stopAutoScroll]
   );
 
   const handleTogglePresetTag = useCallback(
@@ -999,6 +1332,29 @@ export const WardKanbanBoard: React.FC<Props> = ({
   );
 
   const overlayPatientId = activeDragId;
+  const dragOverlayContent = useMemo(() => {
+    if (!overlayPatientId) return null;
+    if (overlayPatientId.startsWith(UNLINK_WARD_DRAG_ID_PREFIX)) {
+      const rid = overlayPatientId.slice(UNLINK_WARD_DRAG_ID_PREFIX.length);
+      const rec = unlinkedAdmittedInpatients.find((x) => x.id === rid);
+      return rec ? <WardUnlinkedDragOverlayCard record={rec} /> : null;
+    }
+    return (
+      <WardDragOverlayCard
+        patientId={overlayPatientId}
+        patientsById={patientsById}
+        inpatients={inpatients}
+        admittedKanban={admittedKanban}
+      />
+    );
+  }, [
+    overlayPatientId,
+    unlinkedAdmittedInpatients,
+    patientsById,
+    inpatients,
+    admittedKanban,
+  ]);
+
   const detailKey = detailTarget
     ? `${detailTarget.kind}:${detailTarget.kind === 'halo' ? detailTarget.patientId : detailTarget.recordId}`
     : 'none';
@@ -1048,49 +1404,48 @@ export const WardKanbanBoard: React.FC<Props> = ({
             >
               <div className="flex min-w-0 max-w-full flex-col items-stretch">
                 <SortableContext
-                  items={(grouped[col.id] ?? []).map((r) => r.patientId)}
+                  items={(mergedByColumn[col.id] ?? []).map((item) => item.sortId)}
                   strategy={verticalListSortingStrategy}
                 >
-                  {(grouped[col.id] ?? []).map((row) => (
-                    <KanbanCompactRow
-                      key={row.patientId}
-                      row={row}
-                      patientsById={patientsById}
-                      inpatients={inpatients}
-                      onOpenTasks={() => setDetailTarget({ kind: 'halo', patientId: row.patientId })}
-                      onTogglePresetTag={handleTogglePresetTag}
-                      onRemoveTag={handleRemoveTag}
-                      tagDraftPatientId={tagDraftPatientId}
-                      tagDraftValue={tagDraftValue}
-                      onTagDraftChange={(pid, v) => {
-                        setTagDraftPatientId(pid);
-                        setTagDraftValue(v.slice(0, 32));
-                      }}
-                      onOpenTagDraft={(pid) => {
-                        setTagDraftPatientId(pid);
-                        setTagDraftValue('');
-                      }}
-                      onCloseTagDraft={() => {
-                        setTagDraftPatientId(null);
-                        setTagDraftValue('');
-                      }}
-                      onSubmitTagDraft={handleSubmitTagDraft}
-                    />
-                  ))}
+                  {(mergedByColumn[col.id] ?? []).map((item) =>
+                    item.kind === 'halo' ? (
+                      <KanbanCompactRow
+                        key={item.row.patientId}
+                        row={item.row}
+                        patientsById={patientsById}
+                        inpatients={inpatients}
+                        onOpenTasks={() =>
+                          setDetailTarget({ kind: 'halo', patientId: item.row.patientId })
+                        }
+                        onTogglePresetTag={handleTogglePresetTag}
+                        onRemoveTag={handleRemoveTag}
+                        tagDraftPatientId={tagDraftPatientId}
+                        tagDraftValue={tagDraftValue}
+                        onTagDraftChange={(pid, v) => {
+                          setTagDraftPatientId(pid);
+                          setTagDraftValue(v.slice(0, 32));
+                        }}
+                        onOpenTagDraft={(pid) => {
+                          setTagDraftPatientId(pid);
+                          setTagDraftValue('');
+                        }}
+                        onCloseTagDraft={() => {
+                          setTagDraftPatientId(null);
+                          setTagDraftValue('');
+                        }}
+                        onSubmitTagDraft={handleSubmitTagDraft}
+                      />
+                    ) : (
+                      <UnlinkedSortableCompactRow
+                        key={item.sortId}
+                        record={item.record}
+                        onOpenDetail={() =>
+                          setDetailTarget({ kind: 'unlinked', recordId: item.record.id })
+                        }
+                      />
+                    )
+                  )}
                 </SortableContext>
-                {(unlinkedGrouped[col.id] ?? []).map((record) => (
-                  <button
-                    key={`unlinked-${record.id}`}
-                    type="button"
-                    onClick={() => setDetailTarget({ kind: 'unlinked', recordId: record.id })}
-                    className="my-2 w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left shadow-sm hover:bg-slate-100/90"
-                  >
-                    <div className="text-[9px] font-bold uppercase text-teal-600">No HALO link</div>
-                    <div className="text-sm font-semibold text-slate-900 truncate">
-                      {formatInpatientDisplayName(record.firstName, record.surname)}
-                    </div>
-                  </button>
-                ))}
               </div>
             </div>
           </WardColumnDropZone>
@@ -1098,14 +1453,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
       </div>
 
       <DragOverlay adjustScale={false} dropAnimation={null}>
-        {overlayPatientId ? (
-          <WardDragOverlayCard
-            patientId={overlayPatientId}
-            patientsById={patientsById}
-            inpatients={inpatients}
-            admittedKanban={admittedKanban}
-          />
-        ) : null}
+        {dragOverlayContent}
       </DragOverlay>
 
       <WardPatientDetailSheet
@@ -1118,9 +1466,16 @@ export const WardKanbanBoard: React.FC<Props> = ({
         inpatients={inpatients}
         kanbanSaving={kanbanSaving}
         onOpenPatient={onOpenPatient}
+        onRequestRemoveFromWard={(t) => {
+          onRequestRemoveFromWard(t);
+          setDetailTarget(null);
+        }}
         onToggleTodoDone={onToggleTodoDone}
         onAddTodo={onAddTodo}
         onUpdateBoardFields={onUpdateBoardFields}
+        onAddUnlinkedTodo={onAddUnlinkedTodo}
+        onToggleUnlinkedTodoDone={onToggleUnlinkedTodoDone}
+        onUpdateUnlinkedBoardFields={onUpdateUnlinkedBoardFields}
       />
       </DndContext>
     </div>

@@ -1,8 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AdmittedPatientKanban, Patient, WardBoardColumnId } from '../../../shared/types';
-import { WardKanbanBoard } from '../features/clinical/ward/WardKanbanBoard';
+import { UNLINK_WARD_DRAG_ID_PREFIX, WardKanbanBoard } from '../features/clinical/ward/WardKanbanBoard';
 import type { InpatientRecord } from '../types/clinical';
-import { fetchCurrentInpatients, mergeAdmittedRowWithMockKanbanSeeds } from '../services/clinicalData';
+import {
+  addWardTodoToInpatient,
+  fetchCurrentInpatients,
+  mergeAdmittedRowWithMockKanbanSeeds,
+  setWardTodoDone as setUnlinkedWardTodoDone,
+  updateInpatientBoardFields,
+  updateInpatientRecord,
+} from '../services/clinicalData';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { fetchWardBoardColumns, fetchWardKanban, saveWardKanban } from '../services/wardBoardBackend';
 import { syncAllHospitalWardTasksToKanban } from '../services/wardKanbanSync';
@@ -13,6 +20,8 @@ import {
 import { Layers } from 'lucide-react';
 import { WARD_BOARD_COLUMNS } from '../features/clinical/shared/wardBoardColumns';
 import { CLINICAL_BTN_PRIMARY } from '../features/clinical/shared/tableScrollClasses';
+import { DischargePatientModal } from '../features/clinical/shared/DischargePatientModal';
+import { buildDischargeClinicalContext } from '../features/clinical/shared/dischargeContext';
 
 function migrateKanbanFromStorage(rows: AdmittedPatientKanban[]): AdmittedPatientKanban[] {
   return rows.map((r) => {
@@ -47,15 +56,23 @@ export const WardPage: React.FC<WardPageProps> = ({
   const [kanbanSaving, setKanbanSaving] = useState(false);
   const [hospitalSyncBusy, setHospitalSyncBusy] = useState(false);
   const [inpatients, setInpatients] = useState<InpatientRecord[]>([]);
+  const [removeTarget, setRemoveTarget] = useState<{ kind: 'halo'; patientId: string } | { kind: 'unlinked'; recordId: string } | null>(
+    null
+  );
 
   const patientsRef = useRef(patients);
   patientsRef.current = patients;
 
   const patientsById = useMemo(() => new Map(patients.map((p) => [p.id, p])), [patients]);
 
-  useEffect(() => {
-    void fetchCurrentInpatients().then(setInpatients);
+  const reloadInpatients = useCallback(async () => {
+    const rows = await fetchCurrentInpatients();
+    setInpatients(rows);
   }, []);
+
+  useEffect(() => {
+    void reloadInpatients();
+  }, [reloadInpatients]);
 
   const admittedKanban = useMemo(() => kanban.filter((p) => Boolean(p.admitted)), [kanban]);
 
@@ -82,6 +99,31 @@ export const WardPage: React.FC<WardPageProps> = ({
       setKanbanLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    const onWorkspaceChange = () => {
+      void loadKanban();
+      void reloadInpatients();
+    };
+    window.addEventListener('halo:workspace-changed', onWorkspaceChange);
+    return () => window.removeEventListener('halo:workspace-changed', onWorkspaceChange);
+  }, [loadKanban, reloadInpatients]);
+
+  const resolveRemoveInpatientRecord = useCallback((): InpatientRecord | null => {
+    if (!removeTarget) return null;
+    if (removeTarget.kind === 'unlinked') {
+      return inpatients.find((r) => r.id === removeTarget.recordId) ?? null;
+    }
+    const p = patientsById.get(removeTarget.patientId);
+    if (!p) return null;
+    const match =
+      inpatients.find((r) => r.linkedDrivePatientId?.trim() === removeTarget.patientId) ||
+      inpatients.find((r) => {
+        const pid = resolvePatientIdFromClinicalNames(patientsRef.current, r.firstName, r.surname);
+        return pid === removeTarget.patientId;
+      });
+    return match ?? null;
+  }, [removeTarget, inpatients, patientsById]);
 
   useEffect(() => {
     void loadKanban();
@@ -247,8 +289,31 @@ export const WardPage: React.FC<WardPageProps> = ({
         return r;
       });
       void persistKanban(next);
+
+      const unlinkPatches: Promise<unknown>[] = [];
+      for (const [col, ids] of Object.entries(layout)) {
+        ids.forEach((rawId, idx) => {
+          if (!rawId.startsWith(UNLINK_WARD_DRAG_ID_PREFIX)) return;
+          const recordId = rawId.slice(UNLINK_WARD_DRAG_ID_PREFIX.length);
+          unlinkPatches.push(
+            updateInpatientRecord(recordId, {
+              wardBoardColumn: col as WardBoardColumnId,
+              wardColumnOrder: idx,
+            })
+          );
+        });
+      }
+      if (unlinkPatches.length === 0) return;
+      void (async () => {
+        try {
+          await Promise.all(unlinkPatches);
+          await reloadInpatients();
+        } catch {
+          onToast?.('Could not save unlinked ward positions.', 'error');
+        }
+      })();
     },
-    [kanban, persistKanban]
+    [kanban, persistKanban, reloadInpatients, onToast]
   );
 
   const updatePatientTags = useCallback(
@@ -262,6 +327,53 @@ export const WardPage: React.FC<WardPageProps> = ({
       void persistKanban(next);
     },
     [kanban, persistKanban]
+  );
+
+  const onAddUnlinkedTodo = useCallback(
+    async (recordId: string, title: string) => {
+      const trimmed = title.trim();
+      if (!trimmed) return;
+      try {
+        await addWardTodoToInpatient(recordId, trimmed);
+        await reloadInpatients();
+      } catch {
+        onToast?.('Could not add task.', 'error');
+      }
+    },
+    [onToast, reloadInpatients]
+  );
+
+  const onToggleUnlinkedTodoDone = useCallback(
+    async (recordId: string, todoId: string, done: boolean) => {
+      try {
+        await setUnlinkedWardTodoDone(recordId, todoId, done);
+        await reloadInpatients();
+      } catch {
+        onToast?.('Could not update task.', 'error');
+      }
+    },
+    [onToast, reloadInpatients]
+  );
+
+  const onUpdateUnlinkedBoardFields = useCallback(
+    async (
+      recordId: string,
+      patch: Partial<{ boardBed?: string; boardWardLabel?: string; boardNotes?: string }>
+    ) => {
+      const cleaned: Partial<{ boardBed?: string; boardWardLabel?: string; boardNotes?: string }> = {};
+      if ('boardBed' in patch) cleaned.boardBed = patch.boardBed?.trim()?.slice(0, 40) || undefined;
+      if ('boardWardLabel' in patch)
+        cleaned.boardWardLabel = patch.boardWardLabel?.trim()?.slice(0, 80) || undefined;
+      if ('boardNotes' in patch)
+        cleaned.boardNotes = patch.boardNotes?.trim()?.slice(0, 4000) || undefined;
+      try {
+        await updateInpatientBoardFields(recordId, cleaned);
+        await reloadInpatients();
+      } catch {
+        onToast?.('Could not update card.', 'error');
+      }
+    },
+    [onToast, reloadInpatients]
   );
 
   const updateBoardFields = useCallback(
@@ -378,11 +490,15 @@ export const WardPage: React.FC<WardPageProps> = ({
                   inpatients={inpatients}
                   kanbanSaving={kanbanSaving}
                   onOpenPatient={onOpenPatient}
+                  onRequestRemoveFromWard={(t) => setRemoveTarget(t)}
                   onToggleTodoDone={toggleTodoDone}
                   onApplyBoardLayout={applyBoardLayout}
                   onUpdatePatientTags={updatePatientTags}
                   onAddTodo={addKanbanTodo}
                   onUpdateBoardFields={updateBoardFields}
+                  onAddUnlinkedTodo={onAddUnlinkedTodo}
+                  onToggleUnlinkedTodoDone={onToggleUnlinkedTodoDone}
+                  onUpdateUnlinkedBoardFields={onUpdateUnlinkedBoardFields}
                   initialScrollToColumnId={initialWardColumnScrollId}
                   onInitialWardColumnScrolled={onInitialWardColumnScrolled}
                 />
@@ -391,6 +507,39 @@ export const WardPage: React.FC<WardPageProps> = ({
           </div>
         </section>
       </div>
+
+      <DischargePatientModal
+        open={Boolean(removeTarget)}
+        onClose={() => setRemoveTarget(null)}
+        patients={patients}
+        haloPatientId={removeTarget?.kind === 'halo' ? removeTarget.patientId : null}
+        patientDisplayName={
+          removeTarget?.kind === 'halo'
+            ? formatPatientDisplayName(patientsById.get(removeTarget.patientId)?.name || '') || removeTarget.patientId
+            : removeTarget?.kind === 'unlinked'
+              ? (() => {
+                  const r = inpatients.find((x) => x.id === removeTarget.recordId);
+                  return r ? `${r.firstName} ${r.surname}`.trim() : '';
+                })()
+              : ''
+        }
+        clinicalContext={(() => {
+          if (!removeTarget) return '';
+          const ip = resolveRemoveInpatientRecord() ?? undefined;
+          const kbRow =
+            removeTarget.kind === 'halo'
+              ? admittedKanban.find((r) => r.patientId === removeTarget.patientId)
+              : undefined;
+          return buildDischargeClinicalContext(ip, kbRow);
+        })()}
+        initialSummaryText={resolveRemoveInpatientRecord()?.inpatientNotes?.trim() || ''}
+        inpatientRecord={resolveRemoveInpatientRecord()}
+        onFinished={async () => {
+          await Promise.all([loadKanban(), reloadInpatients()]);
+          setRemoveTarget(null);
+        }}
+        onToast={onToast}
+      />
     </div>
   );
 };

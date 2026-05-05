@@ -79,7 +79,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     ].join('\n');
 
     await transporter.sendMail({
-      from: config.smtpUser,
+      from: `${(config.smtpFromName || 'HALO').trim()} <${(config.smtpFrom || config.smtpUser).trim()}>`,
       to: ADMIN_EMAIL,
       subject,
       text,

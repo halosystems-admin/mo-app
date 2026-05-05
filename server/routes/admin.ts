@@ -5,7 +5,7 @@ import { requireAdmin } from '../middleware/requireAdmin';
 import { createInvite, normalizeEmail } from '../services/userStore';
 import { getSupabaseAdminClient, isSupabaseAdminConfigured } from '../services/supabaseAdmin';
 import { getSharedMicrosoftTokens, storeSharedMicrosoftTokens } from '../services/sharedOauth';
-import { sendInviteEmail } from '../services/email';
+import { sendInviteEmail, verifySmtp, sendTestEmail, isSmtpConfigured } from '../services/email';
 
 const router = Router();
 router.use(requireAdmin);
@@ -34,12 +34,39 @@ function supabaseOrThrow() {
 // Users / Invites
 // ---------------------------------------------------------------------------
 
+router.get('/smtp/status', async (_req: Request, res: Response) => {
+  const basicConfigured = isSmtpConfigured();
+  if (!basicConfigured) {
+    res.json({ configured: false, verified: false, error: 'SMTP not configured' });
+    return;
+  }
+  const v = await verifySmtp();
+  res.json({ configured: true, verified: v.ok, ...(v.error ? { error: v.error } : {}) });
+});
+
+router.post('/smtp/test', async (req: Request, res: Response) => {
+  const to =
+    typeof req.body?.to === 'string' && req.body.to.trim()
+      ? req.body.to.trim()
+      : (req.appUser?.email ?? '');
+  if (!to) {
+    res.status(400).json({ error: 'Missing recipient email.' });
+    return;
+  }
+  const r = await sendTestEmail({ to });
+  if (!r.sent) {
+    res.status(500).json({ ok: false, error: r.error || 'Send failed.' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
 router.get('/users', async (_req: Request, res: Response) => {
   try {
     const sb = supabaseOrThrow();
     const { data, error } = await sb
       .from('app_users')
-      .select('id,email,first_name,last_name,role,halo_user_id,default_ward_column_id,is_active,created_at,last_login_at')
+      .select('id,email,first_name,last_name,role,halo_user_id,is_active,created_at,last_login_at')
       .order('created_at', { ascending: true });
     if (error) throw new Error(error.message);
     res.json({ users: data ?? [] });
@@ -99,17 +126,6 @@ router.patch('/users/:id', async (req: Request, res: Response) => {
   const isActive = typeof req.body?.isActive === 'boolean' ? req.body.isActive : undefined;
   const firstName = typeof req.body?.firstName === 'string' ? req.body.firstName.trim() : undefined;
   const lastName = typeof req.body?.lastName === 'string' ? req.body.lastName.trim() : undefined;
-  const hasDefaultWard = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'defaultWardColumnId');
-  const defaultWardColumnId = hasDefaultWard
-    ? ((v: unknown) => {
-        if (v === null) return null;
-        if (typeof v === 'string' && v.trim() === '') return null;
-        if (typeof v === 'string') return v.trim();
-        return undefined;
-      })(req.body?.defaultWardColumnId)
-    : undefined;
-
-  const validWardColumnIds = new Set(['icu', 'f', 's', 'm', 'paeds', 'ed', 'labour']);
 
   const update: Record<string, unknown> = {};
   if (role) update.role = role;
@@ -117,13 +133,6 @@ router.patch('/users/:id', async (req: Request, res: Response) => {
   if (isActive !== undefined) update.is_active = isActive;
   if (firstName !== undefined) update.first_name = firstName;
   if (lastName !== undefined) update.last_name = lastName;
-  if (defaultWardColumnId !== undefined) {
-    if (defaultWardColumnId !== null && !validWardColumnIds.has(defaultWardColumnId)) {
-      res.status(400).json({ error: 'Invalid default ward column id.' });
-      return;
-    }
-    update.default_ward_column_id = defaultWardColumnId;
-  }
 
   if (Object.keys(update).length === 0) {
     res.status(400).json({ error: 'No changes provided.' });

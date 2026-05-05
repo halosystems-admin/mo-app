@@ -115,6 +115,12 @@ export const config = {
 
   // Template request email (optional)
   adminEmail: process.env.ADMIN_EMAIL || 'admin@halo.africa',
+  /**
+   * Optional override for the "From" address used in outbound SMTP mail.
+   * Many SMTP providers require this to be an address permitted for the authenticated SMTP user.
+   */
+  smtpFrom: (process.env.SMTP_FROM || '').trim(),
+  smtpFromName: (process.env.SMTP_FROM_NAME || 'HALO').trim(),
   smtpHost: process.env.SMTP_HOST || '',
   smtpPort: Number(process.env.SMTP_PORT) || 587,
   smtpSecure: process.env.SMTP_SECURE === 'true',
