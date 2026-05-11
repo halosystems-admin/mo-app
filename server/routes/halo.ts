@@ -18,6 +18,7 @@ import {
   type PatientLetterKind,
 } from '../services/motivationLetter';
 import { isSmtpConfigured, sendOutboundMail } from '../services/email';
+import { prepareTextForHaloDocx } from '../utils/noteTextForDocx';
 
 const router = Router();
 router.use(requireAuth);
@@ -211,7 +212,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       return;
     }
 
-    const composedText = await prefixTextWithPatientProfile(req, patientId, text);
+    const composedText = prepareTextForHaloDocx(await prefixTextWithPatientProfile(req, patientId, text));
 
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
@@ -350,10 +351,8 @@ router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
       res.status(401).json({ error: 'Not authenticated.' });
       return;
     }
-    const composedText = await prefixTextWithPatientProfile(
-      req,
-      typeof patientId === 'string' ? patientId : undefined,
-      text
+    const composedText = prepareTextForHaloDocx(
+      await prefixTextWithPatientProfile(req, typeof patientId === 'string' ? patientId : undefined, text)
     );
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
@@ -406,7 +405,7 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
       return;
     }
 
-    const composedText = await prefixTextWithPatientProfile(req, patientId, text);
+    const composedText = prepareTextForHaloDocx(await prefixTextWithPatientProfile(req, patientId, text));
 
     const userId = config.haloMobileUserId;
     const templateId = config.haloMobileTemplateId;
@@ -706,6 +705,15 @@ router.post('/email-patient-doc', async (req: Request, res: Response) => {
         attachments: [{ filename: fname, content: buf, contentType: PDF_MIME }],
       });
       res.json({ ok: true, smtpSent: true });
+      return;
+    }
+
+    // Avoid mailto by default: browsers block async mailto navigation and cannot attach PDFs.
+    if (process.env.HALO_ENABLE_MAILTO_FALLBACK !== 'true') {
+      res.status(503).json({
+        error:
+          'Outbound email is not configured on the server. Set Microsoft Graph (SMTP_USE_MICROSOFT_GRAPH, MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, GRAPH_MAIL_SEND_AS) or classic SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS), then restart the API. For local testing without mail, set HALO_ENABLE_MAILTO_FALLBACK=true to open a mailto draft (attachment must be added manually).',
+      });
       return;
     }
 

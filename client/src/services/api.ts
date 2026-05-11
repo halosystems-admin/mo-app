@@ -641,7 +641,10 @@ export async function getPatientHaloProfile(patientId: string): Promise<HaloPati
   return data.profile ?? null;
 }
 
-/** Email PDF to patient when SMTP is configured; otherwise server returns mailtoUrl. */
+/**
+ * Email PDF to patient via server (SMTP or Microsoft Graph) when outbound mail is configured.
+ * If the server has no outbound mail, it returns 503 unless HALO_ENABLE_MAILTO_FALLBACK=true (mailto draft; no PDF attachment).
+ */
 export async function emailPatientDoc(params: {
   patientId: string;
   to: string;
