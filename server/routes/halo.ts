@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import nodemailer from 'nodemailer';
 import { requireAuth } from '../middleware/requireAuth';
 import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { config } from '../config';
@@ -18,6 +17,7 @@ import {
   renderPatientLetterDocx,
   type PatientLetterKind,
 } from '../services/motivationLetter';
+import { isSmtpConfigured, sendOutboundMail } from '../services/email';
 
 const router = Router();
 router.use(requireAuth);
@@ -26,10 +26,6 @@ router.use(resolveWorkspace);
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const PDF_MIME = 'application/pdf';
 const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
-
-function isSmtpConfigured(): boolean {
-  return Boolean(config.smtpHost && config.smtpUser && config.smtpPass);
-}
 
 function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConfig?: boolean }): string {
   if (opts?.useMobileConfig) return config.haloMobileUserId;
@@ -450,14 +446,8 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
     const toEmail = req.session.userEmail;
     if (toEmail && isSmtpConfigured()) {
       try {
-        const transporter = nodemailer.createTransport({
-          host: config.smtpHost,
-          port: config.smtpPort,
-          secure: config.smtpSecure,
-          auth: { user: config.smtpUser, pass: config.smtpPass },
-        });
         const subjectPatient = (patientName && patientName.trim()) || 'Patient';
-        await transporter.sendMail({
+        await sendOutboundMail({
           from: config.adminEmail,
           to: toEmail,
           subject: `Your report: ${subjectPatient}`,
@@ -563,6 +553,123 @@ router.post('/generate-letter-docx', async (req: Request, res: Response) => {
   }
 });
 
+/** Ensure fileId is a direct child of Patient Notes (where motivation/referral letters are saved). */
+async function assertFileIdInPatientNotesFolder(
+  req: Request,
+  adapter: ReturnType<typeof getStorageAdapter>,
+  patientFolderId: string,
+  fileId: string
+): Promise<void> {
+  const token = req.session.accessToken!;
+  const microsoftStorageMode = req.session.microsoftStorageMode;
+  const notesFolderId = await adapter.getOrCreatePatientNotesFolder({
+    token,
+    patientFolderId,
+    microsoftStorageMode,
+  });
+  let page: string | undefined;
+  for (let i = 0; i < 50; i++) {
+    const { files, nextPage } = await adapter.listFolderFiles({
+      token,
+      folderId: notesFolderId,
+      page,
+      pageSize: 100,
+      microsoftStorageMode,
+    });
+    if (files.some((f) => f.id === fileId)) return;
+    if (!nextPage) break;
+    page = nextPage;
+  }
+  throw new Error('That file is not in this patient’s Patient Notes folder.');
+}
+
+// POST /api/halo/email-patient-file — attach a file from Patient Notes (e.g. motivation/referral DOCX). Requires outbound mail.
+router.post('/email-patient-file', async (req: Request, res: Response) => {
+  try {
+    if (!req.appUser) {
+      res.status(401).json({ error: 'Not authenticated.' });
+      return;
+    }
+    if (!isSmtpConfigured()) {
+      res.status(503).json({
+        error:
+          'Outbound email is not configured. Set SMTP or Microsoft Graph mail in the server .env (see README) and restart the Node server.',
+      });
+      return;
+    }
+
+    const { patientId, fileId, to: toRaw, subject: subjectRaw } = req.body as {
+      patientId?: string;
+      fileId?: string;
+      to?: string;
+      subject?: string;
+    };
+
+    if (!patientId?.trim() || !fileId?.trim()) {
+      res.status(400).json({ error: 'patientId and fileId are required.' });
+      return;
+    }
+
+    const adapter = getStorageAdapter(req.session.provider);
+    const pid = patientId.trim();
+    const fid = fileId.trim();
+
+    await assertFileIdInPatientNotesFolder(req, adapter, pid, fid);
+
+    const token = req.session.accessToken!;
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    let to = typeof toRaw === 'string' ? toRaw.trim() : '';
+    if (!to) {
+      const profile = await adapter.getPatientHaloProfile({
+        token,
+        patientFolderId: pid,
+        microsoftStorageMode,
+      });
+      to = profile?.email?.trim() ?? '';
+    }
+    if (!to) {
+      res.status(400).json({
+        error: 'No recipient email. Add patient email in Sticker & billing details (HALO_patient_profile.json) or pass "to".',
+      });
+      return;
+    }
+
+    const proxy = await adapter.proxyFile({
+      token,
+      fileId: fid,
+      microsoftStorageMode,
+    });
+    if (!proxy.data?.length) {
+      res.status(400).json({ error: 'Could not read file content.' });
+      return;
+    }
+
+    const fname = (proxy.filename || 'document.docx').trim() || 'document.docx';
+    const ctype = proxy.mimeType?.trim() || DOCX_MIME;
+
+    const subject =
+      typeof subjectRaw === 'string' && subjectRaw.trim()
+        ? subjectRaw.trim().slice(0, 300)
+        : `${fname.replace(/\.[^.]+$/, '')} — HALO`;
+
+    await sendOutboundMail({
+      from: `${(config.smtpFromName || 'HALO').trim()} <${(config.smtpFrom || config.smtpUser).trim()}>`,
+      to,
+      subject,
+      text: 'Please find the attached document from HALO.',
+      attachments: [{ filename: fname, content: proxy.data, contentType: ctype }],
+    });
+
+    res.json({ ok: true, smtpSent: true });
+  } catch (err) {
+    console.error('[Halo] email-patient-file error:', err);
+    const message = err instanceof Error ? err.message : 'Email failed.';
+    const status = message.includes('Patient Notes folder') ? 403 : 500;
+    res.status(status).json({ error: message });
+  }
+});
+
 // POST /api/halo/email-patient-doc — attach preview PDF; SMTP or mailto fallback
 router.post('/email-patient-doc', async (req: Request, res: Response) => {
   try {
@@ -591,18 +698,12 @@ router.post('/email-patient-doc', async (req: Request, res: Response) => {
     }
 
     if (isSmtpConfigured()) {
-      const transporter = nodemailer.createTransport({
-        host: config.smtpHost,
-        port: config.smtpPort,
-        secure: config.smtpSecure,
-        auth: { user: config.smtpUser, pass: config.smtpPass },
-      });
-      await transporter.sendMail({
+      await sendOutboundMail({
         from: `${(config.smtpFromName || 'HALO').trim()} <${(config.smtpFrom || config.smtpUser).trim()}>`,
         to: to.trim(),
         subject: subject.trim(),
         text: 'Please find the attached document from your HALO consultation.',
-        attachments: [{ filename: fname, content: buf, contentType: 'application/pdf' }],
+        attachments: [{ filename: fname, content: buf, contentType: PDF_MIME }],
       });
       res.json({ ok: true, smtpSent: true });
       return;

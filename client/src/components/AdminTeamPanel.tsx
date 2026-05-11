@@ -63,9 +63,9 @@ export const AdminTeamPanel: React.FC<{ onToast?: (m: string, t: 'success' | 'er
   const activeCount = useMemo(() => users.filter((u) => u.is_active).length, [users]);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+    <div className="rounded-xl border border-slate-200 bg-white p-4 min-w-0">
+      <div className="flex items-start justify-between gap-3 min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Team</div>
           <div className="text-sm font-semibold text-slate-800 mt-1">{activeCount} active users</div>
         </div>
@@ -79,7 +79,8 @@ export const AdminTeamPanel: React.FC<{ onToast?: (m: string, t: 'success' | 'er
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-[1.2fr_0.7fr_0.9fr_auto] gap-2 items-end">
+      <div className="mt-4 min-w-0 overflow-x-auto">
+      <div className="grid grid-cols-1 md:grid-cols-[1.2fr_0.7fr_0.9fr_auto] gap-2 items-end min-w-[min(100%,520px)] md:min-w-0">
         <label className="flex flex-col gap-1">
           <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Invite email</span>
           <input
@@ -118,6 +119,7 @@ export const AdminTeamPanel: React.FC<{ onToast?: (m: string, t: 'success' | 'er
         >
           Invite
         </button>
+      </div>
       </div>
 
       {inviteResult ? (

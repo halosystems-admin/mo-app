@@ -2,8 +2,8 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { generateText, generateTextStream, analyzeImage, transcribeAudio, safeJsonParse } from '../services/gemini';
 import { isDeepgramAvailable, transcribeWithDeepgram } from '../services/deepgram';
-import { fetchAllFilesInFolder, extractTextFromFile } from '../services/drive';
 import { getStorageAdapter } from '../services/storage';
+import type { MicrosoftStorageMode } from '../services/storage/types';
 import {
   summaryPrompt,
   labAlertsPrompt,
@@ -14,12 +14,39 @@ import {
   fileDescriptionPrompt,
   patientStickerExtractionPrompt,
   dischargeSummaryPrompt,
+  buildPatientDetailsBlock,
 } from '../utils/prompts';
 import type { ExtractedPatientSticker } from '../../shared/types';
 import { processSmartContextFile } from '../services/smartContextPipeline';
 
 const router = Router();
 router.use(requireAuth);
+
+/** Patient folder listing / text extraction must use the storage adapter (Google vs Microsoft), not raw Drive REST. */
+function adapterFetchAllFilesInFolder(req: Request, folderId: string) {
+  const token = req.session.accessToken!;
+  const adapter = getStorageAdapter(req.session.provider);
+  return adapter.fetchAllFilesInFolder({
+    token,
+    folderId,
+    microsoftStorageMode: req.session.microsoftStorageMode as MicrosoftStorageMode | undefined,
+  });
+}
+
+function adapterExtractTextFromFile(
+  req: Request,
+  file: { id: string; name: string; mimeType: string },
+  maxChars: number
+) {
+  const token = req.session.accessToken!;
+  const adapter = getStorageAdapter(req.session.provider);
+  return adapter.extractTextFromFile({
+    token,
+    file,
+    maxChars,
+    microsoftStorageMode: req.session.microsoftStorageMode as MicrosoftStorageMode | undefined,
+  });
+}
 
 // POST /summary — enhanced: reads actual file content (PDF, DOCX, TXT, Google Docs)
 router.post('/summary', async (req: Request, res: Response) => {
@@ -41,10 +68,9 @@ router.post('/summary', async (req: Request, res: Response) => {
       .join('\n');
 
     // If patientId and token available, read actual file contents for richer summary
-    const token = req.session.accessToken;
-    if (patientId && token) {
+    if (patientId && req.session.accessToken) {
       try {
-        const allFiles = await fetchAllFilesInFolder(token, patientId);
+        const allFiles = await adapterFetchAllFilesInFolder(req, patientId);
         const readableFiles = allFiles.filter(f =>
           f.name.endsWith('.txt') ||
           f.name.endsWith('.pdf') ||
@@ -59,7 +85,7 @@ router.post('/summary', async (req: Request, res: Response) => {
 
         const contentParts: string[] = [];
         for (const file of readableFiles) {
-          const text = await extractTextFromFile(token, file, 1500);
+          const text = await adapterExtractTextFromFile(req, file, 1500);
           if (text.trim()) {
             contentParts.push(`--- ${file.name} ---\n${text}`);
           }
@@ -150,7 +176,7 @@ router.post('/describe-file', async (req: Request, res: Response) => {
       mimeType: mimeType || 'application/octet-stream',
     };
 
-    const extracted = await extractTextFromFile(token, dummyFile, 3000);
+    const extracted = await adapterExtractTextFromFile(req, dummyFile, 3000);
     if (!extracted.trim()) {
       res.json({ description: '' });
       return;
@@ -184,8 +210,6 @@ router.post('/search', async (req: Request, res: Response) => {
       return;
     }
 
-    const token = req.session.accessToken!;
-
     // Build rich context: file names + snippet of text file contents per patient
     const contextParts: string[] = [];
     for (const p of patients) {
@@ -195,7 +219,7 @@ router.post('/search', async (req: Request, res: Response) => {
 
       // Fetch content from up to 5 readable files per patient for concept matching
       try {
-        const allFiles = await fetchAllFilesInFolder(token, p.id);
+        const allFiles = await adapterFetchAllFilesInFolder(req, p.id);
         const readableFiles = allFiles.filter(f =>
           f.name.endsWith('.txt') ||
           f.name.endsWith('.pdf') ||
@@ -209,7 +233,7 @@ router.post('/search', async (req: Request, res: Response) => {
         ).slice(0, 5);
 
         for (const rf of readableFiles) {
-          const text = await extractTextFromFile(token, rf, 500);
+          const text = await adapterExtractTextFromFile(req, rf, 500);
           if (text.trim()) {
             contentSnippets += ` | ${rf.name}: ${text}`;
           }
@@ -232,12 +256,32 @@ router.post('/search', async (req: Request, res: Response) => {
 
 // Shared chat context builder (used by /chat and /chat-stream)
 async function buildChatContext(
-  token: string,
+  req: Request,
   patientId: string,
   question: string,
   history: Array<{ role: string; content: string }>
 ): Promise<string> {
-  const allFiles = await fetchAllFilesInFolder(token, patientId);
+  const contextParts: string[] = [];
+
+  try {
+    const adapter = getStorageAdapter(req.session.provider);
+    const profile = await adapter.getPatientHaloProfile({
+      token: req.session.accessToken!,
+      patientFolderId: patientId,
+      microsoftStorageMode: req.session.microsoftStorageMode as MicrosoftStorageMode | undefined,
+    });
+    const block = buildPatientDetailsBlock(profile);
+    if (block.trim()) {
+      contextParts.push(
+        'Official HALO patient profile (HALO_patient_profile.json in this folder — includes email, billing, sticker OCR):\n' +
+          block
+      );
+    }
+  } catch (e) {
+    console.warn('[ai/buildChatContext] Could not load HALO_patient_profile:', e);
+  }
+
+  const allFiles = await adapterFetchAllFilesInFolder(req, patientId);
   const readableFiles = allFiles.filter(f =>
     f.name.endsWith('.txt') ||
     f.name.endsWith('.pdf') ||
@@ -250,7 +294,6 @@ async function buildChatContext(
     f.mimeType === 'application/vnd.google-apps.document'
   ).slice(0, 10);
 
-  const contextParts: string[] = [];
   const fileList = allFiles
     .filter(f => f.mimeType !== 'application/vnd.google-apps.folder')
     .map(f => `- ${f.name} (${f.mimeType})`)
@@ -258,7 +301,7 @@ async function buildChatContext(
   contextParts.push(`Patient files:\n${fileList}`);
 
   for (const file of readableFiles) {
-    const textContent = await extractTextFromFile(token, file, 2000);
+    const textContent = await adapterExtractTextFromFile(req, file, 2000);
     if (textContent.trim()) {
       contextParts.push(`\n--- File: ${file.name} ---\n${textContent}`);
     }
@@ -287,8 +330,7 @@ router.post('/chat-stream', async (req: Request, res: Response) => {
       return;
     }
 
-    const token = req.session.accessToken!;
-    const prompt = await buildChatContext(token, patientId, question, history || []);
+    const prompt = await buildChatContext(req, patientId, question, history || []);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -327,8 +369,7 @@ router.post('/chat', async (req: Request, res: Response) => {
       return;
     }
 
-    const token = req.session.accessToken!;
-    const prompt = await buildChatContext(token, patientId, question, history || []);
+    const prompt = await buildChatContext(req, patientId, question, history || []);
     const reply = await generateText(prompt);
     res.json({ reply });
   } catch (err) {

@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import type { Patient } from '../../../../../shared/types';
+import React, { useEffect, useRef, useState } from 'react';
+import type { HaloPatientProfile, Patient } from '../../../../../shared/types';
 import type { ClinicalWard, InpatientRecord } from '../../../types/clinical';
 import { getClinicalWards, updateInpatientRecord } from '../../../services/clinicalData';
 import { syncInpatientTasksToWardKanban } from '../../../services/wardKanbanSync';
 import { formatInpatientDisplayName, formatWardDisplay } from './clinicalDisplay';
 import { MessageCircle, Mic, Pencil, Phone, X } from 'lucide-react';
+import { getPatientHaloProfile } from '../../../services/api';
 
 const inp =
   'w-full px-2 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400';
@@ -36,11 +37,55 @@ export const InpatientDetailPanel: React.FC<Props> = ({
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<InpatientRecord>(() => ({ ...record }));
   const [taskLine, setTaskLine] = useState(() => record.taskIndicators.map((t) => t.label).join(', '));
+  const [haloDriveProfile, setHaloDriveProfile] = useState<HaloPatientProfile | null>(null);
+  const emailPrefillDoneRef = useRef(false);
 
   useEffect(() => {
     setDraft({ ...record });
     setTaskLine(record.taskIndicators.map((t) => t.label).join(', '));
+    emailPrefillDoneRef.current = false;
   }, [record]);
+
+  useEffect(() => {
+    const id = record.linkedDrivePatientId?.trim();
+    if (!id) {
+      setHaloDriveProfile(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const p = await getPatientHaloProfile(id);
+        if (!cancelled) setHaloDriveProfile(p);
+      } catch {
+        if (!cancelled) setHaloDriveProfile(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [record.linkedDrivePatientId]);
+
+  /** Sheet row email or HALO folder profile (sticker/OCR) when linked. */
+  const mergedPatientEmail =
+    (record.email?.trim() || haloDriveProfile?.email?.trim() || '') ?? '';
+
+  useEffect(() => {
+    if (!editing) {
+      emailPrefillDoneRef.current = false;
+      return;
+    }
+    const h = haloDriveProfile?.email?.trim();
+    if (!h || emailPrefillDoneRef.current) return;
+    setDraft((d) => {
+      if (d.email?.trim()) {
+        emailPrefillDoneRef.current = true;
+        return d;
+      }
+      emailPrefillDoneRef.current = true;
+      return { ...d, email: h };
+    });
+  }, [editing, haloDriveProfile]);
 
   const tel = draft.medicalAidPhone?.replace(/\s/g, '') || '';
   const sms = tel ? `sms:${tel}` : '';
@@ -494,7 +539,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                 <h3 className="text-xs font-bold uppercase tracking-wider text-teal-600 mb-2">Medical aid</h3>
                 <Field label="Scheme" value={record.medicalAid} />
                 <Field label="Member Number" value={record.medicalAidNumber} />
-                <Field label="Patient email" value={record.email ?? ''} />
+                <Field label="Patient email" value={mergedPatientEmail} />
                 <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-1 text-sm border-b border-slate-100 py-2 items-center">
                   <div className="text-slate-500 font-medium">Contact Number</div>
                   <div className="flex flex-wrap items-center gap-2">

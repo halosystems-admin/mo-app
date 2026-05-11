@@ -17,7 +17,7 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { AdmittedPatientKanban, Patient } from '../../../../../shared/types';
+import type { AdmittedPatientKanban, HaloPatientProfile, Patient } from '../../../../../shared/types';
 import type { InpatientRecord } from '../../../types/clinical';
 import { clinicalWardToBoardColumn, findInpatientMatchingHaloPatient } from '../../../services/clinicalData';
 import {
@@ -36,6 +36,7 @@ import {
   wardColumnWidthClass,
 } from './wardBoardLayout';
 import { ExternalLink, GripVertical, Plus, X } from 'lucide-react';
+import { getPatientHaloProfile } from '../../../services/api';
 
 const DROPPABLE_PREFIX = 'ward-col:';
 
@@ -184,6 +185,8 @@ type Props = {
   inpatients: InpatientRecord[];
   kanbanSaving: boolean;
   onOpenPatient: (patientId: string) => void;
+  /** HALO-linked ward sheet: patient name opens Sticker & billing in Patient folders. */
+  onOpenStickerProfile?: (patientId: string) => void;
   onRequestRemoveFromWard: (target: DetailTarget) => void;
   onToggleTodoDone: (patientId: string, todoId: string, done: boolean) => void;
   /** Patient id order per ward column (persisted with column + sort index). */
@@ -360,32 +363,43 @@ const UnlinkedSortableCompactRow = memo(function UnlinkedSortableCompactRow({
         <button
           type="button"
           onClick={onOpenDetail}
-          className="min-w-0 px-1 py-2 text-left hover:bg-slate-100/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-inset"
-          aria-label={`Open ward details for ${name}`}
+          className="min-w-0 w-full px-1 py-2 text-left hover:bg-slate-100/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-inset cursor-pointer"
+          aria-label={`Patient details for ${name}`}
         >
           <div className="text-[9px] font-bold uppercase text-teal-600">No HALO link</div>
-          <div className="text-sm font-semibold text-slate-900 leading-tight truncate">{name}</div>
+          <div className="text-sm font-semibold text-slate-900 leading-tight truncate pointer-events-none">
+            {name}
+          </div>
           {chipLine ? (
-            <div className="text-[10px] text-slate-500 truncate mt-0.5 max-md:[touch-action:pan-x_pan-y]">
+            <div className="text-[10px] text-slate-500 truncate mt-0.5 max-md:[touch-action:pan-x_pan-y] pointer-events-none">
               {chipLine}
             </div>
           ) : null}
         </button>
       </div>
-      <div className="flex h-full min-h-[3.5rem] items-center justify-end border-l border-slate-200 bg-slate-100/80 pr-2.5 pl-1 box-border">
+      <button
+        type="button"
+        onClick={onOpenDetail}
+        className="flex h-full min-h-[3.5rem] min-w-[48px] items-center justify-end border-l border-slate-200 bg-slate-100/80 pr-2.5 pl-1 box-border cursor-pointer hover:bg-slate-200/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500/35"
+        aria-label={
+          openTodos > 0
+            ? `Patient details for ${name}, ${openTodos} open tasks`
+            : `Patient details for ${name}`
+        }
+      >
         {openTodos > 0 ? (
-          <span className="inline-flex min-h-[1.5rem] min-w-[1.5rem] max-w-[2rem] shrink-0 items-center justify-center px-1 text-[10px] font-bold tabular-nums rounded-full bg-halo-primary-muted text-halo-text ring-1 ring-halo-primary/30">
+          <span className="inline-flex min-h-[1.5rem] min-w-[1.5rem] max-w-[2rem] shrink-0 items-center justify-center px-1 text-[10px] font-bold tabular-nums rounded-full bg-halo-primary-muted text-halo-text ring-1 ring-halo-primary/30 pointer-events-none">
             {openTodos > 9 ? '9+' : openTodos}
           </span>
         ) : (
           <span
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[10px] text-slate-400 tabular-nums select-none"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[10px] text-slate-400 tabular-nums select-none pointer-events-none"
             aria-hidden
           >
             ·
           </span>
         )}
-      </div>
+      </button>
     </div>
   );
 });
@@ -468,11 +482,13 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
         <button
           type="button"
           onClick={onOpenTasks}
-          className="min-w-0 px-1 py-2 text-left hover:bg-halo-section/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-halo-primary/40 focus-visible:ring-inset"
-          aria-label={`Open ward tasks for ${name}`}
+          className="min-w-0 w-full px-1 py-2 text-left hover:bg-halo-section/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-halo-primary/40 focus-visible:ring-inset cursor-pointer"
+          aria-label={`Patient details and tasks for ${name}`}
         >
-          <div className="text-sm font-semibold text-halo-text leading-tight truncate">{name}</div>
-          <div className="text-[10px] text-halo-text-secondary truncate mt-0.5 max-md:[touch-action:pan-x_pan-y]">
+          <div className="text-sm font-semibold text-halo-text leading-tight truncate pointer-events-none">
+            {name}
+          </div>
+          <div className="text-[10px] text-halo-text-secondary truncate mt-0.5 max-md:[touch-action:pan-x_pan-y] pointer-events-none">
             {bedLine} · {doctor}
           </div>
         </button>
@@ -553,25 +569,31 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
           )}
         </div>
       </div>
-      <div
-        className="flex h-full min-h-[3.5rem] items-center justify-end border-l border-halo-border bg-halo-section/50 pr-2.5 pl-1 box-border"
-        aria-hidden={openCount === 0}
+      <button
+        type="button"
+        onClick={onOpenTasks}
+        className="flex h-full min-h-[3.5rem] min-w-[48px] items-center justify-end border-l border-halo-border bg-halo-section/50 pr-2.5 pl-1 box-border cursor-pointer hover:bg-halo-section focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-halo-primary/35"
+        aria-label={
+          openCount > 0
+            ? `Patient details and tasks for ${name}, ${openCount} open`
+            : `Patient details for ${name}`
+        }
       >
         {openCount > 0 ? (
           <span
-            className="inline-flex min-h-[1.5rem] min-w-[1.5rem] max-w-[2rem] shrink-0 items-center justify-center px-1 text-[10px] font-bold tabular-nums rounded-full bg-halo-primary-muted text-halo-text ring-1 ring-halo-primary/30"
+            className="inline-flex min-h-[1.5rem] min-w-[1.5rem] max-w-[2rem] shrink-0 items-center justify-center px-1 text-[10px] font-bold tabular-nums rounded-full bg-halo-primary-muted text-halo-text ring-1 ring-halo-primary/30 pointer-events-none"
           >
             {openCount > 9 ? '9+' : openCount}
           </span>
         ) : (
           <span
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[10px] text-halo-muted tabular-nums select-none"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[10px] text-halo-muted tabular-nums select-none pointer-events-none"
             aria-hidden
           >
             ·
           </span>
         )}
-      </div>
+      </button>
     </div>
   );
 });
@@ -589,6 +611,7 @@ function WardPatientDetailSheet({
   inpatients,
   kanbanSaving,
   onOpenPatient,
+  onOpenStickerProfile,
   onRequestRemoveFromWard,
   onToggleTodoDone,
   onAddTodo,
@@ -605,6 +628,7 @@ function WardPatientDetailSheet({
   inpatients: InpatientRecord[];
   kanbanSaving: boolean;
   onOpenPatient: (patientId: string) => void;
+  onOpenStickerProfile?: (patientId: string) => void;
   onRequestRemoveFromWard: (target: DetailTarget) => void;
   onToggleTodoDone: (patientId: string, todoId: string, done: boolean) => void;
   onAddTodo: (patientId: string, title: string) => void;
@@ -621,6 +645,7 @@ function WardPatientDetailSheet({
 }) {
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [haloDetailProfile, setHaloDetailProfile] = useState<HaloPatientProfile | null>(null);
 
   const row =
     target?.kind === 'halo'
@@ -642,6 +667,26 @@ function WardPatientDetailSheet({
       onClose();
     }
   }, [target, admittedKanban, unlinkedList, onClose]);
+
+  useEffect(() => {
+    if (!target || target.kind !== 'halo') {
+      setHaloDetailProfile(null);
+      return;
+    }
+    const pid = target.patientId;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const prof = await getPatientHaloProfile(pid);
+        if (!cancelled) setHaloDetailProfile(prof);
+      } catch {
+        if (!cancelled) setHaloDetailProfile(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [target]);
 
   if (!target) return null;
 
@@ -679,6 +724,14 @@ function WardPatientDetailSheet({
           .join(' · ') || '—'
       : '';
   const todos = row?.todos || [];
+  const wardContactEmail =
+    target.kind === 'halo'
+      ? (ip?.email?.trim() || haloDetailProfile?.email?.trim() || '')
+      : '';
+  const wardContactPhone =
+    target.kind === 'halo'
+      ? (ip?.medicalAidPhone?.trim() || haloDetailProfile?.medicalAidPhone?.trim() || '')
+      : '';
 
   return (
     <div
@@ -691,11 +744,26 @@ function WardPatientDetailSheet({
       <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl border border-slate-200 max-h-[min(88dvh,620px)] flex flex-col overflow-hidden">
         <div className="flex items-start justify-between gap-2 px-4 py-3 border-b border-slate-100 shrink-0">
           <div className="min-w-0">
-            <h2 id="ward-detail-sheet-title" className="text-base font-bold text-slate-900 truncate">
-              {target.kind === 'halo'
-                ? haloName
-                : formatInpatientDisplayName(unlinked!.firstName, unlinked!.surname)}
-            </h2>
+            {target.kind === 'halo' && onOpenStickerProfile ? (
+              <button
+                type="button"
+                id="ward-detail-sheet-title"
+                className="text-base font-bold text-teal-800 hover:underline decoration-teal-600/40 underline-offset-2 truncate max-w-full text-left block w-full"
+                title="Sticker & billing details"
+                onClick={() => {
+                  onClose();
+                  onOpenStickerProfile(target.patientId);
+                }}
+              >
+                {haloName}
+              </button>
+            ) : (
+              <h2 id="ward-detail-sheet-title" className="text-base font-bold text-slate-900 truncate">
+                {target.kind === 'halo'
+                  ? haloName
+                  : formatInpatientDisplayName(unlinked!.firstName, unlinked!.surname)}
+              </h2>
+            )}
             <p className="text-xs text-slate-500 mt-0.5 truncate">
               {target.kind === 'halo' ? (
                 <>
@@ -768,6 +836,27 @@ function WardPatientDetailSheet({
                       }
                     />
                   </label>
+                </div>
+              ) : null}
+              {wardContactEmail || wardContactPhone ? (
+                <div className="mb-4 space-y-1.5 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Contact</span>
+                  {wardContactEmail ? (
+                    <div className="text-sm text-slate-800 break-all">
+                      <span className="text-slate-500 text-xs font-semibold mr-2">Email</span>
+                      <a href={`mailto:${wardContactEmail}`} className="text-teal-700 font-medium hover:underline">
+                        {wardContactEmail}
+                      </a>
+                    </div>
+                  ) : null}
+                  {wardContactPhone ? (
+                    <div className="text-sm text-slate-800">
+                      <span className="text-slate-500 text-xs font-semibold mr-2">Phone</span>
+                      <a href={`tel:${wardContactPhone.replace(/\s/g, '')}`} className="text-teal-700 font-medium hover:underline">
+                        {wardContactPhone}
+                      </a>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               <div className="flex items-center justify-between gap-2 mb-2">
@@ -1038,6 +1127,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
   inpatients,
   kanbanSaving,
   onOpenPatient,
+  onOpenStickerProfile,
   onRequestRemoveFromWard,
   onToggleTodoDone,
   onApplyBoardLayout,
@@ -1390,7 +1480,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
             : { touchAction: 'auto' }
         }
         role="region"
-        aria-label="Ward board — compact list; tap a name for tasks"
+        aria-label="Ward board — tap a patient name or the right column for details and tasks"
       >
         {columns.map((col) => (
           <WardColumnDropZone
@@ -1466,6 +1556,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
         inpatients={inpatients}
         kanbanSaving={kanbanSaving}
         onOpenPatient={onOpenPatient}
+        onOpenStickerProfile={onOpenStickerProfile}
         onRequestRemoveFromWard={(t) => {
           onRequestRemoveFromWard(t);
           setDetailTarget(null);

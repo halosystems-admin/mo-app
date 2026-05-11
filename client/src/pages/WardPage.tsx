@@ -38,6 +38,8 @@ const KANBAN_TODO_DONE = 'Done';
 interface WardPageProps {
   patients: Patient[];
   onOpenPatient: (patientId: string) => void;
+  /** HALO-linked ward card: open same Sticker & billing modal as Patient folders (green name). */
+  onOpenStickerProfile?: (patientId: string) => void;
   onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   /** After login: scroll the mobile ward board to this column once. */
   initialWardColumnScrollId?: string | null;
@@ -47,6 +49,7 @@ interface WardPageProps {
 export const WardPage: React.FC<WardPageProps> = ({
   patients,
   onOpenPatient,
+  onOpenStickerProfile,
   onToast,
   initialWardColumnScrollId,
   onInitialWardColumnScrolled,
@@ -490,6 +493,7 @@ export const WardPage: React.FC<WardPageProps> = ({
                   inpatients={inpatients}
                   kanbanSaving={kanbanSaving}
                   onOpenPatient={onOpenPatient}
+                  onOpenStickerProfile={onOpenStickerProfile}
                   onRequestRemoveFromWard={(t) => setRemoveTarget(t)}
                   onToggleTodoDone={toggleTodoDone}
                   onApplyBoardLayout={applyBoardLayout}

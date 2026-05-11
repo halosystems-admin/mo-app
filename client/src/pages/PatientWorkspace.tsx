@@ -43,6 +43,7 @@ import {
   generatePatientLetterDocx,
   uploadPatientHaloProfile,
   emailPatientDoc,
+  emailPatientFile,
 } from '../services/api';
 import { uploadAndExtractSmartContext } from '../services/smartContext';
 import {
@@ -58,7 +59,7 @@ import { HeaderConsultationRecorder } from '../features/scribe/HeaderConsultatio
 import { FileViewer } from '../components/FileViewer';
 import { FileBrowser } from '../components/FileBrowser';
 import { NoteEditor } from '../components/NoteEditor';
-import { PatientChat } from '../components/PatientChat';
+import { PatientChat, type EmailDocumentKind } from '../components/PatientChat';
 import { getErrorMessage } from '../utils/formatting';
 import { CLINICAL_BTN_PRIMARY } from '../features/clinical/shared/tableScrollClasses';
 import { formatPatientDisplayName } from '../features/clinical/shared/clinicalDisplay';
@@ -157,9 +158,21 @@ interface Props {
   onToast: (message: string, type: 'success' | 'error' | 'info') => void;
   templateId?: string;
   calendarPrepEvent?: CalendarEvent | null;
+  /** App sets this to the current patient id (e.g. ward sheet name) to open Sticker & billing once. */
+  openStickerProfileForPatientId?: string | null;
+  onStickerProfileOpenFromParentHandled?: () => void;
 }
 
-export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChange, onToast, templateId: propTemplateId, calendarPrepEvent }) => {
+export const PatientWorkspace: React.FC<Props> = ({
+  patient,
+  onBack,
+  onDataChange,
+  onToast,
+  templateId: propTemplateId,
+  calendarPrepEvent,
+  openStickerProfileForPatientId,
+  onStickerProfileOpenFromParentHandled,
+}) => {
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [summary, setSummary] = useState<string[]>([]);
   const [alerts, setAlerts] = useState<LabAlert[]>([]);
@@ -233,9 +246,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
-  const [chatLongWait, setChatLongWait] = useState(false);
   const chatMessagesRef = useRef<ChatMessage[]>([]);
-  const chatLongWaitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   chatMessagesRef.current = chatMessages;
 
   const [haloPatientProfile, setHaloPatientProfile] = useState<HaloPatientProfile | null>(null);
@@ -243,7 +254,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [stickerProfileModalOpen, setStickerProfileModalOpen] = useState(false);
   const [stickerProfileDraft, setStickerProfileDraft] = useState<HaloPatientProfile | null>(null);
   const [stickerProfileSaving, setStickerProfileSaving] = useState(false);
-  const [letterGenBusy, setLetterGenBusy] = useState<'motivation' | 'referral' | null>(null);
+  const [emailDocumentBusy, setEmailDocumentBusy] = useState<EmailDocumentKind | null>(null);
 
   const refreshHaloPatientProfile = useCallback(async () => {
     setHaloProfileLoading(true);
@@ -261,6 +272,17 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setStickerProfileModalOpen(true);
     void refreshHaloPatientProfile();
   }, [refreshHaloPatientProfile]);
+
+  useEffect(() => {
+    if (!openStickerProfileForPatientId || openStickerProfileForPatientId !== patient.id) return;
+    openStickerProfileModal();
+    onStickerProfileOpenFromParentHandled?.();
+  }, [
+    openStickerProfileForPatientId,
+    patient.id,
+    openStickerProfileModal,
+    onStickerProfileOpenFromParentHandled,
+  ]);
 
   useEffect(() => {
     void refreshHaloPatientProfile();
@@ -839,7 +861,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       }
       const to = profile?.email?.trim();
       if (!to) {
-        onToast('Add a patient email under Sticker & billing details (green name), then try again.', 'info');
+        onToast('Add a patient email first (green name bar → Sticker & billing).', 'info');
         return;
       }
       const subject = `${note?.title?.trim() || 'Clinical note'} — ${formatPatientDisplayName(patient.name) || patient.name}`;
@@ -853,7 +875,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         });
         if (res.mailtoUrl) {
           window.location.href = res.mailtoUrl;
-          onToast('Your mail app should open — attach the PDF from the preview if needed.', 'info');
+          onToast('Finish sending in your mail app.', 'info');
         } else {
           onToast('Email sent.', 'success');
         }
@@ -1033,6 +1055,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               ...(n.fields && n.fields.length > 0 ? { fields: n.fields } : {}),
             })),
             ...(mainComplaint ? { mainComplaint } : {}),
+            ...(haloPatientProfile?.email?.trim()
+              ? { patientEmail: haloPatientProfile.email.trim() }
+              : {}),
+            ...(haloPatientProfile?.medicalAidPhone?.trim()
+              ? { patientPhone: haloPatientProfile.medicalAidPhone.trim() }
+              : {}),
           };
           const res = await savePatientSession(patient.id, payload);
           const items = Array.isArray(res.sessions) ? res.sessions : [];
@@ -1055,6 +1083,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       activeSessionId,
       activeHospitalConfig.userId,
       consultContext,
+      haloPatientProfile,
       onToast,
       patient.id,
       selectedHospital,
@@ -1168,10 +1197,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setChatMessages(prev => [...prev, userMessage]);
     setChatInput("");
     setChatLoading(true);
-    setChatLongWait(false);
-
-    if (chatLongWaitTimerRef.current) clearTimeout(chatLongWaitTimerRef.current);
-    chatLongWaitTimerRef.current = setTimeout(() => setChatLongWait(true), 8000);
 
     const assistantPlaceholder: ChatMessage = { role: 'assistant', content: '', timestamp: Date.now() };
     setChatMessages(prev => [...prev, assistantPlaceholder]);
@@ -1205,46 +1230,144 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast(getErrorMessage(err), 'error');
     } finally {
       setChatLoading(false);
-      setChatLongWait(false);
-      if (chatLongWaitTimerRef.current) {
-        clearTimeout(chatLongWaitTimerRef.current);
-        chatLongWaitTimerRef.current = null;
-      }
     }
   };
 
-  const handleLetterDraft = useCallback(
-    async (kind: 'motivation' | 'referral') => {
-      const prompt =
-        kind === 'motivation'
-          ? 'Draft the body text for a medical motivation letter for this patient. Use a professional clinical tone. Include clear rationale for the requested investigation or treatment. Output body paragraphs only — no letterhead, addresses, or signature blocks.'
-          : 'Draft the body text for a referral letter for this patient. Summarize relevant history and the reason for referral. Output body paragraphs only — no letterhead, addresses, or signature blocks.';
-      setLetterGenBusy(kind);
+  const handleEmailDocumentKind = useCallback(
+    async (kind: EmailDocumentKind) => {
+      if (emailDocumentBusy) return;
+      let profile = haloPatientProfile;
+      if (!profile?.email?.trim()) {
+        try {
+          profile = await getPatientHaloProfile(patient.id);
+        } catch {
+          profile = null;
+        }
+      }
+      const to = profile?.email?.trim();
+      if (!to) {
+        onToast('Add a patient email first (green name bar → Sticker & billing).', 'info');
+        return;
+      }
+
+      setEmailDocumentBusy(kind);
       try {
-        const { reply } = await askHalo(patient.id, prompt, chatMessagesRef.current);
-        const body = reply?.trim();
-        if (!body) {
-          onToast('HALO did not return letter text. Try again or ask in chat first.', 'error');
+        if (kind === 'motivation' || kind === 'referral') {
+          const prompt =
+            kind === 'motivation'
+              ? 'Draft the body text for a medical motivation letter for this patient. Use a professional clinical tone. Include clear rationale for the requested investigation or treatment. Output body paragraphs only — no letterhead, addresses, or signature blocks.'
+              : 'Draft the body text for a referral letter for this patient. Summarize relevant history and the reason for referral. Output body paragraphs only — no letterhead, addresses, or signature blocks.';
+          const { reply } = await askHalo(patient.id, prompt, chatMessagesRef.current);
+          const body = reply?.trim();
+          if (!body) {
+            onToast('No letter text from HALO. Try again.', 'error');
+            return;
+          }
+          const gen = await generatePatientLetterDocx({ patientId: patient.id, letterKind: kind, body });
+          if (!gen?.fileId) {
+            onToast('Letter could not be saved to Patient Notes.', 'error');
+            return;
+          }
+          await loadFolderContents(currentFolderId);
+          onDataChange();
+          void refreshHaloPatientProfile();
+          try {
+            await emailPatientFile({ patientId: patient.id, fileId: gen.fileId });
+            onToast(`${kind === 'motivation' ? 'Motivation' : 'Referral'} letter saved and emailed.`, 'success');
+          } catch (mailErr) {
+            const msg = getErrorMessage(mailErr);
+            if (/503|not configured|Outbound email/i.test(msg)) {
+              onToast('Letter saved. Outbound email is not configured on the server.', 'error');
+            } else {
+              onToast(`Letter saved. Email failed: ${msg}`, 'error');
+            }
+          }
           return;
         }
-        await generatePatientLetterDocx({ patientId: patient.id, letterKind: kind, body });
-        await loadFolderContents(currentFolderId);
-        onDataChange();
-        void refreshHaloPatientProfile();
-        onToast(`${kind === 'motivation' ? 'Motivation' : 'Referral'} letter saved to Patient Notes.`, 'success');
+
+        const template_id = kind === 'script' ? 'script' : 'sick_note';
+        const template_name =
+          templateOptions.find((t) => t.id === template_id)?.name ?? (kind === 'script' ? 'Script' : 'Sick note');
+
+        let text = buildNoteGenerationInput(lastTranscript, consultContext).trim();
+        if (!text) {
+          const draftPrompt =
+            kind === 'script'
+              ? 'Draft the clinical content for an outpatient prescription / script for this patient using folder context. Output body text suitable for a formal script template — concise, professional, no letterhead.'
+              : 'Draft the clinical content for a sick leave / medical certificate for this patient using folder context. Output body text suitable for a formal sick note template — concise, professional, no letterhead.';
+          const { reply } = await askHalo(patient.id, draftPrompt, chatMessagesRef.current);
+          text = reply?.trim() ?? '';
+        }
+        if (!text.trim()) {
+          onToast('Add transcript, context in the editor, or use Ask HALO first.', 'info');
+          return;
+        }
+
+        const noteResult = await generateNotePreview({
+          template_id,
+          text,
+          user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
+          template_name,
+          patientId: patient.id,
+        });
+        const first = noteResult.notes?.[0];
+        const fromFields =
+          first?.fields && first.fields.length > 0
+            ? first.fields.map((f) => (f.label ? `${f.label}:\n${f.body ?? ''}` : f.body)).filter(Boolean).join('\n\n')
+            : '';
+        const content = first?.content?.trim() || fromFields || '';
+        if (!content.trim()) {
+          onToast('Note generation returned no content.', 'error');
+          return;
+        }
+
+        const { pdfBase64 } = await generateNotePreviewPdf({
+          template_id,
+          text,
+          user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
+          template_name,
+          patientId: patient.id,
+        });
+        if (!pdfBase64?.trim()) {
+          onToast('Could not build PDF for email.', 'error');
+          return;
+        }
+
+        const subject = `${template_name} — ${formatPatientDisplayName(patient.name) || patient.name}`;
+        const res = await emailPatientDoc({
+          patientId: patient.id,
+          to,
+          subject,
+          pdfBase64,
+          attachmentName: `${template_id.replace(/[^\w-]+/g, '_')}.pdf`,
+        });
+        if (res.mailtoUrl) {
+          window.location.href = res.mailtoUrl;
+          onToast('Finish sending in your mail app.', 'info');
+        } else {
+          onToast(`${template_name} emailed.`, 'success');
+        }
       } catch (err) {
         onToast(getErrorMessage(err), 'error');
       } finally {
-        setLetterGenBusy(null);
+        setEmailDocumentBusy(null);
       }
     },
     [
+      emailDocumentBusy,
+      haloPatientProfile,
       patient.id,
+      patient.name,
       currentFolderId,
       loadFolderContents,
       onDataChange,
       onToast,
       refreshHaloPatientProfile,
+      lastTranscript,
+      consultContext,
+      selectedHospital,
+      activeHospitalConfig.userId,
+      templateOptions,
     ]
   );
 
@@ -1792,6 +1915,14 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                                 {labelTime ? `${labelTime}` : ''}
                                 {hasNotes ? ` • ${session.notes!.length} note(s)` : ' • transcript only'}
                               </span>
+                              {session.patientEmail?.trim() || session.patientPhone?.trim() ? (
+                                <span className="text-xs text-teal-700 font-medium block mt-0.5 truncate">
+                                  Contact:{' '}
+                                  {[session.patientEmail?.trim(), session.patientPhone?.trim()]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </span>
+                              ) : null}
                             </div>
                             <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-teal-600 shrink-0" />
                           </button>
@@ -2155,12 +2286,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               chatInput={chatInput}
               onChatInputChange={setChatInput}
               chatLoading={chatLoading}
-              chatLongWait={chatLongWait}
               onSendChat={handleSendChat}
-              letterActions={{
-                onMotivation: () => void handleLetterDraft('motivation'),
-                onReferral: () => void handleLetterDraft('referral'),
-                busy: letterGenBusy,
+              emailDocumentActions={{
+                onSelectKind: (k) => void handleEmailDocumentKind(k),
+                busyKind: emailDocumentBusy,
+                scriptAvailable: templateOptions.some((t) => t.id === 'script'),
+                sickNoteAvailable: templateOptions.some((t) => t.id === 'sick_note'),
               }}
             />
           )}
@@ -2234,7 +2365,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     </select>
                   </label>
                   <label className="block">
-                    <span className="text-xs font-semibold text-slate-600">Patient email (scripts / certificates)</span>
+                    <span className="text-xs font-semibold text-slate-600">Patient email</span>
                     <input
                       type="email"
                       className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"

@@ -137,6 +137,17 @@ export const App = () => {
     setMainNav('folders');
   }, [selectPatient]);
 
+  /** Ward detail sheet → “open sticker profile” switches to folders and opens the same modal as the green name bar. */
+  const [openStickerForPatientId, setOpenStickerForPatientId] = useState<string | null>(null);
+  const openStickerProfileFromWard = useCallback((patientId: string) => {
+    selectPatient(patientId);
+    setMainNav('folders');
+    setOpenStickerForPatientId(patientId);
+  }, [selectPatient]);
+  const clearOpenStickerRequest = useCallback(() => {
+    setOpenStickerForPatientId(null);
+  }, []);
+
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
   }, []);
@@ -736,6 +747,7 @@ export const App = () => {
             onOpenPatient={(id) => {
               openPatientWorkspace(id);
             }}
+            onOpenStickerProfile={openStickerProfileFromWard}
             onToast={showToast}
           />
         ) : mainNav === 'sheets' ? (
@@ -754,6 +766,10 @@ export const App = () => {
             onToast={showToast}
             templateId={userSettings?.templateId || DEFAULT_HALO_TEMPLATE_ID}
             calendarPrepEvent={null}
+            openStickerProfileForPatientId={
+              openStickerForPatientId === activePatient.id ? openStickerForPatientId : null
+            }
+            onStickerProfileOpenFromParentHandled={clearOpenStickerRequest}
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-slate-300 relative overflow-hidden">

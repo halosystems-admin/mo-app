@@ -37,11 +37,21 @@ function supabaseOrThrow() {
 router.get('/smtp/status', async (_req: Request, res: Response) => {
   const basicConfigured = isSmtpConfigured();
   if (!basicConfigured) {
-    res.json({ configured: false, verified: false, error: 'SMTP not configured' });
+    res.json({
+      configured: false,
+      verified: false,
+      error: 'SMTP not configured',
+      transport: config.smtpUseMicrosoftGraph ? 'microsoft_graph' : 'smtp',
+    });
     return;
   }
   const v = await verifySmtp();
-  res.json({ configured: true, verified: v.ok, ...(v.error ? { error: v.error } : {}) });
+  res.json({
+    configured: true,
+    verified: v.ok,
+    transport: config.smtpUseMicrosoftGraph ? 'microsoft_graph' : 'smtp',
+    ...(v.error ? { error: v.error } : {}),
+  });
 });
 
 router.post('/smtp/test', async (req: Request, res: Response) => {

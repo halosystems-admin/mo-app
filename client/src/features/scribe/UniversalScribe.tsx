@@ -10,20 +10,9 @@ interface Props {
 export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onError }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [longWait, setLongWait] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingMimeType = useRef<string>("audio/webm");
-
-  // Show "may take a while" after 10s when processing (covers Gemini fallback)
-  useEffect(() => {
-    if (!isProcessing) {
-      setLongWait(false);
-      return;
-    }
-    const id = setTimeout(() => setLongWait(true), 10_000);
-    return () => clearTimeout(id);
-  }, [isProcessing]);
 
   // Ensure microphone stream is stopped if component unmounts while recording
   useEffect(() => {
@@ -110,14 +99,9 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
 
       {/* Processing indicator pill */}
       {isProcessing && (
-        <div className="bg-white border border-teal-200 shadow-lg rounded-full px-3 py-1.5 flex flex-col items-end gap-1">
-          <div className="flex items-center gap-2">
-            <Wand2 className="w-3.5 h-3.5 text-teal-500 animate-spin" />
-            <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">Scribing...</span>
-          </div>
-          {longWait && (
-            <span className="text-[9px] text-slate-500">This may take 15–60 seconds.</span>
-          )}
+        <div className="bg-white border border-teal-200 shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2">
+          <Wand2 className="w-3.5 h-3.5 text-teal-500 animate-spin" />
+          <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">Scribing...</span>
         </div>
       )}
 

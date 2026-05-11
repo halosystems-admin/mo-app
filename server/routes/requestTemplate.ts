@@ -1,17 +1,12 @@
 import { Router, Request, Response } from 'express';
-import nodemailer from 'nodemailer';
 import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
+import { isSmtpConfigured, sendOutboundMail } from '../services/email';
 
 const router = Router();
 router.use(requireAuth);
 
 const ADMIN_EMAIL = config.adminEmail;
-
-/** Check if email can be sent (SMTP configured) */
-function isEmailConfigured(): boolean {
-  return Boolean(config.smtpHost && config.smtpUser && config.smtpPass);
-}
 
 /**
  * POST /api/request-template
@@ -31,8 +26,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  if (!isEmailConfigured()) {
-    console.warn('[request-template] SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS to send template requests.');
+  if (!isSmtpConfigured()) {
+    console.warn(
+      '[request-template] Outbound mail not configured. Set SMTP_* or SMTP_USE_MICROSOFT_GRAPH + MS_* + mailbox.'
+    );
     res.status(503).json({
       error: 'Email is not configured. Your request was not sent. Please contact support.',
     });
@@ -40,17 +37,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      host: config.smtpHost,
-      port: config.smtpPort,
-      secure: config.smtpSecure,
-      auth: {
-        user: config.smtpUser,
-        pass: config.smtpPass,
-      },
-    });
-
-    const decodedAttachments: Array<{ filename: string; content: Buffer }> = [];
+    const decodedAttachments: Array<{ filename: string; content: Buffer; contentType?: string }> = [];
     if (Array.isArray(attachments)) {
       for (const att of attachments.slice(0, 5)) {
         if (att?.name && att?.content && typeof att.content === 'string') {
@@ -78,7 +65,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       description.trim(),
     ].join('\n');
 
-    await transporter.sendMail({
+    await sendOutboundMail({
       from: `${(config.smtpFromName || 'HALO').trim()} <${(config.smtpFrom || config.smtpUser).trim()}>`,
       to: ADMIN_EMAIL,
       subject,

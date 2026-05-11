@@ -729,6 +729,8 @@ router.post('/patients/:id/sessions', async (req: Request, res: Response) => {
     const noteTitlesRaw = req.body?.noteTitles;
     const notesRaw = req.body?.notes;
     const mainComplaintRaw = req.body?.mainComplaint;
+    const patientEmailRaw = req.body?.patientEmail;
+    const patientPhoneRaw = req.body?.patientPhone;
 
     const transcript =
       typeof transcriptRaw === 'string' ? transcriptRaw.trim().slice(0, 20000) : '';
@@ -783,6 +785,10 @@ router.post('/patients/:id/sessions', async (req: Request, res: Response) => {
       : undefined;
     const mainComplaint =
       typeof mainComplaintRaw === 'string' ? mainComplaintRaw.trim().slice(0, 200) : undefined;
+    const patientEmail =
+      typeof patientEmailRaw === 'string' ? patientEmailRaw.trim().slice(0, 320) : undefined;
+    const patientPhone =
+      typeof patientPhoneRaw === 'string' ? patientPhoneRaw.trim().slice(0, 80) : undefined;
 
     const nowIso = new Date().toISOString();
     const providedId =
@@ -806,6 +812,8 @@ router.post('/patients/:id/sessions', async (req: Request, res: Response) => {
         noteTitles,
         notes,
         mainComplaint: mainComplaint || undefined,
+        patientEmail: patientEmail || undefined,
+        patientPhone: patientPhone || undefined,
       },
       microsoftStorageMode,
     });

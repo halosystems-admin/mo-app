@@ -111,14 +111,21 @@ export async function generateText(prompt: string): Promise<string> {
  * Yields text chunks as they arrive for lower perceived latency.
  */
 export async function* generateTextStream(prompt: string): AsyncGenerator<string> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
-  const result = await withRetry(() =>
-    model.generateContentStream(prompt, geminiRequestOptions)
-  );
-  for await (const chunk of result.stream) {
-    const text = chunk.text?.();
-    if (text) yield text;
+  if (!config.geminiApiKey) {
+    throw new Error('GEMINI_API_KEY is empty after trim — check .env and restart the server.');
+  }
+  try {
+    const genAI = getGenAI();
+    const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
+    const result = await withRetry(() =>
+      model.generateContentStream(prompt, geminiRequestOptions)
+    );
+    for await (const chunk of result.stream) {
+      const text = chunk.text?.();
+      if (text) yield text;
+    }
+  } catch (e) {
+    throw wrapGeminiError(e, 'generateTextStream');
   }
 }
 

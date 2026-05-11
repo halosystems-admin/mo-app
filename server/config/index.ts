@@ -128,6 +128,16 @@ export const config = {
   smtpPass: process.env.SMTP_PASS || '',
 
   /**
+   * When true, outbound mail uses Microsoft Graph (client credentials) instead of SMTP password.
+   * Requires MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET and Azure **Application** permission
+   * `Mail.Send` (admin consent). Set GRAPH_MAIL_SEND_AS (or SMTP_FROM) to the mailbox UPN, e.g. mo@practice.halo.africa.
+   * If false/ unset, the app uses classic SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS) as before.
+   */
+  smtpUseMicrosoftGraph: process.env.SMTP_USE_MICROSOFT_GRAPH === 'true',
+  /** Mailbox that sends when using Graph (UPN). Falls back to SMTP_FROM then SMTP_USER if empty. */
+  graphMailSendAs: (process.env.GRAPH_MAIL_SEND_AS || '').trim(),
+
+  /**
    * Filename for the cumulative clinical history PDF in each patient's "Patient Notes" folder.
    * If that PDF already exists, Smart Context appends to it; if not, the first save creates it
    * with this name (no second parallel "HALO" cumulative file).

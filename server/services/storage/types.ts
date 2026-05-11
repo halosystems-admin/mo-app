@@ -163,6 +163,8 @@ export interface StorageAdapter {
         fields?: Array<{ label: string; body: string }>;
       }>;
       mainComplaint?: string;
+      patientEmail?: string;
+      patientPhone?: string;
     };
     microsoftStorageMode?: MicrosoftStorageMode;
   }): Promise<{ sessions: ScribeSession[] }>;

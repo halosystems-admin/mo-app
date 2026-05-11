@@ -56,7 +56,7 @@ import {
 } from 'lucide-react';
 import { SheetsDictateModal } from './SheetsDictateModal';
 import { StickerCameraModal } from '../../../components/StickerCameraModal';
-import { extractPatientFromStickerFile } from '../../../services/api';
+import { extractPatientFromStickerFile, getPatientHaloProfile } from '../../../services/api';
 import { mergeStickerExtractionIntoDriveProfile } from '../../../services/haloPatientProfileMerge';
 
 const SHEET_STATUS_OPTIONS: InpatientSheetStatus[] = [
@@ -322,7 +322,7 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
     setShowAddAdmission(true);
   };
 
-  const applyAddFormHalo = (patientId: string) => {
+  const applyAddFormHalo = async (patientId: string) => {
     setAddHaloPatientId(patientId);
     const p = patientId ? patients.find((x) => x.id === patientId) ?? null : null;
     const tid = addTemplateRef.current;
@@ -333,6 +333,16 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
       }
       return applyHaloPatientToAdmissionDraft(prev, p);
     });
+    const id = patientId.trim();
+    if (!id) return;
+    try {
+      const profile = await getPatientHaloProfile(id);
+      const em = profile?.email?.trim();
+      if (!em) return;
+      setNewAdmission((prev) => (prev.email?.trim() ? prev : { ...prev, email: em }));
+    } catch {
+      /* ignore — admission draft still has HALO link */
+    }
   };
 
   const applyAddFormTemplate = (templateId: string) => {
@@ -929,7 +939,7 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
                 <select
                   className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200"
                   value={addHaloPatientId}
-                  onChange={(e) => applyAddFormHalo(e.target.value)}
+                  onChange={(e) => void applyAddFormHalo(e.target.value)}
                 >
                   <option value="">— None —</option>
                   {patients.map((p) => (

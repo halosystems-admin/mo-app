@@ -169,7 +169,7 @@ export const SettingsModal: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg m-4 max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl m-4 max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div
           className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-5 flex items-center justify-between rounded-t-2xl"
@@ -210,7 +210,7 @@ export const SettingsModal: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden p-6 space-y-6">
           {/* Session Info */}
           <div className="flex items-center gap-3 bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
             <Clock size={16} className="text-teal-600 shrink-0" />
@@ -353,19 +353,6 @@ export const SettingsModal: React.FC<Props> = ({
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
               <FileText size={12} /> Note templates
             </h3>
-            <p className="text-xs text-slate-400 mb-3">Templates used when generating notes from scribe dictation (Halo Functions API).</p>
-
-            <p className="text-xs text-slate-600 mb-2">You have access to:</p>
-            <div className="flex flex-wrap gap-2 mb-4">
-              {HALO_TEMPLATE_OPTIONS.map(t => (
-                <span
-                  key={t.id}
-                  className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200"
-                >
-                  {t.name}
-                </span>
-              ))}
-            </div>
 
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">Default template</label>
             <select
@@ -389,7 +376,7 @@ export const SettingsModal: React.FC<Props> = ({
             ) : (
               <div className="mt-4 p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
                 <p className="text-xs font-semibold text-slate-600">Request a new template</p>
-                <p className="text-xs text-slate-500">Describe the template you need and optionally attach example documents. The request will be sent to admin@halo.africa.</p>
+                <p className="text-xs text-slate-500">Sent to admin@halo.africa.</p>
                 <textarea
                   value={requestDescription}
                   onChange={(e) => setRequestDescription(e.target.value)}

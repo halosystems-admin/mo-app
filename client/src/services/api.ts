@@ -381,6 +381,9 @@ export const savePatientSession = (
     noteTitles?: string[];
     notes?: Array<{ noteId: string; title: string; content: string; template_id: string; raw?: unknown; fields?: Array<{ label: string; body: string }> }>;
     mainComplaint?: string;
+    /** From HALO_patient_profile.json at save time (Sessions tab / ASK HALO context). */
+    patientEmail?: string;
+    patientPhone?: string;
   }
 ) =>
   request<{ sessions: ScribeSession[] }>(
@@ -654,6 +657,24 @@ export async function emailPatientDoc(params: {
       subject: params.subject,
       pdfBase64: params.pdfBase64,
       attachmentName: params.attachmentName ?? 'clinical_note.pdf',
+    }),
+  });
+}
+
+/** Email a file already in Patient Notes (e.g. motivation/referral DOCX). Requires SMTP/Graph on server. */
+export async function emailPatientFile(params: {
+  patientId: string;
+  fileId: string;
+  to?: string;
+  subject?: string;
+}): Promise<{ ok: boolean; smtpSent: boolean }> {
+  return request('/api/halo/email-patient-file', {
+    method: 'POST',
+    body: JSON.stringify({
+      patientId: params.patientId,
+      fileId: params.fileId,
+      ...(params.to ? { to: params.to } : {}),
+      ...(params.subject ? { subject: params.subject } : {}),
     }),
   });
 }

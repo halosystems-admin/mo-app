@@ -78,6 +78,8 @@ export function searchPrompt(query: string, context: string): string {
 export function chatSystemPrompt(fullContext: string, conversationHistory: string, question: string): string {
   return `You are HALO, an experienced medical assistant integrated into a patient management system. Answer questions using ONLY the patient data provided below. Be concise, clinical, and professional. If the data doesn't contain the answer, say so honestly. Never make up medical information.
 
+When the context includes "=== PATIENT_DETAILS ===" / "=== END_PATIENT_DETAILS ===" (from HALO_patient_profile.json), treat "Patient email:" and medical aid / phone lines there as authoritative for contact details—even if generated admission notes elsewhere say N/A or omit contact info.
+
 Patient Data Context:
 ${fullContext}
 

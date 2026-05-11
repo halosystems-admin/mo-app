@@ -65,6 +65,7 @@ const ALLOWED_UPLOAD_TYPES = [
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/json',
 ];
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -745,6 +746,8 @@ export const googleDriveAdapter: StorageAdapter = {
         fields?: Array<{ label: string; body: string }>;
       }>;
       mainComplaint?: string;
+      patientEmail?: string;
+      patientPhone?: string;
     };
   }): Promise<{ sessions: ScribeSession[] }> {
     const transcript = typeof payload.transcript === 'string' ? payload.transcript.trim().slice(0, 20000) : '';
@@ -782,6 +785,10 @@ export const googleDriveAdapter: StorageAdapter = {
 
     const mainComplaint =
       typeof payload.mainComplaint === 'string' ? payload.mainComplaint.trim().slice(0, 200) : undefined;
+    const patientEmail =
+      typeof payload.patientEmail === 'string' ? payload.patientEmail.trim().slice(0, 320) : undefined;
+    const patientPhone =
+      typeof payload.patientPhone === 'string' ? payload.patientPhone.trim().slice(0, 80) : undefined;
 
     const nowIso = new Date().toISOString();
     const providedId = typeof payload.sessionId === 'string' && payload.sessionId.trim() ? payload.sessionId.trim() : undefined;
@@ -797,6 +804,8 @@ export const googleDriveAdapter: StorageAdapter = {
       noteTitles,
       notes,
       mainComplaint: mainComplaint || undefined,
+      patientEmail: patientEmail || undefined,
+      patientPhone: patientPhone || undefined,
     };
 
     const existingFileId = await findSessionsFile(token, patientFolderId);
@@ -1200,6 +1209,10 @@ function parseSessionsJson(raw: unknown): ScribeSession[] {
         notes,
         mainComplaint:
           typeof obj.mainComplaint === 'string' ? obj.mainComplaint.trim().slice(0, 200) : undefined,
+        patientEmail:
+          typeof obj.patientEmail === 'string' ? obj.patientEmail.trim().slice(0, 320) : undefined,
+        patientPhone:
+          typeof obj.patientPhone === 'string' ? obj.patientPhone.trim().slice(0, 80) : undefined,
       } as ScribeSession;
     })
     .filter((s): s is ScribeSession => s !== null);

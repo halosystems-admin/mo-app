@@ -198,6 +198,10 @@ export interface ScribeSession {
   }>;
   /** Short main complaint/summary for list display (e.g. "Ankle Fracture"). */
   mainComplaint?: string;
+  /** Snapshot from HALO_patient_profile.json when the session was saved (contact display). */
+  patientEmail?: string;
+  /** Snapshot (e.g. medicalAidPhone from profile) when the session was saved. */
+  patientPhone?: string;
 }
 
 // --- Ward (doctor diary + admitted patient Kanban) ---
