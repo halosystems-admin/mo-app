@@ -137,6 +137,18 @@ export const config = {
   /** Mailbox that sends when using Graph (UPN). Falls back to SMTP_FROM then SMTP_USER if empty. */
   graphMailSendAs: (process.env.GRAPH_MAIL_SEND_AS || '').trim(),
 
+  /** Per-user Henk Gmail SMTP (patient email only when signed in as this address). */
+  henkOutboundEmail: (process.env.HENK_OUTBOUND_EMAIL || 'henk@halo.africa').trim().toLowerCase(),
+  henkDriveRootFolderName: (process.env.HENK_DRIVE_ROOT_FOLDER_NAME || 'Henk Kruger').trim(),
+  henkSmtpHost: (process.env.HENK_SMTP_HOST || '').trim(),
+  henkSmtpPort: Number(process.env.HENK_SMTP_PORT) || 587,
+  henkSmtpSecure: process.env.HENK_SMTP_SECURE === 'true',
+  henkSmtpUser: (process.env.HENK_SMTP_USER || '').trim(),
+  /** Google app passwords are often pasted with spaces; strip them. */
+  henkSmtpPass: (process.env.HENK_SMTP_PASS || '').replace(/\s+/g, ''),
+  henkSmtpFromEmail: (process.env.HENK_SMTP_FROM_EMAIL || '').trim(),
+  henkSmtpFromName: (process.env.HENK_SMTP_FROM_NAME || 'Dr Henk Kruger').trim(),
+
   /**
    * Filename for the cumulative clinical history PDF in each patient's "Patient Notes" folder.
    * If that PDF already exists, Smart Context appends to it; if not, the first save creates it

@@ -18,6 +18,7 @@ import {
   resolvePatientIdFromClinicalNames,
 } from '../features/clinical/shared/clinicalDisplay';
 import { Layers } from 'lucide-react';
+import { openPatientThenClinicalConsultation } from '../features/scribe/openClinicalConsultation';
 import { WARD_BOARD_COLUMNS } from '../features/clinical/shared/wardBoardColumns';
 import { CLINICAL_BTN_PRIMARY } from '../features/clinical/shared/tableScrollClasses';
 import { DischargePatientModal } from '../features/clinical/shared/DischargePatientModal';
@@ -67,6 +68,18 @@ export const WardPage: React.FC<WardPageProps> = ({
   patientsRef.current = patients;
 
   const patientsById = useMemo(() => new Map(patients.map((p) => [p.id, p])), [patients]);
+
+  const runClinicalConsultation = useCallback(
+    (patientId: string, mode: 'type' | 'dictate') => {
+      const id = patientId.trim();
+      if (!id) {
+        onToast?.('Select a patient first.', 'info');
+        return;
+      }
+      openPatientThenClinicalConsultation(id, mode, onOpenPatient);
+    },
+    [onOpenPatient, onToast]
+  );
 
   const reloadInpatients = useCallback(async () => {
     const rows = await fetchCurrentInpatients();
@@ -493,6 +506,7 @@ export const WardPage: React.FC<WardPageProps> = ({
                   inpatients={inpatients}
                   kanbanSaving={kanbanSaving}
                   onOpenPatient={onOpenPatient}
+                  onClinicalConsultation={runClinicalConsultation}
                   onOpenStickerProfile={onOpenStickerProfile}
                   onRequestRemoveFromWard={(t) => setRemoveTarget(t)}
                   onToggleTodoDone={toggleTodoDone}

@@ -13,6 +13,8 @@ import { parseHaloPatientProfileJson } from '../../../shared/haloPatientProfileP
 import { refineMimeType } from '../../../shared/mimeFromFilename';
 import type { MicrosoftStorageMode, StorageAdapter } from './types';
 import { parseFolderString } from '../drive';
+import { buildPatientFolderDiskName } from '../../utils/patientFolderName';
+import { formatPatientDisplayName } from '../../utils/patientDisplay';
 
 // Import the existing drive service module for its Node-side pdf-parse polyfills.
 // We don't use its Google-specific network code.
@@ -513,7 +515,8 @@ export const microsoftGraphAdapter: StorageAdapter = {
     }
     if (safeSex !== 'M' && safeSex !== 'F') throw new Error('Sex must be M or F.');
 
-    const folderName = `${safeName}__${safeDob}__${safeSex}`;
+    const folderName = buildPatientFolderDiskName(safeName, safeDob, safeSex);
+    const displayName = formatPatientDisplayName(safeName) || safeName;
     const driveBase = getDriveBase(storageMode);
     const res = await fetchWithTimeout(`${driveBase}/items/${encodeURIComponent(rootId)}/children`, token, {
       method: 'POST',
@@ -529,7 +532,7 @@ export const microsoftGraphAdapter: StorageAdapter = {
     const now = new Date().toISOString().split('T')[0];
     return {
       id: created.id,
-      name: safeName,
+      name: displayName,
       dob: safeDob,
       sex: safeSex as 'M' | 'F',
       lastVisit: now,
@@ -576,7 +579,7 @@ export const microsoftGraphAdapter: StorageAdapter = {
     }
     if (finalSex !== 'M' && finalSex !== 'F') throw new Error('Sex must be M or F.');
 
-    const newFolderName = `${finalName}__${finalDob}__${finalSex}`;
+    const newFolderName = buildPatientFolderDiskName(finalName, finalDob, finalSex);
     const patchRes = await fetchWithTimeout(
       `${driveBase}/items/${encodeURIComponent(patientId)}`,
       token,

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireUser } from '../middleware/requireUser';
 import { acceptInvite, findUserByEmail, normalizeEmail, updateLastLogin, verifyPassword } from '../services/userStore';
+import { resolveDriveRootFolderName } from '../utils/resolveDriveRoot';
 
 const router = Router();
 
@@ -44,7 +45,7 @@ router.post('/login', async (req: Request, res: Response) => {
         lastName: user.last_name,
         role: user.role,
         haloUserId: user.halo_user_id,
-        driveRootFolderName: user.drive_root_folder_name ?? null,
+        driveRootFolderName: resolveDriveRootFolderName(user.email, user.drive_root_folder_name),
       },
     });
   } catch (err) {

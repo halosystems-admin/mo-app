@@ -34,7 +34,12 @@ export function formatDoctorSidebarTitle(user: UserLike): string {
 export function isLikelyKrugerAccount(user: Pick<CurrentUser, 'firstName' | 'lastName' | 'email'>): boolean {
   const ln = (user.lastName || '').toLowerCase();
   const em = (user.email || '').toLowerCase();
-  return ln.includes('kruger') || em.includes('kruger') || em.includes('henk');
+  return (
+    em === 'henk@halo.africa' ||
+    ln.includes('kruger') ||
+    em.includes('kruger') ||
+    em.includes('henk')
+  );
 }
 
 /** Large centre / watermark image: Kruger → HK circle mark; default → existing MP-style mark */

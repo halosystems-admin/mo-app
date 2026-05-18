@@ -3,7 +3,11 @@ import { requireAuth } from '../middleware/requireAuth';
 import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { config } from '../config';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
-import { getTemplates, generateNote, type HaloNote } from '../services/haloApi';
+import { generateNote, type HaloNote } from '../services/haloApi';
+import {
+  getLocalTemplateDefinition,
+  resolveTemplatesForUser,
+} from '../services/clinicalTemplateRegistry';
 import { getStorageAdapter } from '../services/storage';
 import { generateText } from '../services/gemini';
 import {
@@ -17,7 +21,7 @@ import {
   renderPatientLetterDocx,
   type PatientLetterKind,
 } from '../services/motivationLetter';
-import { isSmtpConfigured, sendOutboundMail } from '../services/email';
+import { isOutboundMailReadyForUser, isSmtpConfigured, sendOutboundMail } from '../services/email';
 import { prepareTextForHaloDocx } from '../utils/noteTextForDocx';
 
 const router = Router();
@@ -31,6 +35,10 @@ const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
 function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConfig?: boolean }): string {
   if (opts?.useMobileConfig) return config.haloMobileUserId;
   return opts?.userId || req.appUser?.haloUserId || config.haloUserId;
+}
+
+function resolveBundledTemplateDefinition(req: Request, userId: string, templateId: string) {
+  return getLocalTemplateDefinition(userId, templateId);
 }
 
 /** Prepend sticker/profile block for Halo generate_note when patient folder id is known. */
@@ -180,7 +188,7 @@ async function convertDocxBufferToPdfBufferMicrosoft(
 router.post('/templates', async (req: Request, res: Response) => {
   try {
     const userId = resolveHaloUserId(req, { userId: req.body?.user_id as string | undefined });
-    const templates = await getTemplates(userId);
+    const templates = await resolveTemplatesForUser(userId);
     res.json(templates);
   } catch (err) {
     console.error('Halo get_templates error:', err);
@@ -216,6 +224,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
 
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
+    const templateDefinition = resolveBundledTemplateDefinition(req, userId, templateId);
     console.log('[Halo] generate-note request:', {
       userId: userId.slice(0, 8) + '…',
       templateId,
@@ -228,6 +237,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       text: composedText,
       return_type,
       template_name: typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined,
+      templateDefinition,
     });
 
     if (return_type === 'note') {
@@ -258,6 +268,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
                   templateDisplayName: tplLabel,
                   templateId,
                   sourceText: composedText,
+                  templateDefinition,
                 })
               );
               const trimmed = md.trim();
@@ -356,6 +367,7 @@ router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
     );
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
+    const templateDefinition = resolveBundledTemplateDefinition(req, userId, templateId);
 
     const docx = await generateNote({
       user_id: userId,
@@ -363,6 +375,7 @@ router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
       text: composedText,
       return_type: 'docx',
       template_name: typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined,
+      templateDefinition,
     });
     let pdfBuffer: Buffer;
     if (req.session.provider === 'microsoft') {
@@ -409,11 +422,13 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
 
     const userId = config.haloMobileUserId;
     const templateId = config.haloMobileTemplateId;
+    const templateDefinition = getLocalTemplateDefinition(userId, templateId);
     const result = await generateNote({
       user_id: userId,
       template_id: templateId,
       text: composedText,
       return_type: 'docx',
+      templateDefinition,
     });
 
     const buffer = result as Buffer;
@@ -589,7 +604,7 @@ router.post('/email-patient-file', async (req: Request, res: Response) => {
       res.status(401).json({ error: 'Not authenticated.' });
       return;
     }
-    if (!isSmtpConfigured()) {
+    if (!isOutboundMailReadyForUser(req.appUser.email)) {
       res.status(503).json({
         error:
           'Outbound email is not configured. Set SMTP or Microsoft Graph mail in the server .env (see README) and restart the Node server.',
@@ -652,13 +667,15 @@ router.post('/email-patient-file', async (req: Request, res: Response) => {
         ? subjectRaw.trim().slice(0, 300)
         : `${fname.replace(/\.[^.]+$/, '')} — HALO`;
 
-    await sendOutboundMail({
-      from: `${(config.smtpFromName || 'HALO').trim()} <${(config.smtpFrom || config.smtpUser).trim()}>`,
-      to,
-      subject,
-      text: 'Please find the attached document from HALO.',
-      attachments: [{ filename: fname, content: proxy.data, contentType: ctype }],
-    });
+    await sendOutboundMail(
+      {
+        to,
+        subject,
+        text: 'Please find the attached document from HALO.',
+        attachments: [{ filename: fname, content: proxy.data, contentType: ctype }],
+      },
+      { appUserEmail: req.appUser.email }
+    );
 
     res.json({ ok: true, smtpSent: true });
   } catch (err) {
@@ -696,14 +713,16 @@ router.post('/email-patient-doc', async (req: Request, res: Response) => {
       return;
     }
 
-    if (isSmtpConfigured()) {
-      await sendOutboundMail({
-        from: `${(config.smtpFromName || 'HALO').trim()} <${(config.smtpFrom || config.smtpUser).trim()}>`,
-        to: to.trim(),
-        subject: subject.trim(),
-        text: 'Please find the attached document from your HALO consultation.',
-        attachments: [{ filename: fname, content: buf, contentType: PDF_MIME }],
-      });
+    if (isOutboundMailReadyForUser(req.appUser.email)) {
+      await sendOutboundMail(
+        {
+          to: to.trim(),
+          subject: subject.trim(),
+          text: 'Please find the attached document from your HALO consultation.',
+          attachments: [{ filename: fname, content: buf, contentType: PDF_MIME }],
+        },
+        { appUserEmail: req.appUser.email }
+      );
       res.json({ ok: true, smtpSent: true });
       return;
     }

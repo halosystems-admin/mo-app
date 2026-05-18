@@ -4,7 +4,7 @@ import type { ClinicalWard, InpatientRecord } from '../../../types/clinical';
 import { getClinicalWards, updateInpatientRecord } from '../../../services/clinicalData';
 import { syncInpatientTasksToWardKanban } from '../../../services/wardKanbanSync';
 import { formatInpatientDisplayName, formatWardDisplay } from './clinicalDisplay';
-import { MessageCircle, Mic, Pencil, Phone, X } from 'lucide-react';
+import { Keyboard, MessageCircle, Mic, Pencil, Phone, X } from 'lucide-react';
 import { getPatientHaloProfile } from '../../../services/api';
 
 const inp =
@@ -22,6 +22,8 @@ interface Props {
   onRequestDischarge?: () => void;
   /** Opens sheet dictation for this admission (surgeon plan, notes, ward tasks, etc.). */
   onOpenDictate?: () => void;
+  /** Opens patient workspace for clinical Type note (transcript → templates). */
+  onOpenTypeNote?: () => void;
 }
 
 export const InpatientDetailPanel: React.FC<Props> = ({
@@ -32,6 +34,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
   onToast,
   onRequestDischarge,
   onOpenDictate,
+  onOpenTypeNote,
 }) => {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -186,13 +189,22 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                   >
                     {saving ? 'Saving…' : 'Save'}
                   </button>
+                  {onOpenTypeNote ? (
+                    <button
+                      type="button"
+                      onClick={onOpenTypeNote}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200/90 bg-white text-slate-800 text-sm font-semibold hover:bg-slate-50"
+                    >
+                      <Keyboard size={16} aria-hidden /> Type
+                    </button>
+                  ) : null}
                   {onOpenDictate ? (
                     <button
                       type="button"
                       onClick={onOpenDictate}
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-teal-200 bg-teal-50/80 text-teal-900 text-sm font-semibold hover:bg-teal-100"
                     >
-                      <Mic size={16} /> Dictate
+                      <Mic size={16} aria-hidden /> Dictate
                     </button>
                   ) : null}
                 </>
@@ -206,13 +218,22 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                   >
                     <Pencil size={16} /> Edit
                   </button>
+                  {onOpenTypeNote ? (
+                    <button
+                      type="button"
+                      onClick={onOpenTypeNote}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200/90 bg-white text-slate-800 text-sm font-semibold hover:bg-slate-50"
+                    >
+                      <Keyboard size={16} aria-hidden /> Type
+                    </button>
+                  ) : null}
                   {onOpenDictate ? (
                     <button
                       type="button"
                       onClick={onOpenDictate}
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-teal-200 bg-teal-50/80 text-teal-900 text-sm font-semibold hover:bg-teal-100"
                     >
-                      <Mic size={16} /> Dictate
+                      <Mic size={16} aria-hidden /> Dictate
                     </button>
                   ) : null}
                 </>

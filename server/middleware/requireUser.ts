@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { getSupabaseAdminClient, isSupabaseAdminConfigured } from '../services/supabaseAdmin';
+import { resolveDriveRootFolderName } from '../utils/resolveDriveRoot';
 
 export type AppUserRole = 'admin' | 'user';
 
@@ -49,7 +50,7 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
   // Auth must never depend on optional columns; keep this query minimal and stable.
   const { data, error } = await sb
     .from('app_users')
-    .select('id,email,first_name,last_name,role,halo_user_id,is_active')
+    .select('id,email,first_name,last_name,role,halo_user_id,is_active,drive_root_folder_name')
     .eq('id', userId)
     .maybeSingle<{
       id: string;
@@ -59,6 +60,7 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
       role: AppUserRole;
       halo_user_id: string | null;
       is_active: boolean;
+      drive_root_folder_name: string | null;
     }>();
 
   if (error || !data) {
@@ -70,6 +72,11 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
     return;
   }
 
+  const driveRootFolderName = resolveDriveRootFolderName(
+    data.email,
+    data.drive_root_folder_name
+  );
+
   req.appUser = {
     id: data.id,
     email: data.email,
@@ -77,7 +84,7 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
     lastName: data.last_name,
     role: data.role,
     haloUserId: data.halo_user_id,
-    driveRootFolderName: null,
+    driveRootFolderName,
     isActive: data.is_active,
   };
 

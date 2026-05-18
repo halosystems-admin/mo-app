@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { registerSheetsDictateOpener } from '../../../lib/sheetsDictateBridge';
+import { openPatientThenClinicalConsultation } from '../../scribe/openClinicalConsultation';
 import type {
   ClinicalWard,
   InpatientRecord,
@@ -880,6 +881,23 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
           onSaved={() => void load()}
           onRequestDischarge={() => void openDischargeFlow(selected)}
           onOpenDictate={() => setShowDictate(true)}
+          onOpenTypeNote={
+            onOpenPatient
+              ? () => {
+                  const id =
+                    selected.linkedDrivePatientId?.trim() ||
+                    resolvePatientIdFromClinicalNames(patients, selected.firstName, selected.surname);
+                  if (!id) {
+                    onToast?.(
+                      'No HALO patient folder linked — open Patients or link this admission first.',
+                      'info'
+                    );
+                    return;
+                  }
+                  openPatientThenClinicalConsultation(id, 'type', onOpenPatient);
+                }
+              : undefined
+          }
         />
       )}
 

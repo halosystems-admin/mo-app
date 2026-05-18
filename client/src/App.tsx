@@ -36,18 +36,14 @@ import {
   LayoutGrid,
   FileSpreadsheet,
   FolderOpen,
-  Mic,
-  Pause,
-  Play,
-  Square,
 } from 'lucide-react';
-import { requestOpenSheetsDictate } from './lib/sheetsDictateBridge';
 import { WardPage } from './pages/WardPage';
 import { SheetsPage } from './pages/SheetsPage';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { StickerCameraModal } from './components/StickerCameraModal';
 import type { MainNavSection } from './components/Sidebar';
 import { useConsultationRecorderUiState } from './features/scribe/consultationRecorderStore';
+import { MobileConsultationActionBar } from './features/scribe/MobileConsultationActionBar';
 import { formatDoctorSidebarTitle, getPracticeMarkImageSrc } from './utils/practiceBranding';
 import {
   fetchWorkspaces,
@@ -74,6 +70,18 @@ export const App = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
   const consultationRecUi = useConsultationRecorderUiState();
+  const [mobileConsultBarHidden, setMobileConsultBarHidden] = useState(false);
+
+  useEffect(() => {
+    const hide = () => setMobileConsultBarHidden(true);
+    const show = () => setMobileConsultBarHidden(false);
+    window.addEventListener('halo:suppress-mobile-consultation-bar', hide);
+    window.addEventListener('halo:restore-mobile-consultation-bar', show);
+    return () => {
+      window.removeEventListener('halo:suppress-mobile-consultation-bar', hide);
+      window.removeEventListener('halo:restore-mobile-consultation-bar', show);
+    };
+  }, []);
 
   const [newPatientName, setNewPatientName] = useState("");
   const [newPatientDob, setNewPatientDob] = useState("");
@@ -273,7 +281,7 @@ export const App = () => {
       loginProfile === 'mo'
         ? 'mo@practice.halo.africa'
         : loginProfile === 'henk'
-          ? 'henk.kruger90@gmail.com'
+          ? 'henk@halo.africa'
           : '';
     if (loginProfile !== 'other') setLoginEmail(emailForProfile);
     localStorage.setItem('halo_loginProfile', loginProfile);
@@ -457,6 +465,42 @@ export const App = () => {
     };
   }, [mobileSidebarOpen]);
 
+  const activePatient = patients.find((p) => p.id === selectedPatientId);
+
+  const runWithActivePatient = useCallback(
+    (action: () => void) => {
+      const patient = patients.find((p) => p.id === selectedPatientId);
+      if (!patient) {
+        showToast(
+          mainNav === 'ward'
+            ? 'Open a patient from the ward board first.'
+            : 'Select a patient folder first.',
+          'info'
+        );
+        return;
+      }
+      if (mainNav !== 'folders') {
+        openPatientWorkspace(patient.id);
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(action);
+        });
+        return;
+      }
+      action();
+    },
+    [patients, selectedPatientId, mainNav, openPatientWorkspace, showToast]
+  );
+
+  const showMobileConsultBar =
+    isSignedIn &&
+    !mobileSidebarOpen &&
+    !mobileConsultBarHidden &&
+    !showCreateModal &&
+    !patientToDelete &&
+    (mainNav === 'ward' ||
+      mainNav === 'sheets' ||
+      (mainNav === 'folders' && Boolean(activePatient)));
+
   if (!isReady) {
     return (
       <div className="flex min-h-0 flex-1 h-screen w-full items-center justify-center bg-[#f7f9fb]">
@@ -545,7 +589,7 @@ export const App = () => {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-bold text-slate-800 truncate">Dr Henk Kruger</div>
-                      <div className="text-xs font-semibold text-slate-500 truncate">henk.kruger90@gmail.com</div>
+                      <div className="text-xs font-semibold text-slate-500 truncate">henk@halo.africa</div>
                     </div>
                   </div>
                 </button>
@@ -638,8 +682,6 @@ export const App = () => {
     );
   }
 
-  const activePatient = patients.find(p => p.id === selectedPatientId);
-
   return (
     <div className="flex h-screen min-h-0 min-w-0 flex-1 bg-slate-50 font-sans text-slate-900 overflow-hidden overscroll-x-none relative">
       {/* Mobile navigation drawer (patients, calendar, settings, logout) */}
@@ -715,7 +757,11 @@ export const App = () => {
 
       <div
         className={`flex flex-1 min-h-0 min-w-0 flex-col relative overscroll-x-none overflow-x-hidden h-screen ${
-          isSignedIn ? 'max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom))]' : ''
+          isSignedIn
+            ? showMobileConsultBar
+              ? 'max-md:pb-[calc(7.25rem+env(safe-area-inset-bottom))]'
+              : 'max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom))]'
+            : ''
         }`}
       >
         {isSignedIn ? (
@@ -995,67 +1041,15 @@ export const App = () => {
             </button>
           </nav>
 
-          {mainNav === 'folders' && !mobileSidebarOpen ? (
-            <>
-              {consultationRecUi.isLive ? (
-                <button
-                  type="button"
-                  onClick={() => window.dispatchEvent(new Event('halo:toggle-consultation-pause'))}
-                  className={`md:hidden fixed bottom-[calc(84px+env(safe-area-inset-bottom))] left-[calc(50%-54px)] z-50 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full shadow-lg shadow-slate-900/15 active:scale-95 transition-all border-4 ${
-                    consultationRecUi.isPaused
-                      ? 'bg-amber-500 text-white'
-                      : 'bg-white text-slate-700'
-                  }`}
-                  style={{ borderColor: 'var(--color-halo-bg)' }}
-                  aria-label={consultationRecUi.isPaused ? 'Resume dictation' : 'Pause dictation'}
-                  title={consultationRecUi.isPaused ? 'Resume' : 'Pause'}
-                >
-                  {consultationRecUi.isPaused ? <Play size={22} strokeWidth={2.25} /> : <Pause size={22} strokeWidth={2.25} />}
-                </button>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={() => {
-                  // Patient workspace: trigger consultation dictation (same logic as the header pill button).
-                  if (activePatient) {
-                    window.dispatchEvent(new Event('halo:toggle-consultation-dictation'));
-                    return;
-                  }
-                  // Fallback: open the Sheets dictate flow (used outside PatientWorkspace).
-                  requestOpenSheetsDictate();
-                }}
-                className={`md:hidden fixed bottom-[calc(84px+env(safe-area-inset-bottom))] left-1/2 z-50 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-all border-4 ${
-                  consultationRecUi.isBusy
-                    ? 'bg-slate-500'
-                    : consultationRecUi.isLive
-                      ? consultationRecUi.isPaused
-                        ? 'bg-amber-500'
-                        : 'bg-rose-500'
-                      : 'bg-teal-600'
-                }`}
-                style={{ borderColor: 'var(--color-halo-bg)' }}
-                aria-label={consultationRecUi.isLive ? 'Stop dictation' : 'Dictate'}
-                title={consultationRecUi.isLive ? 'Stop (Done)' : 'Dictate'}
-              >
-                {consultationRecUi.isBusy ? (
-                  <Loader className="animate-spin" size={22} />
-                ) : consultationRecUi.isLive ? (
-                  <div className="flex flex-col items-center leading-none">
-                    <span className="flex items-center gap-1">
-                      {!consultationRecUi.isPaused ? (
-                        <span className="inline-block h-2 w-2 rounded-full bg-white animate-pulse" aria-hidden />
-                      ) : null}
-                      <Square size={18} strokeWidth={2.75} />
-                    </span>
-                    <span className="text-[9px] font-bold tabular-nums mt-0.5">{consultationRecUi.displayTime}</span>
-                  </div>
-                ) : (
-                  <Mic size={26} strokeWidth={2} />
-                )}
-              </button>
-            </>
-          ) : null}
+          <MobileConsultationActionBar
+            visible={showMobileConsultBar}
+            recorder={consultationRecUi}
+            onType={() => runWithActivePatient(() => window.dispatchEvent(new Event('halo:start-type-note')))}
+            onDictate={() =>
+              runWithActivePatient(() => window.dispatchEvent(new Event('halo:toggle-consultation-dictation')))
+            }
+            onPause={() => window.dispatchEvent(new Event('halo:toggle-consultation-pause'))}
+          />
         </>
       )}
 

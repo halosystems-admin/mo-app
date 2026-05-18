@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { config } from '../config';
 import { getSupabaseAdminClient, isSupabaseAdminConfigured } from '../services/supabaseAdmin';
 
 declare module 'express-serve-static-core' {
@@ -38,8 +39,10 @@ async function listKnownFolderNames(): Promise<string[]> {
     .not('drive_root_folder_name', 'is', null)
     .returns<WorkspaceRow[]>();
 
+  const henkRoot = config.henkDriveRootFolderName.trim();
   const names = [
     DEFAULT_FOLDER_NAME,
+    ...(henkRoot ? [henkRoot] : []),
     ...((data || [])
       .map((r) => String(r.drive_root_folder_name || '').trim())
       .filter(Boolean)),

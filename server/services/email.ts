@@ -1,5 +1,10 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config';
+import {
+  getHenkFromHeader,
+  isHenkOutboundEmail,
+  isHenkSmtpConfigured,
+} from './userOutboundMail';
 
 const GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
 const TOKEN_URL_TPL = 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token';
@@ -41,6 +46,14 @@ export function isSmtpConfigured(): boolean {
   return legacySmtpConfigured();
 }
 
+/** Patient-facing email: Graph/SMTP for most users, or Henk Gmail when configured. */
+export function isOutboundMailReadyForUser(appUserEmail?: string): boolean {
+  if (appUserEmail && isHenkOutboundEmail(appUserEmail) && isHenkSmtpConfigured()) {
+    return true;
+  }
+  return isSmtpConfigured();
+}
+
 function getFrom(): string {
   const addr = (config.smtpFrom || config.smtpUser || '').trim();
   const name = (config.smtpFromName || 'HALO').trim();
@@ -57,6 +70,43 @@ function getTransport() {
       user: config.smtpUser,
       pass: config.smtpPass,
     },
+  });
+}
+
+function getHenkTransport() {
+  return nodemailer.createTransport({
+    host: config.henkSmtpHost,
+    port: config.henkSmtpPort,
+    secure: config.henkSmtpSecure,
+    auth: {
+      user: config.henkSmtpUser,
+      pass: config.henkSmtpPass,
+    },
+  });
+}
+
+async function sendViaHenkSmtp(params: {
+  from?: string;
+  to: string | string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  attachments?: OutboundAttachment[];
+}): Promise<void> {
+  const transporter = getHenkTransport();
+  const from = params.from ?? getHenkFromHeader();
+  await transporter.sendMail({
+    from,
+    to: params.to,
+    subject: params.subject,
+    text: params.text,
+    html: params.html,
+    attachments:
+      params.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })) ?? undefined,
   });
 }
 
@@ -165,15 +215,29 @@ async function sendViaMicrosoftGraph(params: {
  * For Graph, mail is always sent **as** `GRAPH_MAIL_SEND_AS` (or SMTP_FROM / SMTP_USER); the optional
  * `from` field is ignored in Graph mode (Microsoft ties identity to the mailbox in the URL).
  */
-export async function sendOutboundMail(params: {
-  /** Ignored when using Microsoft Graph (sender is the configured mailbox). */
-  from?: string;
-  to: string | string[];
-  subject: string;
-  text?: string;
-  html?: string;
-  attachments?: OutboundAttachment[];
-}): Promise<void> {
+export type SendOutboundMailOptions = {
+  /** When set to Henk's email and HENK_SMTP_* is configured, sends via Gmail instead of Graph. */
+  appUserEmail?: string;
+};
+
+export async function sendOutboundMail(
+  params: {
+    /** Ignored when using Microsoft Graph (sender is the configured mailbox). */
+    from?: string;
+    to: string | string[];
+    subject: string;
+    text?: string;
+    html?: string;
+    attachments?: OutboundAttachment[];
+  },
+  options?: SendOutboundMailOptions
+): Promise<void> {
+  const userEmail = options?.appUserEmail?.trim();
+  if (userEmail && isHenkOutboundEmail(userEmail) && isHenkSmtpConfigured()) {
+    await sendViaHenkSmtp(params);
+    return;
+  }
+
   if (config.smtpUseMicrosoftGraph) {
     if (!graphMailReady()) {
       throw new Error(

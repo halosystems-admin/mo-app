@@ -2,8 +2,26 @@
  * Centralized AI prompt templates for all Gemini interactions.
  */
 
+import type { ClinicalTemplateDefinition } from '../../shared/clinicalTemplates/types';
 import type { HaloPatientProfile } from '../../shared/types';
 import { formatPatientDisplayName } from './patientDisplay';
+
+/** Field schema block for Halo/Gemini note generation (from bundled template JSON). */
+export function buildTemplateFieldSchemaBlock(def: ClinicalTemplateDefinition): string {
+  const lines = def.fields.map((f, i) => {
+    const parts = [`${i + 1}. key="${f.key}"`];
+    if (f.default?.trim()) parts.push(`default="${f.default.trim()}"`);
+    if (f.from_profile) parts.push('(use patient profile / today if not in transcript)');
+    parts.push(`— ${f.description.trim()}`);
+    return parts.join(' ');
+  });
+  return [
+    `TEMPLATE FIELD SCHEMA (${def.name}, template_id: ${def.template_id}):`,
+    'Populate each field from the transcript/context. Use Markdown ## headings that match these sections where appropriate.',
+    'Do not use Python list syntax; use bullets or prose as specified per field.',
+    ...lines,
+  ].join('\n');
+}
 
 export const MAX_CONTENT_LENGTH = 5000;
 
@@ -109,13 +127,17 @@ export function clinicalNoteMarkdownStructurePrompt(params: {
   templateId: string;
   /** Raw dictation + optional context (same text sent toward Halo). */
   sourceText: string;
+  templateDefinition?: ClinicalTemplateDefinition;
 }): string {
   const src = params.sourceText.trim();
+  const schemaBlock = params.templateDefinition
+    ? `\n${buildTemplateFieldSchemaBlock(params.templateDefinition)}\n`
+    : '';
   return `You are a medical scribe.
 
 The text below is raw clinical dictation (and may include an "Additional clinical context" block). 
 Produce ONE clinical note suitable for the "${params.templateDisplayName}" documentation style (template_id: ${params.templateId}).
-
+${schemaBlock}
 STRICT RULES:
 - Use Markdown. Start major sections with ## headings and subsections with ### where appropriate for this note type.
 - Organize facts under the correct headings. Do NOT output a single continuous paragraph.
@@ -135,9 +157,13 @@ export function haloGenerateNoteInputEnvelope(params: {
   userPayloadText: string;
   templateId: string;
   templateDisplayName?: string;
+  templateDefinition?: ClinicalTemplateDefinition;
 }): string {
   const label = params.templateDisplayName?.trim() || params.templateId;
   const raw = params.userPayloadText?.trim() ?? '';
+  const schemaLines = params.templateDefinition
+    ? ['', buildTemplateFieldSchemaBlock(params.templateDefinition), '']
+    : [];
   return [
     '=== SCRIBE_INSTRUCTIONS (metadata — do not echo; produce only the clinical note below) ===',
     'You are a medical scribe. You receive a raw, unstructured voice transcript (and optional extra context).',
@@ -146,6 +172,7 @@ export function haloGenerateNoteInputEnvelope(params: {
     'Do NOT output a single continuous paragraph. Separate sections with blank lines.',
     'Populate sections only from the transcript/context; where nothing applies, write "N/A" or "Not discussed".',
     'If both history of presenting complaint and presenting complaint appear, merge the full clinical story (onset, course, context) under Presenting Complaint; do not isolate history in a section that may not map to the final document.',
+    ...schemaLines,
     'Output ONLY the finished clinical note in Markdown after processing. Do not repeat these instructions.',
     '=== END SCRIBE_INSTRUCTIONS ===',
     '',

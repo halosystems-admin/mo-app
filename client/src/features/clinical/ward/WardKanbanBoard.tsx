@@ -24,6 +24,7 @@ import {
   formatInpatientDisplayName,
   formatPatientDisplayName,
   formatWardDisplay,
+  resolvePatientIdFromClinicalNames,
 } from '../shared/clinicalDisplay';
 import { CLINICAL_HEADER_BAND } from '../shared/tableScrollClasses';
 import {
@@ -35,7 +36,7 @@ import {
   wardColumnBodyPaddingClass,
   wardColumnWidthClass,
 } from './wardBoardLayout';
-import { ExternalLink, GripVertical, Plus, X } from 'lucide-react';
+import { ExternalLink, GripVertical, Keyboard, Mic, Plus, X } from 'lucide-react';
 import { getPatientHaloProfile } from '../../../services/api';
 
 const DROPPABLE_PREFIX = 'ward-col:';
@@ -185,6 +186,8 @@ type Props = {
   inpatients: InpatientRecord[];
   kanbanSaving: boolean;
   onOpenPatient: (patientId: string) => void;
+  /** Clinical note Type / Dictate → opens patient workspace then runs scribe flow. */
+  onClinicalConsultation?: (patientId: string, mode: 'type' | 'dictate') => void;
   /** HALO-linked ward sheet: patient name opens Sticker & billing in Patient folders. */
   onOpenStickerProfile?: (patientId: string) => void;
   onRequestRemoveFromWard: (target: DetailTarget) => void;
@@ -611,6 +614,7 @@ function WardPatientDetailSheet({
   inpatients,
   kanbanSaving,
   onOpenPatient,
+  onClinicalConsultation,
   onOpenStickerProfile,
   onRequestRemoveFromWard,
   onToggleTodoDone,
@@ -628,6 +632,7 @@ function WardPatientDetailSheet({
   inpatients: InpatientRecord[];
   kanbanSaving: boolean;
   onOpenPatient: (patientId: string) => void;
+  onClinicalConsultation?: (patientId: string, mode: 'type' | 'dictate') => void;
   onOpenStickerProfile?: (patientId: string) => void;
   onRequestRemoveFromWard: (target: DetailTarget) => void;
   onToggleTodoDone: (patientId: string, todoId: string, done: boolean) => void;
@@ -733,6 +738,19 @@ function WardPatientDetailSheet({
       ? (ip?.medicalAidPhone?.trim() || haloDetailProfile?.medicalAidPhone?.trim() || '')
       : '';
 
+  const clinicalPatientId =
+    target.kind === 'halo' && row
+      ? row.patientId
+      : target.kind === 'unlinked' && unlinked
+        ? unlinked.linkedDrivePatientId?.trim() ||
+          resolvePatientIdFromClinicalNames(
+            Array.from(patientsById.values()),
+            unlinked.firstName,
+            unlinked.surname
+          ) ||
+          ''
+        : '';
+
   return (
     <div
       className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-slate-900/45 p-0 sm:p-4 pb-[env(safe-area-inset-bottom)]"
@@ -775,6 +793,32 @@ function WardPatientDetailSheet({
                 </>
               )}
             </p>
+            {onClinicalConsultation && clinicalPatientId ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={kanbanSaving}
+                  onClick={() => {
+                    onClinicalConsultation(clinicalPatientId, 'type');
+                    onClose();
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200/90 bg-white text-slate-800 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <Keyboard size={16} aria-hidden /> Type
+                </button>
+                <button
+                  type="button"
+                  disabled={kanbanSaving}
+                  onClick={() => {
+                    onClinicalConsultation(clinicalPatientId, 'dictate');
+                    onClose();
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-teal-200 bg-teal-50/80 text-teal-900 text-sm font-semibold hover:bg-teal-100 disabled:opacity-50"
+                >
+                  <Mic size={16} aria-hidden /> Dictate
+                </button>
+              </div>
+            ) : null}
           </div>
           <button
             type="button"
@@ -1082,7 +1126,8 @@ function WardPatientDetailSheet({
           ) : null}
         </div>
 
-        <div className="border-t border-slate-100 px-4 py-3 flex flex-col sm:flex-row gap-2 shrink-0 bg-slate-50/80">
+        <div className="border-t border-slate-100 px-4 py-3 flex flex-col gap-2 shrink-0 bg-slate-50/80">
+          <div className="flex flex-col sm:flex-row gap-2">
           <button
             type="button"
             disabled={kanbanSaving}
@@ -1105,6 +1150,7 @@ function WardPatientDetailSheet({
               <ExternalLink size={16} /> Open HALO workspace
             </button>
           ) : null}
+          </div>
         </div>
       </div>
     </div>
@@ -1127,6 +1173,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
   inpatients,
   kanbanSaving,
   onOpenPatient,
+  onClinicalConsultation,
   onOpenStickerProfile,
   onRequestRemoveFromWard,
   onToggleTodoDone,
@@ -1556,6 +1603,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
         inpatients={inpatients}
         kanbanSaving={kanbanSaving}
         onOpenPatient={onOpenPatient}
+        onClinicalConsultation={onClinicalConsultation}
         onOpenStickerProfile={onOpenStickerProfile}
         onRequestRemoveFromWard={(t) => {
           onRequestRemoveFromWard(t);

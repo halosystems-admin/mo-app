@@ -12,6 +12,8 @@
     "build:client": "cd client && npm run build",
     "start": "node dist/server/index.js",
     "bootstrap:admin": "ts-node server/scripts/bootstrapAdmin.ts",
+    "setup:henk": "ts-node server/scripts/setupHenkUser.ts",
+    "rename:patient-folders": "ts-node server/scripts/renamePatientFolders.ts",
     "heroku-postbuild": "npm install --include=dev && cd client && npm install --include=dev && cd .. && npm run build",
     "test:calendar": "ts-node server/tests/calendar-normalise.test.ts"
   },

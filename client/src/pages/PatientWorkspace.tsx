@@ -52,6 +52,7 @@ import {
   FolderPlus, ChevronRight, ExternalLink, FileText, Layers, Plus,
   History,
   Captions,
+  Keyboard,
 } from 'lucide-react';
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
@@ -185,6 +186,7 @@ export const PatientWorkspace: React.FC<Props> = ({
   /** Live transcript for the current in-progress recording segment (not yet merged into lastTranscript). */
   const [liveTranscriptSegment, setLiveTranscriptSegment] = useState<string>('');
   const [isLiveStreaming, setIsLiveStreaming] = useState(false);
+  const transcriptInputRef = useRef<HTMLTextAreaElement>(null);
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [consultSubTab, setConsultSubTab] = useState<'transcript' | 'context' | number>('transcript');
   const [templateOptions, setTemplateOptions] = useState<Array<{ id: string; name: string }>>([...HALO_TEMPLATE_OPTIONS]);
@@ -996,35 +998,6 @@ export const PatientWorkspace: React.FC<Props> = ({
           };
         });
 
-        void (async () => {
-          try {
-            const pdfs = await Promise.all(
-              templateIds.map((id) =>
-                generateNotePreviewPdf({
-                  template_id: id,
-                  text: noteInput,
-                  user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
-                  template_name: templateNames[id],
-                  patientId: patient.id,
-                })
-              )
-            );
-            setNotes((prev) => {
-              const next = [...prev];
-              const offset = isAddNote ? Math.max(0, next.length - templateIds.length) : 0;
-              for (let j = 0; j < templateIds.length; j++) {
-                const idx = offset + j;
-                const b64 = pdfs[j]?.pdfBase64;
-                if (idx >= 0 && idx < next.length && b64) {
-                  next[idx] = { ...next[idx], previewPdfBase64: b64 };
-                }
-              }
-              return next;
-            });
-          } catch {
-            /* PDF preview is optional */
-          }
-        })();
         if (isAddNote) {
           setNotes(prev => [...prev, ...combined]);
           setActiveNoteIndex(notes.length);
@@ -1116,6 +1089,62 @@ export const PatientWorkspace: React.FC<Props> = ({
     setIsLiveStreaming(true);
     setLiveTranscriptSegment(segment);
   }, []);
+
+  const proceedToTemplatePickerFromTranscript = useCallback(
+    (source: string) => {
+      const combined = source.trim();
+      if (!combined) {
+        onToast('Enter or dictate text first.', 'info');
+        return;
+      }
+      setPendingTranscript(combined);
+      setSelectedTemplatesForGenerate([]);
+      setShowAddNoteModal(false);
+      setActiveTab('notes');
+    },
+    [onToast]
+  );
+
+  const handleContinueTypedTranscript = useCallback(() => {
+    proceedToTemplatePickerFromTranscript(lastTranscript);
+  }, [lastTranscript, proceedToTemplatePickerFromTranscript]);
+
+  useEffect(() => {
+    const onStartType = () => {
+      setActiveTab('notes');
+      setEditorPanelView('transcription');
+      setPendingTranscript(null);
+      setShowAddNoteModal(false);
+      setLiveTranscriptSegment('');
+      setIsLiveStreaming(false);
+      window.setTimeout(() => transcriptInputRef.current?.focus(), 80);
+    };
+    const onContinueTyped = () => handleContinueTypedTranscript();
+    window.addEventListener('halo:start-type-note', onStartType);
+    window.addEventListener('halo:continue-typed-transcript', onContinueTyped);
+    return () => {
+      window.removeEventListener('halo:start-type-note', onStartType);
+      window.removeEventListener('halo:continue-typed-transcript', onContinueTyped);
+    };
+  }, [handleContinueTypedTranscript]);
+
+  useEffect(() => {
+    const suppress =
+      (pendingTranscript != null && !isGeneratingNotes) ||
+      showAddNoteModal ||
+      showCustomAiNoteModal ||
+      isGeneratingNotes ||
+      status === AppStatus.SAVING ||
+      status === AppStatus.ANALYZING;
+    if (suppress) {
+      window.dispatchEvent(new Event('halo:suppress-mobile-consultation-bar'));
+    } else {
+      window.dispatchEvent(new Event('halo:restore-mobile-consultation-bar'));
+    }
+    return () => {
+      window.dispatchEvent(new Event('halo:restore-mobile-consultation-bar'));
+    };
+  }, [pendingTranscript, showAddNoteModal, showCustomAiNoteModal, isGeneratingNotes, status]);
 
   const handleLiveStopped = useCallback(
     (transcript: string) => {
@@ -1647,6 +1676,20 @@ export const PatientWorkspace: React.FC<Props> = ({
                 />
                 <button
                   type="button"
+                  onClick={() => {
+                    setActiveTab('notes');
+                    setEditorPanelView('transcription');
+                    setPendingTranscript(null);
+                    setShowAddNoteModal(false);
+                    window.setTimeout(() => transcriptInputRef.current?.focus(), 80);
+                  }}
+                  className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-slate-200/90 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  <Keyboard className="size-3.5" aria-hidden />
+                  Type
+                </button>
+                <button
+                  type="button"
                   onClick={handleGenerateAiInsights}
                   disabled={aiLoading || status === AppStatus.LOADING}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/20 bg-teal-500/10 px-3 py-1.5 text-xs font-semibold text-teal-800 transition hover:bg-teal-500/14 disabled:opacity-50"
@@ -2078,22 +2121,45 @@ export const PatientWorkspace: React.FC<Props> = ({
                                 </span>
                               ) : null}
                             </div>
-                            <button
-                              type="button"
-                              onClick={handleCopyTranscript}
-                              disabled={!currentTranscript.trim()}
-                              className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 hover:bg-slate-50 disabled:opacity-40"
-                            >
-                              {didCopyTranscript ? 'Copied' : 'Copy'}
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={handleContinueTypedTranscript}
+                                disabled={isLiveStreaming || isGeneratingNotes || !lastTranscript.trim()}
+                                className="inline-flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-sm hover:bg-teal-700 disabled:opacity-40"
+                              >
+                                Continue
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCopyTranscript}
+                                disabled={!currentTranscript.trim()}
+                                className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 hover:bg-slate-50 disabled:opacity-40"
+                              >
+                                {didCopyTranscript ? 'Copied' : 'Copy'}
+                              </button>
+                            </div>
                           </div>
-                          <div className="min-h-0 flex-1 overflow-auto bg-white p-3 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
-                            {isGeneratingNotes ? (
-                              <span className="inline-flex items-center gap-2 text-slate-500">
-                                <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden />
-                              </span>
+                          <div className="flex min-h-0 flex-1 flex-col bg-white p-3">
+                            {isLiveStreaming ? (
+                              <div className="min-h-0 flex-1 overflow-auto text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                                {isGeneratingNotes ? (
+                                  <span className="inline-flex items-center gap-2 text-slate-500">
+                                    <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden />
+                                  </span>
+                                ) : (
+                                  currentTranscript
+                                )}
+                              </div>
                             ) : (
-                              currentTranscript
+                              <textarea
+                                ref={transcriptInputRef}
+                                value={lastTranscript}
+                                onChange={(e) => setLastTranscript(e.target.value)}
+                                disabled={isGeneratingNotes}
+                                className="min-h-[min(40vh,320px)] w-full flex-1 resize-y rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400/60 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                                placeholder="Type your consultation text here, then tap Continue for templates…"
+                              />
                             )}
                           </div>
                         </div>

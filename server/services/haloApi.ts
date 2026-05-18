@@ -3,6 +3,7 @@
  * Centralizes calls to generate_note and get_templates with error handling.
  */
 
+import type { ClinicalTemplateDefinition } from '../../shared/clinicalTemplates/types';
 import { config } from '../config';
 import { haloGenerateNoteInputEnvelope } from '../utils/prompts';
 
@@ -220,6 +221,8 @@ export interface GenerateNoteParams {
   return_type: 'note' | 'docx';
   /** Human-readable template name (e.g. "Admission") — improves Markdown structuring in the composed prompt. */
   template_name?: string;
+  /** Bundled Firebase field schema — enriches composed prompt sent to Halo. */
+  templateDefinition?: ClinicalTemplateDefinition;
 }
 
 /**
@@ -233,6 +236,7 @@ export async function generateNote(params: GenerateNoteParams): Promise<HaloNote
     userPayloadText: params.text,
     templateId: params.template_id,
     templateDisplayName: params.template_name,
+    templateDefinition: params.templateDefinition,
   });
 
   const url = `${BASE}/generate_note`;

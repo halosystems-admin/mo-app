@@ -27,6 +27,8 @@ import {
   downloadFileBuffer,
   uploadToDrive,
 } from '../drive';
+import { buildPatientFolderDiskName } from '../../utils/patientFolderName';
+import { formatPatientDisplayName } from '../../utils/patientDisplay';
 
 const provider: StorageProvider = 'google';
 
@@ -189,6 +191,8 @@ export const googleDriveAdapter: StorageAdapter = {
     }
 
     const rootId = await getHaloRootFolder(token, rootFolderName);
+    const diskName = buildPatientFolderDiskName(finalName, finalDob, finalSex);
+    const displayName = formatPatientDisplayName(finalName) || finalName;
 
     const createRes = await fetch(`${config.driveApi}/files`, {
       method: 'POST',
@@ -197,12 +201,12 @@ export const googleDriveAdapter: StorageAdapter = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        name: `${finalName}__${finalDob}__${finalSex}`,
+        name: diskName,
         parents: [rootId],
         mimeType: 'application/vnd.google-apps.folder',
         appProperties: {
           type: 'patient_folder',
-          patientName: finalName,
+          patientName: displayName,
           patientDob: finalDob,
           patientSex: finalSex,
         },
@@ -216,7 +220,7 @@ export const googleDriveAdapter: StorageAdapter = {
     const folder = (await createRes.json()) as { id: string };
     return {
       id: folder.id,
-      name: finalName,
+      name: displayName,
       dob: finalDob,
       sex: finalSex,
       lastVisit: new Date().toISOString().split('T')[0],
@@ -267,6 +271,9 @@ export const googleDriveAdapter: StorageAdapter = {
       throw new Error('Sex must be M or F.');
     }
 
+    const diskName = buildPatientFolderDiskName(finalName, finalDob, finalSex);
+    const displayName = formatPatientDisplayName(finalName) || finalName;
+
     const patchRes = await fetch(`${config.driveApi}/files/${patientId}`, {
       method: 'PATCH',
       headers: {
@@ -274,9 +281,9 @@ export const googleDriveAdapter: StorageAdapter = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        name: `${finalName}__${finalDob}__${finalSex}`,
+        name: diskName,
         appProperties: {
-          patientName: finalName,
+          patientName: displayName,
           patientDob: finalDob,
           patientSex: finalSex,
         },
