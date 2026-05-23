@@ -15,7 +15,8 @@
     "setup:henk": "ts-node server/scripts/setupHenkUser.ts",
     "rename:patient-folders": "ts-node server/scripts/renamePatientFolders.ts",
     "heroku-postbuild": "npm install --include=dev && cd client && npm install --include=dev && cd .. && npm run build",
-    "test:calendar": "ts-node server/tests/calendar-normalise.test.ts"
+    "test:calendar": "ts-node server/tests/calendar-normalise.test.ts",
+    "test:docx-resolver": "ts-node server/tests/docxFileResolver.test.ts"
   },
   "engines": {
     "node": "20.x"

@@ -169,4 +169,12 @@ export const config = {
    * Recommended in production. If unset, server falls back to MemoryStore sessions.
    */
   databaseUrl: (process.env.DATABASE_URL || '').trim(),
+
+  /** Repo root for Mo templates/ (defaults to project root). */
+  clinicalTemplateRoot: (
+    process.env.CLINICAL_TEMPLATE_ROOT || path.resolve(__dirname, '../..')
+  ).trim(),
+  moTemplatesDir: (process.env.MO_TEMPLATES_DIR || 'Mo templates').trim(),
+  /** Set true to enable Mo local templates (docx must have intact merge tags). Default off until templates fixed. */
+  useLocalClinicalTemplates: process.env.USE_LOCAL_CLINICAL_TEMPLATES === 'true',
 } as const;

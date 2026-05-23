@@ -30,7 +30,6 @@ import {
   createFolder,
   askHaloStream,
   askHalo,
-  generateNotePreview,
   generateNotePreviewPdf,
   saveNoteAsDocx,
   generatePrepNote,
@@ -57,6 +56,8 @@ import {
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
 import { HeaderConsultationRecorder } from '../features/scribe/HeaderConsultationRecorder';
+import { MobileDictateFab } from '../features/scribe/MobileDictateFab';
+import { generateNotePreviewWithFallback } from '../services/generateNotePreviewWithFallback';
 import { FileViewer } from '../components/FileViewer';
 import { FileBrowser } from '../components/FileBrowser';
 import { NoteEditor } from '../components/NoteEditor';
@@ -159,6 +160,7 @@ interface Props {
   onToast: (message: string, type: 'success' | 'error' | 'info') => void;
   templateId?: string;
   calendarPrepEvent?: CalendarEvent | null;
+  haloUserId?: string | null;
   /** App sets this to the current patient id (e.g. ward sheet name) to open Sticker & billing once. */
   openStickerProfileForPatientId?: string | null;
   onStickerProfileOpenFromParentHandled?: () => void;
@@ -171,6 +173,7 @@ export const PatientWorkspace: React.FC<Props> = ({
   onToast,
   templateId: propTemplateId,
   calendarPrepEvent,
+  haloUserId = null,
   openStickerProfileForPatientId,
   onStickerProfileOpenFromParentHandled,
 }) => {
@@ -903,11 +906,12 @@ export const PatientWorkspace: React.FC<Props> = ({
           template_name: tplName,
           patientId: patient.id,
         }),
-        generateNotePreview({
+        generateNotePreviewWithFallback({
           template_id: tplId,
           text: payloadText,
           template_name: tplName,
           patientId: patient.id,
+          haloUserId,
         }),
       ]);
       const first = preview.notes?.[0];
@@ -961,12 +965,13 @@ export const PatientWorkspace: React.FC<Props> = ({
           Promise.all(
             templateIds.map(async (id) => {
               const template_name = templateNames[id];
-              const noteResult = await generateNotePreview({
+              const noteResult = await generateNotePreviewWithFallback({
                 template_id: id,
                 text: noteInput,
                 user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
                 template_name,
                 patientId: patient.id,
+                haloUserId,
               });
               return { noteResult };
             })
@@ -1056,7 +1061,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       activeSessionId,
       activeHospitalConfig.userId,
       consultContext,
-      haloPatientProfile,
+      haloUserId,
       onToast,
       patient.id,
       selectedHospital,
@@ -1127,24 +1132,6 @@ export const PatientWorkspace: React.FC<Props> = ({
       window.removeEventListener('halo:continue-typed-transcript', onContinueTyped);
     };
   }, [handleContinueTypedTranscript]);
-
-  useEffect(() => {
-    const suppress =
-      (pendingTranscript != null && !isGeneratingNotes) ||
-      showAddNoteModal ||
-      showCustomAiNoteModal ||
-      isGeneratingNotes ||
-      status === AppStatus.SAVING ||
-      status === AppStatus.ANALYZING;
-    if (suppress) {
-      window.dispatchEvent(new Event('halo:suppress-mobile-consultation-bar'));
-    } else {
-      window.dispatchEvent(new Event('halo:restore-mobile-consultation-bar'));
-    }
-    return () => {
-      window.dispatchEvent(new Event('halo:restore-mobile-consultation-bar'));
-    };
-  }, [pendingTranscript, showAddNoteModal, showCustomAiNoteModal, isGeneratingNotes, status]);
 
   const handleLiveStopped = useCallback(
     (transcript: string) => {
@@ -1332,12 +1319,13 @@ export const PatientWorkspace: React.FC<Props> = ({
           return;
         }
 
-        const noteResult = await generateNotePreview({
+        const noteResult = await generateNotePreviewWithFallback({
           template_id,
           text,
           user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
           template_name,
           patientId: patient.id,
+          haloUserId,
         });
         const first = noteResult.notes?.[0];
         const fromFields =
@@ -1683,10 +1671,10 @@ export const PatientWorkspace: React.FC<Props> = ({
                     setShowAddNoteModal(false);
                     window.setTimeout(() => transcriptInputRef.current?.focus(), 80);
                   }}
-                  className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-slate-200/90 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 md:px-3 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
                 >
-                  <Keyboard className="size-3.5" aria-hidden />
-                  Type
+                  <Keyboard className="size-3.5 shrink-0" aria-hidden />
+                  <span className="max-md:sr-only md:not-sr-only">Type</span>
                 </button>
                 <button
                   type="button"
@@ -1913,7 +1901,7 @@ export const PatientWorkspace: React.FC<Props> = ({
               onOpenStickerProfile={openStickerProfileModal}
             />
           ) : activeTab === 'sessions' ? (
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="min-h-[40dvh] bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/80">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Previous Sessions
@@ -1925,7 +1913,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                     <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
                   </div>
                 ) : sessions.length === 0 ? (
-                  <div className="py-12" aria-hidden />
+                  <p className="py-12 text-center text-sm text-slate-500">No saved sessions yet.</p>
                 ) : (
                   <ul className="space-y-2">
                     {sessions.map((session) => {
@@ -1977,9 +1965,9 @@ export const PatientWorkspace: React.FC<Props> = ({
               </div>
             </div>
           ) : activeTab === 'notes' ? (
-            <div className="flex min-h-0 flex-1 flex-col max-md:min-h-0 max-md:overflow-visible">
+            <div className="flex min-h-0 flex-1 flex-col max-md:min-h-[50dvh]">
               {/* Editor workspace: fills remaining viewport height */}
-              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] max-md:min-h-0 flex-1 max-md:flex-none flex-col overflow-hidden max-md:overflow-visible rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70">
+              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] max-md:min-h-[50dvh] flex-1 flex-col overflow-hidden max-md:overflow-y-auto rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70">
                 {pendingTranscript ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/90 p-4">
                     <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{pendingTranscript}</p>
@@ -2962,6 +2950,8 @@ export const PatientWorkspace: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      <MobileDictateFab />
     </div>
   );
 };

@@ -42,14 +42,13 @@ import { SheetsPage } from './pages/SheetsPage';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { StickerCameraModal } from './components/StickerCameraModal';
 import type { MainNavSection } from './components/Sidebar';
-import { useConsultationRecorderUiState } from './features/scribe/consultationRecorderStore';
-import { MobileConsultationActionBar } from './features/scribe/MobileConsultationActionBar';
 import { formatDoctorSidebarTitle, getPracticeMarkImageSrc } from './utils/practiceBranding';
 import {
   fetchWorkspaces,
   setActiveWorkspaceId,
   clearActiveWorkspaceId,
   getActiveWorkspaceId,
+  pickOwnWorkspaceId,
   type WorkspaceInfo,
 } from './services/workspace';
 
@@ -69,20 +68,6 @@ export const App = () => {
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
-  const consultationRecUi = useConsultationRecorderUiState();
-  const [mobileConsultBarHidden, setMobileConsultBarHidden] = useState(false);
-
-  useEffect(() => {
-    const hide = () => setMobileConsultBarHidden(true);
-    const show = () => setMobileConsultBarHidden(false);
-    window.addEventListener('halo:suppress-mobile-consultation-bar', hide);
-    window.addEventListener('halo:restore-mobile-consultation-bar', show);
-    return () => {
-      window.removeEventListener('halo:suppress-mobile-consultation-bar', hide);
-      window.removeEventListener('halo:restore-mobile-consultation-bar', show);
-    };
-  }, []);
-
   const [newPatientName, setNewPatientName] = useState("");
   const [newPatientDob, setNewPatientDob] = useState("");
   const [newPatientSex, setNewPatientSex] = useState<'M' | 'F'>('M');
@@ -193,16 +178,50 @@ export const App = () => {
     return data;
   }, []);
 
-  const refreshWorkspaces = useCallback(async () => {
+  const LAST_USER_STORAGE_KEY = 'halo_lastUserId';
+
+  const reconcilePatientSelection = useCallback(
+    (loadedPatients: Patient[]) => {
+      const storedId = sessionStorage.getItem('halo_selectedPatientId');
+      if (storedId && !loadedPatients.find((p) => p.id === storedId)) {
+        selectPatient(null);
+      }
+      const prefetchId =
+        storedId && loadedPatients.some((p) => p.id === storedId)
+          ? storedId
+          : loadedPatients[0]?.id;
+      if (prefetchId) {
+        warmAndListFiles(prefetchId, 24).catch(() => {});
+      }
+    },
+    [selectPatient]
+  );
+
+  const clearPatientIfUserChanged = useCallback(
+    (userId: string) => {
+      const lastId = sessionStorage.getItem(LAST_USER_STORAGE_KEY);
+      if (lastId && lastId !== userId) {
+        selectPatient(null);
+      }
+      sessionStorage.setItem(LAST_USER_STORAGE_KEY, userId);
+    },
+    [selectPatient]
+  );
+
+  const refreshWorkspaces = useCallback(async (opts?: { pinToOwn?: boolean }) => {
     const list = await fetchWorkspaces();
     setWorkspaces(list);
-    let next = getActiveWorkspaceId();
-    if (!next && list.length > 0) {
-      const own = list.find((w) => w.isOwn) ?? list[0];
-      next = own.id;
-      setActiveWorkspaceId(next);
+    const prev = getActiveWorkspaceId();
+    let next = prev;
+    if (opts?.pinToOwn && list.length > 0) {
+      next = pickOwnWorkspaceId(list);
+      if (next) setActiveWorkspaceId(next);
+    } else if (!next && list.length > 0) {
+      next = pickOwnWorkspaceId(list);
+      if (next) setActiveWorkspaceId(next);
     }
-    setActiveWorkspaceIdState(next);
+    setActiveWorkspaceIdState(next || getActiveWorkspaceId());
+    return next;
   }, []);
 
   const handleSwitchWorkspace = useCallback(
@@ -210,18 +229,9 @@ export const App = () => {
       setActiveWorkspaceId(id);
       setActiveWorkspaceIdState(id);
       const loadedPatients = await refreshPatients();
-      const storedId = sessionStorage.getItem('halo_selectedPatientId');
-      if (storedId && !loadedPatients.find((p) => p.id === storedId)) {
-        selectPatient(null);
-      }
-      const prefetchId = storedId && loadedPatients.some((p) => p.id === storedId)
-        ? storedId
-        : loadedPatients[0]?.id;
-      if (prefetchId) {
-        warmAndListFiles(prefetchId, 24).catch(() => {});
-      }
+      reconcilePatientSelection(loadedPatients);
     },
-    [refreshPatients, selectPatient]
+    [refreshPatients, reconcilePatientSelection]
   );
 
   // Check if user has an active session
@@ -238,20 +248,10 @@ export const App = () => {
         if (auth.signedIn && auth.user) {
           setIsSignedIn(true);
           setCurrentUser(auth.user);
-          await refreshWorkspaces();
+          clearPatientIfUserChanged(auth.user.id);
+          await refreshWorkspaces({ pinToOwn: true });
           const loadedPatients = await refreshPatients();
-          // Validate stored patient selection — clear if patient no longer exists
-          const storedId = sessionStorage.getItem('halo_selectedPatientId');
-          if (storedId && !loadedPatients.find(p => p.id === storedId)) {
-            selectPatient(null);
-          }
-          // Prefetch file list for the patient most likely to be opened (warms Drive + server cache)
-          const prefetchId = storedId && loadedPatients.some(p => p.id === storedId)
-            ? storedId
-            : loadedPatients[0]?.id;
-          if (prefetchId) {
-            warmAndListFiles(prefetchId, 24).catch(() => {});
-          }
+          reconcilePatientSelection(loadedPatients);
           // Load settings in background
           loadSettings().then(res => {
             if (res.settings) setUserSettings(res.settings);
@@ -294,8 +294,10 @@ export const App = () => {
       const { user } = await loginWithPassword(loginEmail, loginPassword);
       setCurrentUser(user);
       setIsSignedIn(true);
-      await refreshWorkspaces();
-      await refreshPatients();
+      clearPatientIfUserChanged(user.id);
+      await refreshWorkspaces({ pinToOwn: true });
+      const loadedPatients = await refreshPatients();
+      reconcilePatientSelection(loadedPatients);
       loadSettings()
         .then((res) => {
           if (res.settings) setUserSettings(res.settings);
@@ -314,6 +316,11 @@ export const App = () => {
     clearActiveWorkspaceId();
     setWorkspaces([]);
     setActiveWorkspaceIdState('');
+    try {
+      sessionStorage.removeItem(LAST_USER_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
     await logout();
     setIsSignedIn(false);
     setCurrentUser(null);
@@ -466,40 +473,6 @@ export const App = () => {
   }, [mobileSidebarOpen]);
 
   const activePatient = patients.find((p) => p.id === selectedPatientId);
-
-  const runWithActivePatient = useCallback(
-    (action: () => void) => {
-      const patient = patients.find((p) => p.id === selectedPatientId);
-      if (!patient) {
-        showToast(
-          mainNav === 'ward'
-            ? 'Open a patient from the ward board first.'
-            : 'Select a patient folder first.',
-          'info'
-        );
-        return;
-      }
-      if (mainNav !== 'folders') {
-        openPatientWorkspace(patient.id);
-        window.requestAnimationFrame(() => {
-          window.requestAnimationFrame(action);
-        });
-        return;
-      }
-      action();
-    },
-    [patients, selectedPatientId, mainNav, openPatientWorkspace, showToast]
-  );
-
-  const showMobileConsultBar =
-    isSignedIn &&
-    !mobileSidebarOpen &&
-    !mobileConsultBarHidden &&
-    !showCreateModal &&
-    !patientToDelete &&
-    (mainNav === 'ward' ||
-      mainNav === 'sheets' ||
-      (mainNav === 'folders' && Boolean(activePatient)));
 
   if (!isReady) {
     return (
@@ -757,11 +730,7 @@ export const App = () => {
 
       <div
         className={`flex flex-1 min-h-0 min-w-0 flex-col relative overscroll-x-none overflow-x-hidden h-screen ${
-          isSignedIn
-            ? showMobileConsultBar
-              ? 'max-md:pb-[calc(7.25rem+env(safe-area-inset-bottom))]'
-              : 'max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom))]'
-            : ''
+          isSignedIn ? 'max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom))]' : ''
         }`}
       >
         {isSignedIn ? (
@@ -812,6 +781,7 @@ export const App = () => {
             onToast={showToast}
             templateId={userSettings?.templateId || DEFAULT_HALO_TEMPLATE_ID}
             calendarPrepEvent={null}
+            haloUserId={currentUser?.haloUserId ?? null}
             openStickerProfileForPatientId={
               openStickerForPatientId === activePatient.id ? openStickerForPatientId : null
             }
@@ -1040,16 +1010,6 @@ export const App = () => {
               Folders
             </button>
           </nav>
-
-          <MobileConsultationActionBar
-            visible={showMobileConsultBar}
-            recorder={consultationRecUi}
-            onType={() => runWithActivePatient(() => window.dispatchEvent(new Event('halo:start-type-note')))}
-            onDictate={() =>
-              runWithActivePatient(() => window.dispatchEvent(new Event('halo:toggle-consultation-dictation')))
-            }
-            onPause={() => window.dispatchEvent(new Event('halo:toggle-consultation-pause'))}
-          />
         </>
       )}
 

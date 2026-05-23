@@ -1,12 +1,13 @@
 import type { ClinicalTemplateDefinition } from './types';
-import { docPathForHaloUser, MO_HALO_USER_ID } from './constants';
+
+const MO_TEMPLATES_DIR = 'Mo templates';
 
 function mo(id: string, name: string, fields: ClinicalTemplateDefinition['fields']): ClinicalTemplateDefinition {
   return {
     template_id: id,
     name,
     description: '',
-    doc_path: docPathForHaloUser(MO_HALO_USER_ID, id),
+    doc_path: `${MO_TEMPLATES_DIR}/${name} template.docx`,
     fields,
   };
 }

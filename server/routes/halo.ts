@@ -79,6 +79,57 @@ function noteHasDisplayableBody(note: Pick<HaloNote, 'content' | 'fields'>): boo
   return Boolean(note.content?.trim());
 }
 
+async function finalizeGeneratedNotes(
+  notes: HaloNote[],
+  composedText: string,
+  templateId: string,
+  tplLabel: string,
+  templateDefinition: ReturnType<typeof getLocalTemplateDefinition>
+): Promise<HaloNote[]> {
+  let result = notes;
+  if (result.length === 0 && composedText.trim()) {
+    result = [
+      {
+        noteId: `note-${Date.now()}`,
+        title: tplLabel,
+        content: '',
+        template_id: templateId,
+        lastSavedAt: new Date().toISOString(),
+        dirty: false,
+      },
+    ];
+  }
+
+  if (config.geminiApiKey) {
+    result = await Promise.all(
+      result.map(async (note) => {
+        if (!noteNeedsMarkdownStructure(note)) return note;
+        try {
+          const md = await generateText(
+            clinicalNoteMarkdownStructurePrompt({
+              templateDisplayName: tplLabel,
+              templateId,
+              sourceText: composedText,
+              templateDefinition,
+            })
+          );
+          const trimmed = md.trim();
+          if (trimmed) return { ...note, content: trimmed };
+        } catch (e) {
+          console.warn('[Halo] Gemini Markdown structure fallback failed:', e);
+        }
+        return note;
+      })
+    );
+  }
+
+  return result.map((note) => {
+    if (noteHasDisplayableBody(note)) return note;
+    const fb = fallbackOrganisedNoteMarkdown(composedText, tplLabel);
+    return fb ? { ...note, content: fb } : note;
+  });
+}
+
 async function convertDocxBufferToPdfBuffer(token: string, docxBuffer: Buffer): Promise<Buffer> {
   const importMetadata = JSON.stringify({
     name: `halo_preview_${Date.now()}`,
@@ -225,73 +276,36 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
     const templateDefinition = resolveBundledTemplateDefinition(req, userId, templateId);
+    const tplLabel =
+      (typeof template_name === 'string' && template_name.trim() ? template_name.trim() : null) ||
+      templateDefinition?.name ||
+      templateId;
+    const templateNameOpt =
+      typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined;
+
     console.log('[Halo] generate-note request:', {
       userId: userId.slice(0, 8) + '…',
       templateId,
       return_type,
       textLength: composedText.length,
     });
+
     const result = await generateNote({
       user_id: userId,
       template_id: templateId,
       text: composedText,
       return_type,
-      template_name: typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined,
+      template_name: templateNameOpt,
       templateDefinition,
     });
 
     if (return_type === 'note') {
       let notes = result as HaloNote[];
-      const tplLabel =
-        (typeof template_name === 'string' && template_name.trim() ? template_name.trim() : null) || templateId;
-
-      if (notes.length === 0 && composedText.trim()) {
-        notes = [
-          {
-            noteId: `note-${Date.now()}`,
-            title: tplLabel,
-            content: '',
-            template_id: templateId,
-            lastSavedAt: new Date().toISOString(),
-            dirty: false,
-          },
-        ];
-      }
-
-      if (config.geminiApiKey) {
-        notes = await Promise.all(
-          notes.map(async (note) => {
-            if (!noteNeedsMarkdownStructure(note)) return note;
-            try {
-              const md = await generateText(
-                clinicalNoteMarkdownStructurePrompt({
-                  templateDisplayName: tplLabel,
-                  templateId,
-                  sourceText: composedText,
-                  templateDefinition,
-                })
-              );
-              const trimmed = md.trim();
-              if (trimmed) return { ...note, content: trimmed };
-            } catch (e) {
-              console.warn('[Halo] Gemini Markdown structure fallback failed:', e);
-            }
-            return note;
-          })
-        );
-      }
-
-      notes = notes.map((note) => {
-        if (noteHasDisplayableBody(note)) return note;
-        const fb = fallbackOrganisedNoteMarkdown(composedText, tplLabel);
-        return fb ? { ...note, content: fb } : note;
-      });
-
+      notes = await finalizeGeneratedNotes(notes, composedText, templateId, tplLabel, templateDefinition);
       res.json({ notes });
       return;
     }
 
-    // return_type === 'docx': result is Buffer
     const buffer = result as Buffer;
     if (!patientId || !req.session.accessToken) {
       res.status(400).json({ error: 'patientId is required to save DOCX to Drive.' });

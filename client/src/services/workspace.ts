@@ -13,6 +13,15 @@ export type WorkspaceInfo = {
   isDefault: boolean;
 };
 
+/** Prefer the logged-in user's workspace (Mo vs Henk). */
+export function pickOwnWorkspaceId(list: WorkspaceInfo[]): string {
+  const own = list.find((w) => w.isOwn);
+  if (own) return own.id;
+  const def = list.find((w) => w.isDefault);
+  if (def) return def.id;
+  return list[0]?.id ?? '';
+}
+
 export function getActiveWorkspaceId(): string {
   try {
     return (typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : '') || '';
