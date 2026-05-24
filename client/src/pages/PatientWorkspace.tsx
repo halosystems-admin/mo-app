@@ -1734,7 +1734,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       </div>
 
       {/* Content */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-halo-bg p-3 md:p-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-halo-bg p-3 md:p-4 max-md:pb-[calc(7.25rem+env(safe-area-inset-bottom,0px))]">
         <div className="mx-auto flex w-full max-w-[min(96rem,100%)] min-h-0 flex-1 flex-col">
           {/* AI Panel */}
           {activeTab === 'overview' && hasAiContent && showAiPanel && (

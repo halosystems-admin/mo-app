@@ -16,9 +16,13 @@ export const MobileDictateFab: React.FC = () => {
 
   return (
     <div
-      className="md:hidden fixed left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-2"
-      style={{ bottom: 'calc(3.75rem + env(safe-area-inset-bottom, 0px))' }}
+      className="md:hidden fixed inset-x-0 z-40 flex flex-col items-center justify-end gap-2 pointer-events-none px-4"
+      style={{
+        bottom: 'calc(3.25rem + env(safe-area-inset-bottom, 0px))',
+        height: '4.75rem',
+      }}
     >
+      <div className="pointer-events-auto flex flex-col items-center gap-2">
       {isLive ? (
         <div className="flex items-center gap-2 rounded-full border border-red-200 bg-white px-3 py-1.5 shadow-lg">
           <span className="inline-block h-2 w-2 rounded-full bg-red-500 animate-pulse" aria-hidden />
@@ -58,6 +62,7 @@ export const MobileDictateFab: React.FC = () => {
           <Mic className="h-5 w-5" aria-hidden />
         )}
       </button>
+      </div>
     </div>
   );
 };

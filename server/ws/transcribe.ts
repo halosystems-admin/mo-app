@@ -36,9 +36,12 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
       },
       onTranscript: (result) => {
         if (result?.transcript) {
-          fullTranscript = `${fullTranscript}${fullTranscript ? ' ' : ''}${result.transcript}`.trim();
+          const chunk = result.transcript.trim();
+          if (result.isFinal) {
+            fullTranscript = `${fullTranscript}${fullTranscript ? ' ' : ''}${chunk}`.trim();
+          }
           if (process.env.NODE_ENV !== 'production') {
-            console.log('[ws/transcribe] partial transcript:', result.transcript);
+            console.log('[ws/transcribe] transcript chunk:', { textPreview: chunk.slice(0, 80), isFinal: result.isFinal });
           }
         }
         if (clientWs.readyState === 1) {
