@@ -296,8 +296,16 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     setViewMode('pdf');
   };
 
+  const openPdfPreview = () => {
+    setViewMode('pdf');
+    if (!displayContent.trim()) return;
+    if (activeNote?.dirty || !activeNote?.previewPdfBase64?.trim()) {
+      onRegeneratePdf(activeIndex, displayContent);
+    }
+  };
+
   return (
-    <div className="flex flex-col md:flex-1 md:min-h-0 md:overflow-hidden max-md:overflow-visible">
+    <div className="flex min-h-0 flex-col md:flex-1 md:min-h-0 md:overflow-hidden">
       {/* Only show template picker + mini note tabs when used standalone */}
       {showNoteTabs && (
         <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 max-md:px-3 max-md:py-1.5 max-md:gap-1.5">
@@ -345,7 +353,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setViewMode('pdf')}
+            onClick={openPdfPreview}
             className={`px-3 py-1 text-xs font-medium rounded-md transition ${
               viewMode === 'pdf' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
             }`}
@@ -357,25 +365,25 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
       {/* Content area */}
       {viewMode === 'fields' ? (
-        <div className="note-fields-shell flex-1 bg-slate-50/70 p-3 max-md:flex-none max-md:p-1 max-md:bg-transparent">
-          <div className="note-fields-card rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col min-h-0 max-md:rounded-lg max-md:border-0 max-md:shadow-none">
+        <div className="note-fields-shell flex min-h-0 flex-1 flex-col bg-slate-50/70 p-3 max-md:p-1 max-md:bg-transparent">
+          <div className="note-fields-card flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white shadow-sm max-md:rounded-lg max-md:border-0 max-md:shadow-none">
             <div className="px-4 py-3 border-b border-slate-100 shrink-0 max-md:px-2 max-md:py-2">
               <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Note fields</div>
             </div>
 
-            <div className="note-fields-scrollArea min-h-0 flex-1 overflow-y-auto p-3 max-md:overflow-visible max-md:flex-none max-md:p-2 max-md:!min-h-0">
+            <div className="note-fields-scrollArea min-h-0 flex-1 overflow-y-auto p-3 max-md:p-2">
               <textarea
                 ref={textareaRef}
                 value={organizedText}
                 onChange={(e) => onNoteChange(activeIndex, { content: e.target.value })}
                 placeholder=""
-                className="note-fields-editor-input w-full font-sans focus:outline-none resize-none text-sm leading-relaxed text-slate-700 border border-slate-200 rounded-xl bg-white p-4 max-md:min-h-[6rem] max-md:h-auto max-md:overflow-visible max-md:p-3 md:h-full md:min-h-[320px]"
+                className="note-fields-editor-input h-full min-h-[320px] w-full resize-none rounded-xl border border-slate-200 bg-white p-4 font-sans text-sm leading-relaxed text-slate-700 focus:outline-none max-md:min-h-[12rem] max-md:p-3"
               />
             </div>
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto bg-slate-50/70 p-3 max-md:flex-none">
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/70 p-3">
           {pdfUrl ? (
             <iframe
               src={pdfUrl}

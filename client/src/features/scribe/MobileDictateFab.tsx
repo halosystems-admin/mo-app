@@ -18,8 +18,8 @@ export const MobileDictateFab: React.FC = () => {
     <div
       className="md:hidden fixed inset-x-0 z-40 flex flex-col items-center justify-end gap-2 pointer-events-none px-4"
       style={{
-        bottom: 'calc(3.25rem + env(safe-area-inset-bottom, 0px))',
-        height: '4.75rem',
+        bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))',
+        height: '5.5rem',
       }}
     >
       <div className="pointer-events-auto flex flex-col items-center gap-2">

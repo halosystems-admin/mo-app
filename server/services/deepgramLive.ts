@@ -14,6 +14,7 @@ export function isDeepgramLiveAvailable(): boolean {
 export interface LiveTranscriptResult {
   transcript: string;
   isFinal: boolean;
+  speechFinal: boolean;
 }
 
 /**
@@ -50,6 +51,7 @@ export function createDeepgramLiveConnection(callbacks: {
   connection.on(
     LiveTranscriptionEvents.Transcript,
     (data: {
+      speech_final?: boolean;
       channel?: {
         alternatives?: Array<{
           transcript?: string;
@@ -74,6 +76,7 @@ export function createDeepgramLiveConnection(callbacks: {
           console.log('[deepgram-live] transcript chunk', {
             textPreview: transcript.slice(0, 80),
             isFinal: alt.is_final ?? true,
+            speechFinal: data.speech_final ?? false,
           });
         } catch {
           // ignore
@@ -83,6 +86,7 @@ export function createDeepgramLiveConnection(callbacks: {
       callbacks.onTranscript({
         transcript,
         isFinal: alt.is_final ?? true,
+        speechFinal: data.speech_final ?? false,
       });
     }
   );

@@ -50,6 +50,7 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
               type: 'transcript',
               transcript: result.transcript,
               isFinal: result.isFinal,
+              speechFinal: result.speechFinal,
             })
           );
         }

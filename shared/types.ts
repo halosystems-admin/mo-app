@@ -131,6 +131,8 @@ export interface HaloNote {
   content: string;
   /** Raw HALO payload for this note (source of truth for JSON view). */
   raw?: unknown;
+  /** Structured key/value map shared by the prompt, editor, and DOCX template. */
+  docxMerge?: Record<string, string>;
   /** In-app PDF preview generated from DOCX (base64, not persisted to Drive). */
   previewPdfBase64?: string;
   template_id: string;
@@ -194,6 +196,7 @@ export interface ScribeSession {
     content: string;
     template_id: string;
     raw?: unknown;
+    docxMerge?: Record<string, string>;
     fields?: NoteField[];
   }>;
   /** Short main complaint/summary for list display (e.g. "Ankle Fracture"). */

@@ -4,8 +4,8 @@ import { config } from '../config';
 const TEXT_MODEL = 'gemini-flash-latest';
 const MAX_RETRIES = 2;
 const BASE_RETRY_DELAY_MS = 2000;
-/** Timeout for Gemini text (15–90s typical) */
-export const GEMINI_TIMEOUT_MS = 90_000;
+/** Timeout for Gemini text. Local clinical note generation uses a single JSON pass. */
+export const GEMINI_TIMEOUT_MS = 120_000;
 /** Shorter cap for single vision calls — faster UX for Smart Context */
 const GEMINI_VISION_TIMEOUT_MS = 55_000;
 

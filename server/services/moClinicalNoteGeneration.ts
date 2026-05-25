@@ -1,13 +1,18 @@
 import type { ClinicalTemplateDefinition } from '../../shared/clinicalTemplates/types';
+import { buildClientClinicalNotePrompt } from '../../shared/buildClientClinicalNotePrompt';
 import { isMoLocalTemplatesEnabled } from '../../shared/clinicalTemplates/docxFileResolver';
 import { config } from '../config';
-import { generateText, safeJsonParse } from './gemini';
+import { generateText } from './gemini';
 import type { HaloNote, NoteField } from './haloApi';
 import {
-  buildTemplateFieldSchemaBlock,
-  clinicalNoteMarkdownStructurePrompt,
   fallbackOrganisedNoteMarkdown,
 } from '../utils/prompts';
+import {
+  enrichParsedDataWithChart,
+  fieldMapFromGeminiJson,
+  populateClinicalNoteEditor,
+} from '../../shared/populateClinicalNoteTemplate';
+import type { HaloPatientProfile } from '../../shared/types';
 
 export function canUseMoLocalNotePipeline(haloUserId: string): boolean {
   return (
@@ -17,49 +22,20 @@ export function canUseMoLocalNotePipeline(haloUserId: string): boolean {
   );
 }
 
+export const canUseLocalClinicalNotePipeline = canUseMoLocalNotePipeline;
+
 function fieldExtractionPrompt(
   composedText: string,
   templateId: string,
   templateDisplayName: string,
   templateDefinition?: ClinicalTemplateDefinition
 ): string {
-  const keys =
-    templateDefinition?.fields.map((f) => f.key).join(', ') ||
-    'patient_name, dob, medical_aid, id, medical_aid_no, contact';
-  const schema = templateDefinition ? buildTemplateFieldSchemaBlock(templateDefinition) : '';
-  return `You are a medical scribe. Extract structured field values from the clinical text below for template "${templateDisplayName}" (template_id: ${templateId}).
-
-${schema}
-
-Return ONLY valid JSON (no markdown fences) as a single object whose keys are EXACTLY these field keys: ${keys}
-Use empty string "" for missing values. Use clinical prose in each value as appropriate.
-
-SOURCE:
----
-${composedText.trim()}
----`;
-}
-
-export function parseFieldValuesFromGeminiJson(
-  text: string,
-  templateDefinition?: ClinicalTemplateDefinition
-): Record<string, string> {
-  const parsed = safeJsonParse<Record<string, unknown>>(text, {});
-  const out: Record<string, string> = {};
-  const keys = templateDefinition?.fields.map((f) => f.key) ?? Object.keys(parsed);
-  for (const key of keys) {
-    const v = parsed[key];
-    if (v == null) {
-      out[key] = '';
-    } else if (typeof v === 'string') {
-      out[key] = v;
-    } else if (typeof v === 'number' || typeof v === 'boolean') {
-      out[key] = String(v);
-    } else {
-      out[key] = JSON.stringify(v);
-    }
-  }
-  return out;
+  return buildClientClinicalNotePrompt({
+    templateDisplayName,
+    templateId,
+    sourceText: composedText,
+    templateDefinition,
+  });
 }
 
 export function fieldValuesToNoteFields(
@@ -89,8 +65,9 @@ export async function generateMoClinicalNotes(params: {
   templateId: string;
   templateDisplayName: string;
   templateDefinition?: ClinicalTemplateDefinition;
+  patientProfile?: HaloPatientProfile | null;
 }): Promise<HaloNote[]> {
-  const { composedText, templateId, templateDisplayName, templateDefinition } = params;
+  const { composedText, templateId, templateDisplayName, templateDefinition, patientProfile } = params;
   const now = new Date().toISOString();
   const tplLabel = templateDisplayName.trim() || templateId;
 
@@ -99,30 +76,22 @@ export async function generateMoClinicalNotes(params: {
   let fields: NoteField[] = [];
 
   try {
-    const md = await generateText(
-      clinicalNoteMarkdownStructurePrompt({
-        templateDisplayName: tplLabel,
-        templateId,
-        sourceText: composedText,
-        templateDefinition,
-      })
-    );
-    content = md.trim();
-  } catch (e) {
-    console.warn('[Mo] Gemini markdown note failed:', e);
-  }
-
-  try {
     const jsonText = await generateText(
       fieldExtractionPrompt(composedText, templateId, tplLabel, templateDefinition)
     );
-    fieldValues = parseFieldValuesFromGeminiJson(jsonText, templateDefinition);
+    fieldValues = enrichParsedDataWithChart(
+      fieldMapFromGeminiJson(jsonText, templateDefinition),
+      patientProfile,
+      templateDefinition
+    );
     fields = fieldValuesToNoteFields(fieldValues, templateDefinition);
   } catch (e) {
     console.warn('[Mo] Gemini field extraction failed:', e);
   }
 
-  if (!content.trim() && fields.length > 0) {
+  if (Object.keys(fieldValues).length > 0) {
+    content = populateClinicalNoteEditor(templateId, fieldValues, templateDefinition);
+  } else if (fields.length > 0) {
     content = fieldsToContent(fields);
   }
   if (!content.trim()) {
@@ -141,6 +110,7 @@ export async function generateMoClinicalNotes(params: {
       lastSavedAt: now,
       dirty: false,
       raw,
+      ...(Object.keys(fieldValues).length > 0 ? { docxMerge: fieldValues } : {}),
       ...(fields.length > 0 ? { fields } : {}),
     },
   ];
@@ -152,6 +122,7 @@ export async function extractMoTemplateFieldValues(params: {
   templateId: string;
   templateDisplayName: string;
   templateDefinition?: ClinicalTemplateDefinition;
+  patientProfile?: HaloPatientProfile | null;
 }): Promise<Record<string, string>> {
   const jsonText = await generateText(
     fieldExtractionPrompt(
@@ -161,5 +132,9 @@ export async function extractMoTemplateFieldValues(params: {
       params.templateDefinition
     )
   );
-  return parseFieldValuesFromGeminiJson(jsonText, params.templateDefinition);
+  return enrichParsedDataWithChart(
+    fieldMapFromGeminiJson(jsonText, params.templateDefinition),
+    params.patientProfile,
+    params.templateDefinition
+  );
 }

@@ -2,10 +2,17 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Mic, Pause, Play } from 'lucide-react';
 import { getTranscribeWebSocketUrl, transcribeAudio } from '../../services/api';
 import { setConsultationRecorderUiState } from './consultationRecorderStore';
+import {
+  applyLiveTranscriptChunk,
+  createLiveTranscriptState,
+  flushLiveTranscriptState,
+  type LiveTranscriptState,
+} from '../../../../shared/liveTranscriptMerge';
 
 export interface HeaderConsultationRecorderProps {
   onLiveTranscriptUpdate: (transcript: string) => void;
   onLiveStopped: (transcript: string) => void;
+  onLiveFinalized?: (transcript: string) => void;
   onError?: (message: string) => void;
 }
 
@@ -14,6 +21,7 @@ type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed';
 export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProps> = ({
   onLiveTranscriptUpdate,
   onLiveStopped,
+  onLiveFinalized,
   onError,
 }) => {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
@@ -28,18 +36,8 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   const chunksRef = useRef<Blob[]>([]);
   const recordingMimeTypeRef = useRef<string>('audio/webm');
   const transcriptRef = useRef<string>('');
-  /** Committed text from Deepgram final segments only. */
-  const committedTranscriptRef = useRef<string>('');
-  /** Latest interim utterance (replaced each chunk — not appended). */
-  const interimTranscriptRef = useRef<string>('');
+  const transcriptStateRef = useRef<LiveTranscriptState>(createLiveTranscriptState());
   const timerRef = useRef<number | null>(null);
-
-  const syncDisplayTranscript = useCallback(() => {
-    const parts = [committedTranscriptRef.current, interimTranscriptRef.current].filter(Boolean);
-    const combined = parts.join(' ').trim();
-    transcriptRef.current = combined;
-    if (combined) onLiveTranscriptUpdate(combined);
-  }, [onLiveTranscriptUpdate]);
 
   const stopAudioVisualization = () => {};
 
@@ -129,25 +127,33 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   }, [onError]);
 
   const stopLive = useCallback(async () => {
-    const streamedText = transcriptRef.current.trim();
+    const flushed = flushLiveTranscriptState(transcriptStateRef.current);
+    transcriptStateRef.current = flushed.state;
+    transcriptRef.current = flushed.display;
+    const streamedText = flushed.display.trim();
     cleanup();
     setIsLive(false);
 
-    let finalText = streamedText;
-    if (!finalText && chunksRef.current.length > 0) {
-      finalText = await runFallbackTranscription();
+    if (streamedText) {
+      onLiveStopped(streamedText);
     }
 
-    if (finalText) {
-      onLiveStopped(finalText);
+    if (chunksRef.current.length > 0) {
+      const batchTranscript = await runFallbackTranscription();
+      if (batchTranscript) {
+        if (!streamedText) {
+          onLiveStopped(batchTranscript);
+        } else if (batchTranscript !== streamedText) {
+          onLiveFinalized?.(batchTranscript);
+        }
+      }
     }
-  }, [cleanup, onLiveStopped, runFallbackTranscription]);
+  }, [cleanup, onLiveFinalized, onLiveStopped, runFallbackTranscription]);
 
   const startLive = useCallback(async () => {
     if (isLive || connectionState === 'connecting') return;
     transcriptRef.current = '';
-    committedTranscriptRef.current = '';
-    interimTranscriptRef.current = '';
+    transcriptStateRef.current = createLiveTranscriptState();
     chunksRef.current = [];
     setElapsedMs(0);
     setConnectionState('connecting');
@@ -196,19 +202,18 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
             transcript?: string;
             message?: string;
             isFinal?: boolean;
+            speechFinal?: boolean;
           };
           if (msg.type === 'transcript' && typeof msg.transcript === 'string' && msg.transcript.trim()) {
-            const chunk = msg.transcript.trim();
-            const isFinal = msg.isFinal === true;
-            if (isFinal) {
-              const committed = committedTranscriptRef.current;
-              const sep = committed && !committed.endsWith(' ') && !chunk.startsWith(' ') ? ' ' : '';
-              committedTranscriptRef.current = `${committed}${sep}${chunk}`.trim();
-              interimTranscriptRef.current = '';
-            } else {
-              interimTranscriptRef.current = chunk;
-            }
-            syncDisplayTranscript();
+            const merged = applyLiveTranscriptChunk(
+              transcriptStateRef.current,
+              msg.transcript,
+              msg.isFinal === true,
+              msg.speechFinal === true
+            );
+            transcriptStateRef.current = merged.state;
+            transcriptRef.current = merged.display;
+            if (merged.display) onLiveTranscriptUpdate(merged.display);
           }
           if (msg.type === 'error') {
             console.error('[HeaderConsultationRecorder] WebSocket error message from server:', msg.message);
@@ -233,7 +238,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
         err instanceof Error ? err.message : 'Could not access microphone. Please check your browser permissions.'
       );
     }
-  }, [connectionState, isLive, onError, stopLive, syncDisplayTranscript]);
+  }, [connectionState, isLive, onError, stopLive]);
 
   useEffect(() => {
     const onToggle = () => {
@@ -366,4 +371,3 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
     </div>
   );
 };
-

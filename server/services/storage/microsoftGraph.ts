@@ -348,6 +348,13 @@ function parseSessionsJson(raw: unknown): ScribeSession[] {
               content: String(o.content ?? ''),
               template_id: String(o.template_id ?? ''),
               ...(o.raw !== undefined ? { raw: o.raw } : {}),
+              ...(o.docxMerge && typeof o.docxMerge === 'object' && !Array.isArray(o.docxMerge)
+                ? {
+                    docxMerge: Object.fromEntries(
+                      Object.entries(o.docxMerge as Record<string, unknown>).map(([k, v]) => [String(k), String(v ?? '')])
+                    ),
+                  }
+                : {}),
               ...(fields && fields.length > 0 ? { fields } : {}),
             };
           })
@@ -963,6 +970,7 @@ export const microsoftGraphAdapter: StorageAdapter = {
         content: string;
         template_id: string;
         raw?: unknown;
+        docxMerge?: Record<string, string>;
         fields?: Array<{ label: string; body: string }>;
       }>;
       mainComplaint?: string;
@@ -992,6 +1000,15 @@ export const microsoftGraphAdapter: StorageAdapter = {
           content: String(n.content ?? '').slice(0, 100000),
           template_id: String(n.template_id ?? ''),
           ...(n.raw !== undefined ? { raw: n.raw } : {}),
+          ...(n.docxMerge && typeof n.docxMerge === 'object' && !Array.isArray(n.docxMerge)
+            ? {
+                docxMerge: Object.fromEntries(
+                  Object.entries(n.docxMerge)
+                    .slice(0, 300)
+                    .map(([k, v]) => [String(k).slice(0, 200), String(v ?? '').slice(0, 20000)])
+                ),
+              }
+            : {}),
           ...(Array.isArray(n.fields) && n.fields.length > 0
             ? {
                 fields: n.fields
@@ -1540,4 +1557,3 @@ function safeJsonParse(text: string): unknown {
     return null;
   }
 }
-

@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 const TEXT_MODEL = 'gemini-flash-latest';
 const MAX_RETRIES = 2;
 const BASE_RETRY_DELAY_MS = 2000;
-const GEMINI_TIMEOUT_MS = 90_000;
+const GEMINI_TIMEOUT_MS = 120_000;
 
 function getApiKey(): string {
   const key = (import.meta.env.VITE_GEMINI_API_KEY as string | undefined)?.trim() ?? '';

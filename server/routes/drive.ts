@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { requireAuth } from '../middleware/requireAuth';
 import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { config } from '../config';
@@ -41,6 +42,9 @@ const ALLOWED_UPLOAD_TYPES = [
   'application/json',
 ];
 const DEFAULT_PAGE_SIZE = 50;
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const PDF_MIME = 'application/pdf';
+const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
 
 // Internal app file — never show in patient folder listing
 const SESSIONS_FILE_NAME = 'halo_scribe_sessions.json';
@@ -68,6 +72,111 @@ function extensionFromMimeType(mimeType: string): string {
   if (mt.includes('webp')) return '.webp';
   if (mt.includes('svg')) return '.svg';
   return '.jpg';
+}
+
+function getMicrosoftDriveBase(storageMode?: 'onedrive' | 'sharepoint'): string {
+  if (storageMode === 'sharepoint') {
+    if (!config.msSharePointSiteId || !config.msSharePointDriveId) {
+      throw new Error('SharePoint is not configured (MS_SHAREPOINT_SITE_ID/MS_SHAREPOINT_DRIVE_ID).');
+    }
+    return `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(config.msSharePointSiteId)}/drives/${encodeURIComponent(config.msSharePointDriveId)}`;
+  }
+  return 'https://graph.microsoft.com/v1.0/me/drive';
+}
+
+async function convertDocxBufferToPdfBufferGoogle(token: string, docxBuffer: Buffer): Promise<Buffer> {
+  const importMetadata = JSON.stringify({
+    name: `halo_preview_${Date.now()}`,
+    mimeType: GOOGLE_DOC_MIME,
+  });
+  const boundary = `halo_preview_${crypto.randomUUID()}`;
+  const importBody = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${importMetadata}\r\n` +
+      `--${boundary}\r\nContent-Type: ${DOCX_MIME}\r\n\r\n`
+    ),
+    docxBuffer,
+    Buffer.from(`\r\n--${boundary}--`),
+  ]);
+
+  const importRes = await fetch(`${config.uploadApi}/files?uploadType=multipart`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body: importBody,
+  });
+  if (!importRes.ok) {
+    const body = await importRes.text().catch(() => '');
+    throw new Error(`Failed to import DOCX for preview (${importRes.status}). ${body}`);
+  }
+
+  const imported = (await importRes.json()) as { id: string };
+  try {
+    const pdfRes = await fetch(
+      `${config.driveApi}/files/${imported.id}/export?mimeType=${encodeURIComponent(PDF_MIME)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!pdfRes.ok) {
+      const body = await pdfRes.text().catch(() => '');
+      throw new Error(`Failed to export PDF preview (${pdfRes.status}). ${body}`);
+    }
+    return Buffer.from(await pdfRes.arrayBuffer());
+  } finally {
+    try {
+      await fetch(`${config.driveApi}/files/${imported.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // Best-effort cleanup for temp file.
+    }
+  }
+}
+
+async function convertDocxBufferToPdfBufferMicrosoft(
+  token: string,
+  docxBuffer: Buffer,
+  storageMode?: 'onedrive' | 'sharepoint'
+): Promise<Buffer> {
+  const driveBase = getMicrosoftDriveBase(storageMode);
+  const tempName = `halo_preview_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.docx`;
+  const uploadUrl = `${driveBase}/root:/${encodeURIComponent(tempName)}:/content`;
+
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': DOCX_MIME,
+    },
+    body: docxBuffer,
+  });
+  if (!uploadRes.ok) {
+    const body = await uploadRes.text().catch(() => '');
+    throw new Error(`Failed to upload DOCX for Microsoft preview (${uploadRes.status}). ${body}`);
+  }
+  const uploaded = (await uploadRes.json()) as { id: string };
+
+  try {
+    const pdfRes = await fetch(`${driveBase}/items/${encodeURIComponent(uploaded.id)}/content?format=pdf`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!pdfRes.ok) {
+      const body = await pdfRes.text().catch(() => '');
+      throw new Error(`Failed to convert DOCX to PDF via Microsoft Graph (${pdfRes.status}). ${body}`);
+    }
+    return Buffer.from(await pdfRes.arrayBuffer());
+  } finally {
+    try {
+      await fetch(`${driveBase}/items/${encodeURIComponent(uploaded.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // Best-effort cleanup for temp file.
+    }
+  }
 }
 
 // --- Routes ---
@@ -692,6 +801,47 @@ router.get('/files/:fileId/preview-docx-html', async (req: Request, res: Respons
   }
 });
 
+// GET /files/:fileId/preview-docx-pdf — .docx → PDF for template-faithful in-app preview
+router.get('/files/:fileId/preview-docx-pdf', async (req: Request, res: Response) => {
+  try {
+    const token = req.session.accessToken!;
+    const fileId = routeParam(req.params.fileId);
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+
+    const proxy = await adapter.proxyFile({
+      token,
+      fileId,
+      microsoftStorageMode,
+    });
+
+    const name = (proxy.filename || '').toLowerCase();
+    const mime = (proxy.mimeType || '').toLowerCase();
+    const isDocx =
+      mime.includes('wordprocessingml') ||
+      mime.includes('officedocument.wordprocessingml.document') ||
+      name.endsWith('.docx');
+
+    if (!isDocx) {
+      res.status(400).json({ error: 'Preview is only available for .docx Word files.' });
+      return;
+    }
+
+    const pdfBuffer =
+      req.session.provider === 'microsoft'
+        ? await convertDocxBufferToPdfBufferMicrosoft(token, proxy.data, microsoftStorageMode)
+        : await convertDocxBufferToPdfBufferGoogle(token, proxy.data);
+
+    res.setHeader('Content-Type', PDF_MIME);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(proxy.filename.replace(/\.docx$/i, '.pdf'))}"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('DOCX PDF preview error:', err);
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: 'Failed to build Word PDF preview.', detail });
+  }
+});
+
 // --- SCRIBE SESSIONS PER PATIENT (JSON file in patient folder) ---
 
 // GET /patients/:id/sessions
@@ -779,6 +929,15 @@ router.post('/patients/:id/sessions', async (req: Request, res: Response) => {
             content: String(o.content ?? '').slice(0, 100000),
             template_id: String(o.template_id ?? ''),
             ...(raw !== undefined ? { raw } : {}),
+            ...(o.docxMerge && typeof o.docxMerge === 'object' && !Array.isArray(o.docxMerge)
+              ? {
+                  docxMerge: Object.fromEntries(
+                    Object.entries(o.docxMerge as Record<string, unknown>)
+                      .slice(0, 300)
+                      .map(([k, v]) => [String(k).slice(0, 200), String(v ?? '').slice(0, 20000)])
+                  ),
+                }
+              : {}),
             ...(fields && fields.length > 0 ? { fields } : {}),
           };
         })
@@ -882,6 +1041,13 @@ function parseSessionsJson(raw: unknown): ScribeSession[] {
               content: String(o.content ?? ''),
               template_id: String(o.template_id ?? ''),
               ...(o.raw !== undefined ? { raw: o.raw } : {}),
+              ...(o.docxMerge && typeof o.docxMerge === 'object' && !Array.isArray(o.docxMerge)
+                ? {
+                    docxMerge: Object.fromEntries(
+                      Object.entries(o.docxMerge as Record<string, unknown>).map(([k, v]) => [String(k), String(v ?? '')])
+                    ),
+                  }
+                : {}),
               ...(fields && fields.length > 0 ? { fields } : {}),
             };
           })

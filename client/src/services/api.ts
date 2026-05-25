@@ -379,7 +379,15 @@ export const savePatientSession = (
     context?: string;
     templates?: string[];
     noteTitles?: string[];
-    notes?: Array<{ noteId: string; title: string; content: string; template_id: string; raw?: unknown; fields?: Array<{ label: string; body: string }> }>;
+    notes?: Array<{
+      noteId: string;
+      title: string;
+      content: string;
+      template_id: string;
+      raw?: unknown;
+      docxMerge?: Record<string, string>;
+      fields?: Array<{ label: string; body: string }>;
+    }>;
     mainComplaint?: string;
     /** From HALO_patient_profile.json at save time (Sessions tab / ASK HALO context). */
     patientEmail?: string;
@@ -711,6 +719,7 @@ export const generateNotePreviewPdf = (params: {
   user_id?: string;
   template_name?: string;
   patientId?: string;
+  mergeFields?: Record<string, string>;
 }) =>
   request<{ pdfBase64: string }>('/api/halo/generate-preview-pdf', {
     method: 'POST',
@@ -725,6 +734,7 @@ export const saveNoteAsDocx = (params: {
   fileName?: string;
   user_id?: string;
   template_name?: string;
+  mergeFields?: Record<string, string>;
 }) =>
   request<{ success: boolean; fileId: string; name: string }>('/api/halo/generate-note', {
     method: 'POST',
@@ -735,6 +745,7 @@ export const saveNoteAsDocx = (params: {
       patientId: params.patientId,
       fileName: params.fileName,
       user_id: params.user_id,
+      mergeFields: params.mergeFields,
       ...(params.template_name ? { template_name: params.template_name } : {}),
     }),
   });

@@ -158,12 +158,16 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
 
     let finalText = streamedText;
 
-    // If no live transcript came back, fall back to full-session recording
-    if (!finalText && chunksRef.current.length > 0) {
-      finalText = await runFallbackTranscription();
-      if (finalText) {
-        setVisibleTranscript(finalText);
+    // Prefer the full-session transcription for final saved text because it has
+    // better whole-utterance context than the live websocket stream.
+    if (chunksRef.current.length > 0) {
+      const batchTranscript = await runFallbackTranscription();
+      if (batchTranscript) {
+        finalText = batchTranscript;
       }
+    }
+    if (finalText) {
+      setVisibleTranscript(finalText);
     }
 
     if (finalText) {

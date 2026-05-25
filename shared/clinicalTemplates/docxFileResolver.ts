@@ -47,3 +47,11 @@ export function moLocalClinicalTemplateAvailable(haloUserId: string, templateId:
   if (!isMoLocalTemplatesEnabled(haloUserId)) return false;
   return resolveMoClinicalTemplateAbsolutePath(templateId, repoRoot) != null;
 }
+
+export function localClinicalTemplateAvailable(
+  haloUserId: string,
+  templateId: string,
+  repoRoot: string
+): boolean {
+  return moLocalClinicalTemplateAvailable(haloUserId, templateId, repoRoot);
+}

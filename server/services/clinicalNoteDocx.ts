@@ -3,6 +3,12 @@ import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 import type { ClinicalTemplateDefinition } from '../../shared/clinicalTemplates/types';
 import {
+  DOCX_TEMPLATE_END_DELIMITER,
+  DOCX_TEMPLATE_START_DELIMITER,
+  repairDocxPlaceholdersXml,
+} from '../../shared/docxRepairPlaceholders';
+import { stripHtmlForDocx } from '../../shared/populateClinicalNoteTemplate';
+import {
   resolveMoClinicalTemplateAbsolutePath,
   resolveMoMotivationLetterAbsolutePath,
 } from '../../shared/clinicalTemplates/docxFileResolver';
@@ -12,6 +18,10 @@ export function loadMoClinicalTemplateBuffer(templateId: string): Buffer | null 
   const abs = resolveMoClinicalTemplateAbsolutePath(templateId, config.clinicalTemplateRoot);
   if (!abs) return null;
   return fs.readFileSync(abs);
+}
+
+export function loadClinicalTemplateBuffer(_haloUserId: string, templateId: string): Buffer | null {
+  return loadMoClinicalTemplateBuffer(templateId);
 }
 
 export function loadMoMotivationLetterTemplateBuffer(): Buffer | null {
@@ -39,10 +49,27 @@ export function buildPlaceholderMap(
 
 export function renderClinicalNoteDocx(templateBuffer: Buffer, placeholders: Record<string, string>): Buffer {
   const zip = new PizZip(templateBuffer);
-  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-  doc.setData(placeholders);
+  for (const fileName of Object.keys(zip.files)) {
+    if (!/^word\/(?:document|header\d+|footer\d+)\.xml$/i.test(fileName)) continue;
+    const entry = zip.file(fileName);
+    const xml = entry?.asText();
+    if (!xml) continue;
+    zip.file(fileName, repairDocxPlaceholdersXml(xml));
+  }
+
+  const sanitizedPlaceholders = Object.fromEntries(
+    Object.entries(placeholders).map(([key, value]) => [key, stripHtmlForDocx(String(value ?? ''))])
+  );
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+    delimiters: {
+      start: DOCX_TEMPLATE_START_DELIMITER,
+      end: DOCX_TEMPLATE_END_DELIMITER,
+    },
+  });
   try {
-    doc.render();
+    doc.render(sanitizedPlaceholders);
   } catch (err: unknown) {
     const e = err as { properties?: { errors?: Array<{ message?: string }> } };
     const details = e?.properties?.errors?.map((x) => x.message).filter(Boolean).join('; ');

@@ -169,40 +169,56 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
       try {
         if (viewerType === 'docx') {
-          const previewUrl = `${API_BASE}/api/drive/files/${fileId}/preview-docx-html`;
+          const previewUrl = `${API_BASE}/api/drive/files/${fileId}/preview-docx-pdf`;
           const res = await fetch(previewUrl, { credentials: 'include' });
 
           if (cancelled) return;
 
           if (!res.ok) {
-            let msg = `Failed to load preview (${res.status})`;
-            try {
-              const errBody = (await res.clone().json()) as { error?: string; detail?: string };
-              if (errBody && typeof errBody.error === 'string' && errBody.error.trim()) {
-                msg = errBody.error.trim();
-                if (typeof errBody.detail === 'string' && errBody.detail.trim()) {
-                  msg = `${msg} ${errBody.detail.trim()}`;
+            const htmlPreviewUrl = `${API_BASE}/api/drive/files/${fileId}/preview-docx-html`;
+            const htmlRes = await fetch(htmlPreviewUrl, { credentials: 'include' });
+
+            if (cancelled) return;
+
+            if (!htmlRes.ok) {
+              let msg = `Failed to load preview (${res.status})`;
+              try {
+                const errBody = (await res.clone().json()) as { error?: string; detail?: string };
+                if (errBody && typeof errBody.error === 'string' && errBody.error.trim()) {
+                  msg = errBody.error.trim();
+                  if (typeof errBody.detail === 'string' && errBody.detail.trim()) {
+                    msg = `${msg} ${errBody.detail.trim()}`;
+                  }
                 }
+              } catch {
+                /* keep status message */
               }
-            } catch {
-              /* keep status message */
+              throw new Error(msg);
             }
-            throw new Error(msg);
+
+            const data = (await htmlRes.json()) as { html?: string };
+            const raw = typeof data.html === 'string' ? data.html : '';
+            if (!cancelled) {
+              if (!raw.trim()) {
+                setDocxHtml(
+                  DOMPurify.sanitize(
+                    '<p>No readable text found in this document. Try opening it in a new tab.</p>',
+                    { USE_PROFILES: { html: true } }
+                  )
+                );
+              } else {
+                setDocxHtml(DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } }));
+              }
+            }
+            return;
           }
 
-          const data = (await res.json()) as { html?: string };
-          const raw = typeof data.html === 'string' ? data.html : '';
+          const buf = await res.arrayBuffer();
+          const blob = new Blob([buf], { type: 'application/pdf' });
           if (!cancelled) {
-            if (!raw.trim()) {
-              setDocxHtml(
-                DOMPurify.sanitize(
-                  '<p>No readable text found in this document. Try opening it in a new tab.</p>',
-                  { USE_PROFILES: { html: true } }
-                )
-              );
-            } else {
-              setDocxHtml(DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } }));
-            }
+            const url = URL.createObjectURL(blob);
+            blobUrlRef.current = url;
+            setBlobUrl(url);
           }
           return;
         }
@@ -325,7 +341,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       );
     }
 
-    if (viewerType === 'pdf' && blobUrl) {
+    if ((viewerType === 'pdf' || viewerType === 'docx') && blobUrl) {
       return (
         <iframe
           src={blobUrl}

@@ -10,11 +10,14 @@ import {
 } from '../services/clinicalTemplateRegistry';
 import { getStorageAdapter } from '../services/storage';
 import { generateText } from '../services/gemini';
+import { generateMoClinicalNotes, canUseMoLocalNotePipeline } from '../services/moClinicalNoteGeneration';
+import { renderPracticeClinicalDocx } from '../services/practiceDocxFromTemplate';
 import {
   buildPatientDetailsBlock,
   clinicalNoteMarkdownStructurePrompt,
   fallbackOrganisedNoteMarkdown,
 } from '../utils/prompts';
+import type { HaloPatientProfile } from '../../shared/types';
 import {
   buildLetterReLine,
   displayNameFromProfile,
@@ -41,26 +44,33 @@ function resolveBundledTemplateDefinition(req: Request, userId: string, template
   return getLocalTemplateDefinition(userId, templateId);
 }
 
+async function loadPatientProfile(
+  req: Request,
+  patientFolderId: string | undefined
+): Promise<HaloPatientProfile | null> {
+  if (!patientFolderId || !req.session.accessToken) return null;
+  try {
+    const adapter = getStorageAdapter(req.session.provider);
+    return await adapter.getPatientHaloProfile({
+      token: req.session.accessToken,
+      patientFolderId,
+      microsoftStorageMode: req.session.microsoftStorageMode,
+    });
+  } catch (e) {
+    console.warn('[Halo] Could not load HALO_patient_profile:', e);
+    return null;
+  }
+}
+
 /** Prepend sticker/profile block for Halo generate_note when patient folder id is known. */
 async function prefixTextWithPatientProfile(
   req: Request,
   patientFolderId: string | undefined,
   text: string
 ): Promise<string> {
-  if (!patientFolderId || !req.session.accessToken) return text;
-  try {
-    const adapter = getStorageAdapter(req.session.provider);
-    const profile = await adapter.getPatientHaloProfile({
-      token: req.session.accessToken,
-      patientFolderId,
-      microsoftStorageMode: req.session.microsoftStorageMode,
-    });
-    const block = buildPatientDetailsBlock(profile);
-    return block ? `${block}\n\n${text}` : text;
-  } catch (e) {
-    console.warn('[Halo] Could not load HALO_patient_profile for prompt prefix:', e);
-    return text;
-  }
+  const profile = await loadPatientProfile(req, patientFolderId);
+  const block = profile ? buildPatientDetailsBlock(profile) : '';
+  return block ? `${block}\n\n${text}` : text;
 }
 
 /** Halo sometimes echoes unstructured dictation — fill structured Markdown via Gemini when needed. */
@@ -254,7 +264,7 @@ router.post('/templates', async (req: Request, res: Response) => {
 // If return_type === 'docx' and patientId is set, uploads DOCX to patient's Patient Notes folder and returns { success, fileId, name }.
 router.post('/generate-note', async (req: Request, res: Response) => {
   try {
-    const { user_id, template_id, text, return_type, patientId, fileName, useMobileConfig, template_name } = req.body as {
+    const { user_id, template_id, text, return_type, patientId, fileName, useMobileConfig, template_name, mergeFields } = req.body as {
       user_id?: string;
       template_id?: string;
       text: string;
@@ -262,6 +272,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       patientId?: string;
       fileName?: string;
       useMobileConfig?: boolean;
+      mergeFields?: Record<string, string>;
       /** Display name for template (e.g. Admission) — forwarded into composed Halo prompt for Markdown sections. */
       template_name?: string;
     };
@@ -282,6 +293,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       templateId;
     const templateNameOpt =
       typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined;
+    const patientProfile = await loadPatientProfile(req, patientId);
 
     console.log('[Halo] generate-note request:', {
       userId: userId.slice(0, 8) + '…',
@@ -290,23 +302,47 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       textLength: composedText.length,
     });
 
-    const result = await generateNote({
-      user_id: userId,
-      template_id: templateId,
-      text: composedText,
-      return_type,
-      template_name: templateNameOpt,
-      templateDefinition,
-    });
-
     if (return_type === 'note') {
-      let notes = result as HaloNote[];
+      let notes: HaloNote[];
+      if (canUseMoLocalNotePipeline(userId)) {
+        notes = await generateMoClinicalNotes({
+          composedText,
+          templateId,
+          templateDisplayName: tplLabel,
+          templateDefinition,
+          patientProfile,
+        });
+      } else {
+        const result = await generateNote({
+          user_id: userId,
+          template_id: templateId,
+          text: composedText,
+          return_type,
+          template_name: templateNameOpt,
+          templateDefinition,
+        });
+        notes = result as HaloNote[];
+      }
       notes = await finalizeGeneratedNotes(notes, composedText, templateId, tplLabel, templateDefinition);
       res.json({ notes });
       return;
     }
 
-    const buffer = result as Buffer;
+    const { buffer } = await renderPracticeClinicalDocx({
+      haloUserId: userId,
+      templateId,
+      templateDefinition,
+      template_name: templateNameOpt,
+      text,
+      haloText: composedText,
+      mergeFields:
+        mergeFields && typeof mergeFields === 'object' && !Array.isArray(mergeFields)
+          ? Object.fromEntries(
+              Object.entries(mergeFields).map(([k, v]) => [String(k), typeof v === 'string' ? v : String(v ?? '')])
+            )
+          : undefined,
+      patientProfile,
+    });
     if (!patientId || !req.session.accessToken) {
       res.status(400).json({ error: 'patientId is required to save DOCX to Drive.' });
       return;
@@ -359,13 +395,14 @@ router.post('/generate-note', async (req: Request, res: Response) => {
 // Generates a DOCX with Halo and converts to PDF for in-app preview only (no Drive save).
 router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
   try {
-    const { user_id, template_id, text, useMobileConfig, template_name, patientId } = req.body as {
+    const { user_id, template_id, text, useMobileConfig, template_name, patientId, mergeFields } = req.body as {
       user_id?: string;
       template_id?: string;
       text: string;
       useMobileConfig?: boolean;
       template_name?: string;
       patientId?: string;
+      mergeFields?: Record<string, string>;
     };
 
     if (typeof text !== 'string' || !text.trim()) {
@@ -382,14 +419,22 @@ router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
     const templateId = useMobileConfig ? config.haloMobileTemplateId : (template_id || DEFAULT_HALO_TEMPLATE_ID);
     const templateDefinition = resolveBundledTemplateDefinition(req, userId, templateId);
+    const patientProfile = await loadPatientProfile(req, typeof patientId === 'string' ? patientId : undefined);
 
-    const docx = await generateNote({
-      user_id: userId,
-      template_id: templateId,
-      text: composedText,
-      return_type: 'docx',
-      template_name: typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined,
+    const { buffer: docx } = await renderPracticeClinicalDocx({
+      haloUserId: userId,
+      templateId,
       templateDefinition,
+      template_name: typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined,
+      text,
+      haloText: composedText,
+      mergeFields:
+        mergeFields && typeof mergeFields === 'object' && !Array.isArray(mergeFields)
+          ? Object.fromEntries(
+              Object.entries(mergeFields).map(([k, v]) => [String(k), typeof v === 'string' ? v : String(v ?? '')])
+            )
+          : undefined,
+      patientProfile,
     });
     let pdfBuffer: Buffer;
     if (req.session.provider === 'microsoft') {

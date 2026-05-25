@@ -194,6 +194,8 @@ export const PatientWorkspace: React.FC<Props> = ({
   const [consultSubTab, setConsultSubTab] = useState<'transcript' | 'context' | number>('transcript');
   const [templateOptions, setTemplateOptions] = useState<Array<{ id: string; name: string }>>([...HALO_TEMPLATE_OPTIONS]);
   const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>([]);
+  const lastTranscriptRef = useRef<string>('');
+  const transcriptRefinementRef = useRef<{ base: string; resumeHeader: string; initial: string } | null>(null);
   /** Last Smart Context image to embed in cumulative PDF on “Save to record”. */
   const [pendingLongitudinalImage, setPendingLongitudinalImage] = useState<{
     base64: string;
@@ -227,6 +229,10 @@ export const PatientWorkspace: React.FC<Props> = ({
   const currentTranscript = liveTranscriptSegment
     ? (lastTranscript ? `${lastTranscript}\n\n${liveTranscriptSegment}` : liveTranscriptSegment)
     : lastTranscript;
+
+  useEffect(() => {
+    lastTranscriptRef.current = lastTranscript;
+  }, [lastTranscript]);
 
   // Folder navigation state
   const [currentFolderId, setCurrentFolderId] = useState<string>(patient.id);
@@ -780,6 +786,7 @@ export const PatientWorkspace: React.FC<Props> = ({
         text,
         fileName,
         template_name: templateOptions.find((t) => t.id === tplId)?.name,
+        mergeFields: note.docxMerge,
       });
       setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
       await loadFolderContents(currentFolderId);
@@ -808,6 +815,7 @@ export const PatientWorkspace: React.FC<Props> = ({
           text,
           fileName,
           template_name: templateOptions.find((t) => t.id === tplId)?.name,
+          mergeFields: note.docxMerge,
         });
         setNotes(prev => prev.map((n, j) => j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
         saved++;
@@ -832,7 +840,7 @@ export const PatientWorkspace: React.FC<Props> = ({
         return;
       }
       let pdfB64 = note?.previewPdfBase64?.trim();
-      if (!pdfB64) {
+      if (!pdfB64 || note?.dirty) {
         const tplId = note.template_id || templateId;
         const tplName = templateOptions.find((t) => t.id === tplId)?.name;
         setRegeneratingPdfIndex(noteIndex);
@@ -842,6 +850,7 @@ export const PatientWorkspace: React.FC<Props> = ({
             text: text.trim(),
             template_name: tplName,
             patientId: patient.id,
+            mergeFields: note?.docxMerge,
           });
           pdfB64 = pdfBase64;
           setNotes((prev) =>
@@ -899,37 +908,24 @@ export const PatientWorkspace: React.FC<Props> = ({
     const tplName = templateOptions.find((t) => t.id === tplId)?.name;
     setRegeneratingPdfIndex(noteIndex);
     try {
-      const [{ pdfBase64 }, preview] = await Promise.all([
-        generateNotePreviewPdf({
-          template_id: tplId,
-          text: payloadText,
-          template_name: tplName,
-          patientId: patient.id,
-        }),
-        generateNotePreviewWithFallback({
-          template_id: tplId,
-          text: payloadText,
-          template_name: tplName,
-          patientId: patient.id,
-          haloUserId,
-        }),
-      ]);
-      const first = preview.notes?.[0];
+      const { pdfBase64 } = await generateNotePreviewPdf({
+        template_id: tplId,
+        text: payloadText,
+        template_name: tplName,
+        patientId: patient.id,
+        mergeFields: note.docxMerge,
+      });
       setNotes((prev) =>
         prev.map((n, i) =>
           i !== noteIndex
             ? n
             : {
                 ...n,
-                content: first?.content?.trim() || payloadText,
-                ...(first?.raw !== undefined ? { raw: first.raw } : {}),
-                ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
                 previewPdfBase64: pdfBase64,
-                dirty: true,
               }
         )
       );
-      onToast('PDF preview regenerated from updated note fields.', 'success');
+      onToast('Template preview regenerated from the current note.', 'success');
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
     } finally {
@@ -937,7 +933,7 @@ export const PatientWorkspace: React.FC<Props> = ({
     }
   }, [notes, onToast, templateId, templateOptions, patient.id]);
 
-  const GENERATE_TIMEOUT_MS = 95_000;
+  const GENERATE_TIMEOUT_MS = 130_000;
 
   const generateNotesFromTranscript = useCallback(
     async (transcriptToUse: string, isAddNote: boolean) => {
@@ -996,6 +992,7 @@ export const PatientWorkspace: React.FC<Props> = ({
             title: first?.title ?? name,
             content,
             ...(first?.raw !== undefined ? { raw: first.raw } : {}),
+            ...(first?.docxMerge ? { docxMerge: first.docxMerge } : {}),
             template_id: tid,
             lastSavedAt: new Date().toISOString(),
             dirty: false,
@@ -1030,6 +1027,7 @@ export const PatientWorkspace: React.FC<Props> = ({
               content: n.content,
               template_id: n.template_id,
               ...(n.raw !== undefined ? { raw: n.raw } : {}),
+              ...(n.docxMerge ? { docxMerge: n.docxMerge } : {}),
               ...(n.fields && n.fields.length > 0 ? { fields: n.fields } : {}),
             })),
             ...(mainComplaint ? { mainComplaint } : {}),
@@ -1147,16 +1145,18 @@ export const PatientWorkspace: React.FC<Props> = ({
       const isResume = notes.length > 0 || !!activeSessionId;
 
       let combined: string;
+      let resumeHeader = '';
       if (isResume && base) {
         const timestamp = new Date().toLocaleString();
-        const header = `\n\n[Consultation resumed ${timestamp}]\n\n`;
-        combined = `${base}${header}${clean}`;
+        resumeHeader = `\n\n[Consultation resumed ${timestamp}]\n\n`;
+        combined = `${base}${resumeHeader}${clean}`;
       } else if (base) {
         combined = `${base}\n\n${clean}`;
       } else {
         combined = clean;
       }
 
+      transcriptRefinementRef.current = { base, resumeHeader, initial: combined };
       setLastTranscript(combined);
 
       if (isResume) {
@@ -1171,6 +1171,27 @@ export const PatientWorkspace: React.FC<Props> = ({
     },
     [activeSessionId, generateNotesFromTranscript, lastTranscript, notes.length]
   );
+
+  const handleLiveFinalized = useCallback((transcript: string) => {
+    const clean = transcript.trim();
+    if (!clean) return;
+
+    const refinement = transcriptRefinementRef.current;
+    if (!refinement) return;
+
+    const finalCombined = refinement.resumeHeader
+      ? `${refinement.base}${refinement.resumeHeader}${clean}`
+      : refinement.base
+        ? `${refinement.base}\n\n${clean}`
+        : clean;
+
+    setLastTranscript(finalCombined);
+    setPendingTranscript((prev) => {
+      if (!prev) return prev;
+      return prev === refinement.initial ? finalCombined : prev;
+    });
+    transcriptRefinementRef.current = { ...refinement, initial: finalCombined };
+  }, []);
 
   const toggleTemplateForGenerate = useCallback((id: string) => {
     setSelectedTemplatesForGenerate((prev) =>
@@ -1344,6 +1365,7 @@ export const PatientWorkspace: React.FC<Props> = ({
           user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
           template_name,
           patientId: patient.id,
+          mergeFields: first?.docxMerge,
         });
         if (!pdfBase64?.trim()) {
           onToast('Could not build PDF for email.', 'error');
@@ -1582,6 +1604,7 @@ export const PatientWorkspace: React.FC<Props> = ({
           title: n.title,
           content: n.content,
           ...(n.raw !== undefined ? { raw: n.raw } : {}),
+          ...(n.docxMerge ? { docxMerge: n.docxMerge } : {}),
           ...(n.fields && n.fields.length > 0 ? { fields: n.fields } : {}),
           template_id: n.template_id,
           lastSavedAt: new Date().toISOString(),
@@ -1660,6 +1683,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                 <HeaderConsultationRecorder
                   onLiveTranscriptUpdate={handleLiveTranscriptUpdate}
                   onLiveStopped={handleLiveStopped}
+                  onLiveFinalized={handleLiveFinalized}
                   onError={(msg: string) => onToast(msg, 'error')}
                 />
                 <button
@@ -1901,13 +1925,13 @@ export const PatientWorkspace: React.FC<Props> = ({
               onOpenStickerProfile={openStickerProfileModal}
             />
           ) : activeTab === 'sessions' ? (
-            <div className="min-h-[40dvh] bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="min-h-[40dvh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm max-md:flex max-md:min-h-0 max-md:flex-1 max-md:flex-col">
               <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/80">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Previous Sessions
                 </span>
               </div>
-              <div className="p-4">
+              <div className="p-4 max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto">
                 {sessionsLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
@@ -1967,7 +1991,7 @@ export const PatientWorkspace: React.FC<Props> = ({
           ) : activeTab === 'notes' ? (
             <div className="flex min-h-0 flex-1 flex-col max-md:min-h-[50dvh]">
               {/* Editor workspace: fills remaining viewport height */}
-              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] max-md:min-h-[50dvh] flex-1 flex-col overflow-hidden max-md:overflow-y-auto rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70">
+              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70 max-md:min-h-[50dvh]">
                 {pendingTranscript ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/90 p-4">
                     <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{pendingTranscript}</p>
@@ -2065,13 +2089,13 @@ export const PatientWorkspace: React.FC<Props> = ({
                         </button>
                       </div>
                     </div>
-                    <div className="flex min-h-0 flex-1 flex-col bg-slate-100/50 p-2 md:p-3 max-md:p-1 max-md:overflow-visible">
+                    <div className="flex min-h-0 flex-1 flex-col bg-slate-100/50 p-2 md:p-3 max-md:p-1">
                       {editorPanelView === 'noteFields' ? (
-                        <div className={`${EDITOR_VIEW_SHELL} min-h-[240px] lg:min-h-0 max-md:!overflow-visible max-md:min-h-0`}>
+                        <div className={`${EDITOR_VIEW_SHELL} min-h-[240px] lg:min-h-0 max-md:min-h-0`}>
                           <div className={`${EDITOR_VIEW_HEADER} max-md:px-2 max-md:py-2 max-md:gap-1`}>
                             <span className={EDITOR_VIEW_TITLE}>Note fields</span>
                           </div>
-                          <div className="flex min-h-0 flex-1 flex-col overflow-hidden max-md:!overflow-visible max-md:min-h-0 bg-white">
+                          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white max-md:min-h-0">
                             {typeof consultSubTab === 'number' && notes[consultSubTab] ? (
                               <NoteEditor
                                 notes={notes}

@@ -42,6 +42,7 @@ export interface HaloNote {
   content: string;
   /** Raw upstream note payload for debug/raw JSON rendering. */
   raw?: unknown;
+  docxMerge?: Record<string, string>;
   template_id: string;
   lastSavedAt?: string;
   dirty?: boolean;
