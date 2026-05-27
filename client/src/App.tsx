@@ -21,6 +21,7 @@ import {
 } from './services/api';
 import type { Patient, UserSettings } from '../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
+import { HENK_HALO_USER_ID } from '../../shared/clinicalTemplates/constants';
 import {
   LogIn,
   Loader,
@@ -65,6 +66,16 @@ export const App = () => {
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState(() =>
     typeof window !== 'undefined' ? getActiveWorkspaceId() : ''
   );
+  const effectiveHaloUserId =
+    currentUser?.haloUserId?.trim()
+      ? currentUser.haloUserId.trim()
+      : currentUser &&
+          (
+            currentUser.email.trim().toLowerCase() === 'henk@halo.africa' ||
+            (currentUser.driveRootFolderName || '').trim().toLowerCase() === 'henk kruger'
+          )
+        ? HENK_HALO_USER_ID
+        : null;
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
@@ -781,7 +792,7 @@ export const App = () => {
             onToast={showToast}
             templateId={userSettings?.templateId || DEFAULT_HALO_TEMPLATE_ID}
             calendarPrepEvent={null}
-            haloUserId={currentUser?.haloUserId ?? null}
+            haloUserId={effectiveHaloUserId}
             openStickerProfileForPatientId={
               openStickerForPatientId === activePatient.id ? openStickerForPatientId : null
             }

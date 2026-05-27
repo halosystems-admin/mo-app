@@ -38,6 +38,7 @@ import {
 } from './wardBoardLayout';
 import { ExternalLink, GripVertical, Keyboard, Mic, Plus, X } from 'lucide-react';
 import { getPatientHaloProfile } from '../../../services/api';
+import { ClinicalConsultationChoiceModal } from '../../scribe/ClinicalConsultationChoiceModal';
 
 const DROPPABLE_PREFIX = 'ward-col:';
 
@@ -412,6 +413,7 @@ type CompactRowProps = {
   patientsById: Map<string, Patient>;
   inpatients: InpatientRecord[];
   onOpenTasks: () => void;
+  onOpenConsultChoice: (patientId: string, patientName: string) => void;
   onTogglePresetTag: (patientId: string, preset: 'seen' | 'unseen') => void;
   onRemoveTag: (patientId: string, tag: string) => void;
   tagDraftPatientId: string | null;
@@ -427,6 +429,7 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
   patientsById,
   inpatients,
   onOpenTasks,
+  onOpenConsultChoice,
   onTogglePresetTag,
   onRemoveTag,
   tagDraftPatientId,
@@ -482,19 +485,24 @@ const KanbanCompactRow = memo(function KanbanCompactRow({
         <GripVertical size={16} strokeWidth={2} />
       </button>
       <div className="min-w-0 flex flex-col min-h-[3.5rem] max-md:[touch-action:pan-x_pan-y]">
-        <button
-          type="button"
-          onClick={onOpenTasks}
-          className="min-w-0 w-full px-1 py-2 text-left hover:bg-halo-section/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-halo-primary/40 focus-visible:ring-inset cursor-pointer"
-          aria-label={`Patient details and tasks for ${name}`}
-        >
-          <div className="text-sm font-semibold text-halo-text leading-tight truncate pointer-events-none">
+        <div className="min-w-0 w-full px-1 py-2">
+          <button
+            type="button"
+            onClick={() => onOpenConsultChoice(row.patientId, name)}
+            className="block max-w-full truncate rounded text-left text-sm font-semibold leading-tight text-teal-700 underline-offset-2 hover:text-teal-900 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40"
+            aria-label={`Consultation options for ${name}`}
+          >
             {name}
-          </div>
-          <div className="text-[10px] text-halo-text-secondary truncate mt-0.5 max-md:[touch-action:pan-x_pan-y] pointer-events-none">
+          </button>
+          <button
+            type="button"
+            onClick={onOpenTasks}
+            className="mt-0.5 block w-full truncate rounded text-left text-[10px] text-halo-text-secondary hover:bg-halo-section/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-halo-primary/40 focus-visible:ring-inset"
+            aria-label={`Patient details and tasks for ${name}`}
+          >
             {bedLine} · {doctor}
-          </div>
-        </button>
+          </button>
+        </div>
         <div className="flex flex-wrap items-center gap-1 px-1 pb-2 pt-0.5 border-t border-halo-border/60 bg-halo-section/30">
           <button
             type="button"
@@ -1189,6 +1197,7 @@ export const WardKanbanBoard: React.FC<Props> = ({
 }) => {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
+  const [consultChoice, setConsultChoice] = useState<{ patientId: string; patientName: string } | null>(null);
   const [tagDraftPatientId, setTagDraftPatientId] = useState<string | null>(null);
   const [tagDraftValue, setTagDraftValue] = useState('');
   const boardScrollerRef = useRef<HTMLDivElement | null>(null);
@@ -1554,6 +1563,9 @@ export const WardKanbanBoard: React.FC<Props> = ({
                         onOpenTasks={() =>
                           setDetailTarget({ kind: 'halo', patientId: item.row.patientId })
                         }
+                        onOpenConsultChoice={(patientId, patientName) =>
+                          setConsultChoice({ patientId, patientName })
+                        }
                         onTogglePresetTag={handleTogglePresetTag}
                         onRemoveTag={handleRemoveTag}
                         tagDraftPatientId={tagDraftPatientId}
@@ -1615,6 +1627,26 @@ export const WardKanbanBoard: React.FC<Props> = ({
         onAddUnlinkedTodo={onAddUnlinkedTodo}
         onToggleUnlinkedTodoDone={onToggleUnlinkedTodoDone}
         onUpdateUnlinkedBoardFields={onUpdateUnlinkedBoardFields}
+      />
+      <ClinicalConsultationChoiceModal
+        open={Boolean(consultChoice)}
+        patientName={consultChoice?.patientName ?? ''}
+        onClose={() => setConsultChoice(null)}
+        onOpenWorkspace={() => {
+          if (!consultChoice) return;
+          onOpenPatient(consultChoice.patientId);
+          setConsultChoice(null);
+        }}
+        onType={() => {
+          if (!consultChoice || !onClinicalConsultation) return;
+          onClinicalConsultation(consultChoice.patientId, 'type');
+          setConsultChoice(null);
+        }}
+        onDictate={() => {
+          if (!consultChoice || !onClinicalConsultation) return;
+          onClinicalConsultation(consultChoice.patientId, 'dictate');
+          setConsultChoice(null);
+        }}
       />
       </DndContext>
     </div>

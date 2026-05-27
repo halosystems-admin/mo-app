@@ -1,6 +1,7 @@
 import type { HaloNote } from '../../../shared/types';
 import { generateNotePreview } from './api';
 import { isClientGeminiConfigured } from './geminiClient';
+import type { HaloPatientProfile } from '../../../shared/types';
 
 export type NotePreviewParams = {
   template_id: string;
@@ -9,6 +10,7 @@ export type NotePreviewParams = {
   patientId?: string;
   template_name?: string;
   haloUserId?: string | null;
+  patientProfile?: HaloPatientProfile | null;
 };
 
 /** Client Gemini first; falls back to server Halo when key missing or client fails. */
@@ -24,6 +26,7 @@ export async function generateNotePreviewWithFallback(
         template_name: params.template_name,
         patientId: params.patientId,
         haloUserId: params.haloUserId,
+        patientProfile: params.patientProfile,
       });
     } catch (e) {
       console.warn('[note-preview] client Gemini failed, trying server:', e);

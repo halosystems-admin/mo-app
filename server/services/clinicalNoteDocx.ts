@@ -9,6 +9,8 @@ import {
 } from '../../shared/docxRepairPlaceholders';
 import { stripHtmlForDocx } from '../../shared/populateClinicalNoteTemplate';
 import {
+  resolveClinicalTemplateAbsolutePath,
+  resolveHenkMotivationLetterAbsolutePath,
   resolveMoClinicalTemplateAbsolutePath,
   resolveMoMotivationLetterAbsolutePath,
 } from '../../shared/clinicalTemplates/docxFileResolver';
@@ -20,12 +22,20 @@ export function loadMoClinicalTemplateBuffer(templateId: string): Buffer | null 
   return fs.readFileSync(abs);
 }
 
-export function loadClinicalTemplateBuffer(_haloUserId: string, templateId: string): Buffer | null {
-  return loadMoClinicalTemplateBuffer(templateId);
+export function loadClinicalTemplateBuffer(haloUserId: string, templateId: string): Buffer | null {
+  const abs = resolveClinicalTemplateAbsolutePath(haloUserId, templateId, config.clinicalTemplateRoot);
+  if (!abs) return null;
+  return fs.readFileSync(abs);
 }
 
 export function loadMoMotivationLetterTemplateBuffer(): Buffer | null {
   const abs = resolveMoMotivationLetterAbsolutePath(config.clinicalTemplateRoot);
+  if (!abs) return null;
+  return fs.readFileSync(abs);
+}
+
+export function loadHenkMotivationLetterTemplateBuffer(): Buffer | null {
+  const abs = resolveHenkMotivationLetterAbsolutePath(config.clinicalTemplateRoot);
   if (!abs) return null;
   return fs.readFileSync(abs);
 }

@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/requireAuth';
 import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { config } from '../config';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
+import { HENK_HALO_USER_ID } from '../../shared/clinicalTemplates/constants';
 import { generateNote, type HaloNote } from '../services/haloApi';
 import {
   getLocalTemplateDefinition,
@@ -10,7 +11,10 @@ import {
 } from '../services/clinicalTemplateRegistry';
 import { getStorageAdapter } from '../services/storage';
 import { generateText } from '../services/gemini';
-import { generateMoClinicalNotes, canUseMoLocalNotePipeline } from '../services/moClinicalNoteGeneration';
+import {
+  generateMoClinicalNotes,
+  canUseLocalClinicalTemplateUser,
+} from '../services/moClinicalNoteGeneration';
 import { renderPracticeClinicalDocx } from '../services/practiceDocxFromTemplate';
 import {
   buildPatientDetailsBlock,
@@ -26,6 +30,7 @@ import {
 } from '../services/motivationLetter';
 import { isOutboundMailReadyForUser, isSmtpConfigured, sendOutboundMail } from '../services/email';
 import { prepareTextForHaloDocx } from '../utils/noteTextForDocx';
+import { isHenkOutboundEmail } from '../services/userOutboundMail';
 
 const router = Router();
 router.use(requireAuth);
@@ -37,7 +42,16 @@ const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
 
 function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConfig?: boolean }): string {
   if (opts?.useMobileConfig) return config.haloMobileUserId;
-  return opts?.userId || req.appUser?.haloUserId || config.haloUserId;
+  if (opts?.userId?.trim()) return opts.userId.trim();
+  const driveRoot = (req.appUser?.driveRootFolderName || '').trim().toLowerCase();
+  if (
+    (req.appUser?.email && isHenkOutboundEmail(req.appUser.email)) ||
+    driveRoot === config.henkDriveRootFolderName.trim().toLowerCase()
+  ) {
+    return HENK_HALO_USER_ID;
+  }
+  if (req.appUser?.haloUserId?.trim()) return req.appUser.haloUserId.trim();
+  return config.haloUserId;
 }
 
 function resolveBundledTemplateDefinition(req: Request, userId: string, templateId: string) {
@@ -282,6 +296,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       return;
     }
 
+    const localSourceText = prepareTextForHaloDocx(text);
     const composedText = prepareTextForHaloDocx(await prefixTextWithPatientProfile(req, patientId, text));
 
     const userId = resolveHaloUserId(req, { userId: user_id, useMobileConfig });
@@ -299,14 +314,14 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       userId: userId.slice(0, 8) + '…',
       templateId,
       return_type,
-      textLength: composedText.length,
+      textLength: canUseLocalClinicalTemplateUser(userId, templateId) ? localSourceText.length : composedText.length,
     });
 
     if (return_type === 'note') {
       let notes: HaloNote[];
-      if (canUseMoLocalNotePipeline(userId)) {
+      if (canUseLocalClinicalTemplateUser(userId, templateId)) {
         notes = await generateMoClinicalNotes({
-          composedText,
+          composedText: localSourceText,
           templateId,
           templateDisplayName: tplLabel,
           templateDefinition,

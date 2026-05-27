@@ -59,6 +59,7 @@ import { SheetsDictateModal } from './SheetsDictateModal';
 import { StickerCameraModal } from '../../../components/StickerCameraModal';
 import { extractPatientFromStickerFile, getPatientHaloProfile } from '../../../services/api';
 import { mergeStickerExtractionIntoDriveProfile } from '../../../services/haloPatientProfileMerge';
+import { ClinicalConsultationChoiceModal } from '../../scribe/ClinicalConsultationChoiceModal';
 
 const SHEET_STATUS_OPTIONS: InpatientSheetStatus[] = [
   'elective',
@@ -239,11 +240,27 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
   const [dischargeRecord, setDischargeRecord] = useState<InpatientRecord | null>(null);
   const [dischargeKanbanRow, setDischargeKanbanRow] = useState<AdmittedPatientKanban | null>(null);
   const [showDictate, setShowDictate] = useState(false);
+  const [consultChoice, setConsultChoice] = useState<{ patientId: string; patientName: string } | null>(null);
 
   const resolveHaloId = useCallback(
     (r: InpatientRecord) =>
       r.linkedDrivePatientId?.trim() || resolvePatientIdFromClinicalNames(patients, r.firstName, r.surname) || null,
     [patients]
+  );
+
+  const openConsultChoice = useCallback(
+    (r: InpatientRecord) => {
+      const patientId = resolveHaloId(r);
+      if (!patientId) {
+        onToast?.('No HALO patient folder linked for this admission yet.', 'info');
+        return;
+      }
+      setConsultChoice({
+        patientId,
+        patientName: formatInpatientDisplayName(r.firstName, r.surname),
+      });
+    },
+    [onToast, resolveHaloId]
   );
 
   const openDischargeFlow = useCallback(
@@ -730,7 +747,16 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
                   </td>
                   <td className="px-2 py-2 text-[13px] align-top whitespace-nowrap">{r.bed}</td>
                   <td className="px-2 py-2 font-semibold text-[13px] align-top whitespace-nowrap">
-                    {formatInpatientDisplayName(r.firstName, r.surname)}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openConsultChoice(r);
+                      }}
+                      className="rounded text-left text-teal-700 underline-offset-2 hover:text-teal-900 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40"
+                    >
+                      {formatInpatientDisplayName(r.firstName, r.surname)}
+                    </button>
                   </td>
                   <td className="px-2 py-2 text-[12px] align-top whitespace-nowrap">{r.assignedDoctor || '—'}</td>
                   <td className="px-2 py-2 text-[12px] align-top break-words max-w-[200px]" title={r.admissionDiagnosis}>
@@ -929,6 +955,27 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
           await patchRow(id, patch);
         }}
         onToast={onToast}
+      />
+
+      <ClinicalConsultationChoiceModal
+        open={Boolean(consultChoice)}
+        patientName={consultChoice?.patientName ?? ''}
+        onClose={() => setConsultChoice(null)}
+        onOpenWorkspace={() => {
+          if (!consultChoice || !onOpenPatient) return;
+          onOpenPatient(consultChoice.patientId);
+          setConsultChoice(null);
+        }}
+        onType={() => {
+          if (!consultChoice || !onOpenPatient) return;
+          openPatientThenClinicalConsultation(consultChoice.patientId, 'type', onOpenPatient);
+          setConsultChoice(null);
+        }}
+        onDictate={() => {
+          if (!consultChoice || !onOpenPatient) return;
+          openPatientThenClinicalConsultation(consultChoice.patientId, 'dictate', onOpenPatient);
+          setConsultChoice(null);
+        }}
       />
 
       <StickerCameraModal

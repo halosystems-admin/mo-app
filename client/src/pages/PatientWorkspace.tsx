@@ -968,6 +968,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                 template_name,
                 patientId: patient.id,
                 haloUserId,
+                patientProfile: haloPatientProfile,
               });
               return { noteResult };
             })
@@ -1012,42 +1013,43 @@ export const PatientWorkspace: React.FC<Props> = ({
         }
 
         // Persist this consultation as a scribe session for this patient (including generated note content)
-        try {
-          const firstNoteContent = combined[0]?.content ?? '';
-          const mainComplaint = extractMainComplaint(firstNoteContent);
-          const payload = {
-            sessionId: activeSessionId || undefined,
-            transcript: trimmedTranscript,
-            context: consultContext || undefined,
-            templates: templateIds,
-            noteTitles: combined.map((n) => n.title).filter(Boolean),
-            notes: combined.map((n) => ({
-              noteId: n.noteId,
-              title: n.title,
-              content: n.content,
-              template_id: n.template_id,
-              ...(n.raw !== undefined ? { raw: n.raw } : {}),
-              ...(n.docxMerge ? { docxMerge: n.docxMerge } : {}),
-              ...(n.fields && n.fields.length > 0 ? { fields: n.fields } : {}),
-            })),
-            ...(mainComplaint ? { mainComplaint } : {}),
-            ...(haloPatientProfile?.email?.trim()
-              ? { patientEmail: haloPatientProfile.email.trim() }
-              : {}),
-            ...(haloPatientProfile?.medicalAidPhone?.trim()
-              ? { patientPhone: haloPatientProfile.medicalAidPhone.trim() }
-              : {}),
-          };
-          const res = await savePatientSession(patient.id, payload);
-          const items = Array.isArray(res.sessions) ? res.sessions : [];
-          const sorted = [...items].sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1));
-          setSessions(sorted);
-          setActiveSessionId(sorted[0]?.id ?? null);
-        } catch {
-          // Session history is best-effort; ignore failures
-        }
-
         onToast('Note generated. You can edit and save as DOCX.', 'success');
+
+        const firstNoteContent = combined[0]?.content ?? '';
+        const mainComplaint = extractMainComplaint(firstNoteContent);
+        const payload = {
+          sessionId: activeSessionId || undefined,
+          transcript: trimmedTranscript,
+          context: consultContext || undefined,
+          templates: templateIds,
+          noteTitles: combined.map((n) => n.title).filter(Boolean),
+          notes: combined.map((n) => ({
+            noteId: n.noteId,
+            title: n.title,
+            content: n.content,
+            template_id: n.template_id,
+            ...(n.raw !== undefined ? { raw: n.raw } : {}),
+            ...(n.docxMerge ? { docxMerge: n.docxMerge } : {}),
+            ...(n.fields && n.fields.length > 0 ? { fields: n.fields } : {}),
+          })),
+          ...(mainComplaint ? { mainComplaint } : {}),
+          ...(haloPatientProfile?.email?.trim()
+            ? { patientEmail: haloPatientProfile.email.trim() }
+            : {}),
+          ...(haloPatientProfile?.medicalAidPhone?.trim()
+            ? { patientPhone: haloPatientProfile.medicalAidPhone.trim() }
+            : {}),
+        };
+        void savePatientSession(patient.id, payload)
+          .then((res) => {
+            const items = Array.isArray(res.sessions) ? res.sessions : [];
+            const sorted = [...items].sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1));
+            setSessions(sorted);
+            setActiveSessionId(sorted[0]?.id ?? null);
+          })
+          .catch(() => {
+            /* best-effort only */
+          });
       } catch (err) {
         onToast(getErrorMessage(err), 'error');
       }
@@ -1340,13 +1342,14 @@ export const PatientWorkspace: React.FC<Props> = ({
           return;
         }
 
-        const noteResult = await generateNotePreviewWithFallback({
+      const noteResult = await generateNotePreviewWithFallback({
           template_id,
           text,
           user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
           template_name,
           patientId: patient.id,
           haloUserId,
+          patientProfile: haloPatientProfile,
         });
         const first = noteResult.notes?.[0];
         const fromFields =

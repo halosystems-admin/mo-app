@@ -1,6 +1,6 @@
 import type { ClinicalTemplateDefinition } from '../../shared/clinicalTemplates/types';
 import { buildClientClinicalNotePrompt } from '../../shared/buildClientClinicalNotePrompt';
-import { isMoLocalTemplatesEnabled } from '../../shared/clinicalTemplates/docxFileResolver';
+import { localClinicalTemplateAvailable } from '../../shared/clinicalTemplates/docxFileResolver';
 import { config } from '../config';
 import { generateText } from './gemini';
 import type { HaloNote, NoteField } from './haloApi';
@@ -14,11 +14,17 @@ import {
 } from '../../shared/populateClinicalNoteTemplate';
 import type { HaloPatientProfile } from '../../shared/types';
 
-export function canUseMoLocalNotePipeline(haloUserId: string): boolean {
+export function canUseMoLocalNotePipeline(_haloUserId: string): boolean {
   return (
-    isMoLocalTemplatesEnabled(haloUserId) &&
     config.useLocalClinicalTemplates &&
     Boolean(config.geminiApiKey?.trim())
+  );
+}
+
+export function canUseLocalClinicalTemplateUser(haloUserId: string, templateId: string): boolean {
+  return (
+    canUseMoLocalNotePipeline(haloUserId) &&
+    localClinicalTemplateAvailable(haloUserId, templateId, config.clinicalTemplateRoot)
   );
 }
 

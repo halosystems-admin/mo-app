@@ -3,9 +3,7 @@ import { getBundledTemplateDefinition } from '../../../shared/clinicalTemplates/
 import type { HaloNote, NoteField } from '../../../shared/types';
 import { buildClientClinicalNotePrompt } from '../../../shared/buildClientClinicalNotePrompt';
 import {
-  buildPatientDetailsBlock,
   fallbackOrganisedNoteMarkdown,
-  haloGenerateNoteInputEnvelope,
 } from '../../../shared/clinicalNotePrompts';
 import {
   enrichParsedDataWithChart,
@@ -14,6 +12,7 @@ import {
 } from '../../../shared/populateClinicalNoteTemplate';
 import { getPatientHaloProfile } from './api';
 import { generateText, isClientGeminiConfigured } from './geminiClient';
+import type { HaloPatientProfile } from '../../../shared/types';
 
 export type GenerateClinicalNotePreviewParams = {
   template_id: string;
@@ -21,6 +20,7 @@ export type GenerateClinicalNotePreviewParams = {
   template_name?: string;
   patientId?: string;
   haloUserId?: string | null;
+  patientProfile?: HaloPatientProfile | null;
 };
 
 function fieldValuesToNoteFields(
@@ -72,19 +72,13 @@ export async function generateClinicalNotePreview(
     ? getBundledTemplateDefinition(haloUserId, templateId)
     : undefined;
 
-  const profile = await loadPatientProfile(params.patientId);
-  let userText = params.text;
-  if (profile) {
-    const block = buildPatientDetailsBlock(profile);
-    userText = block ? `${block}\n\n${userText}` : userText;
-  }
-
-  const composedText = haloGenerateNoteInputEnvelope({
-    userPayloadText: userText,
-    templateId,
-    templateDisplayName: tplLabel,
-    templateDefinition,
-  });
+  const profile =
+    params.patientProfile !== undefined
+      ? params.patientProfile
+      : await loadPatientProfile(params.patientId);
+  // Local JSON extraction should use dictated/source text only.
+  // Patient chart values are overlaid after parsing when fields are empty.
+  const composedText = params.text.trim();
 
   const now = new Date().toISOString();
   let content = '';

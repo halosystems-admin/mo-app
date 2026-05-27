@@ -139,6 +139,7 @@ export type CurrentUser = {
   lastName: string;
   role: AppUserRole;
   haloUserId: string | null;
+  driveRootFolderName?: string | null;
 };
 
 export const checkAuth = () => request<{ signedIn: boolean; user?: CurrentUser }>('/api/user-auth/me');

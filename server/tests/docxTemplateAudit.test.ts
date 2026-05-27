@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import PizZip from 'pizzip';
 import { MO_CLINICAL_TEMPLATE_DEFINITIONS } from '../../shared/clinicalTemplates/moDefinitions';
-import { resolveMoClinicalTemplateRelativePath } from '../../shared/clinicalTemplates/docxFileResolver';
+import { HENK_HALO_USER_ID, MO_HALO_USER_ID } from '../../shared/clinicalTemplates/constants';
+import { resolveClinicalTemplateRelativePath } from '../../shared/clinicalTemplates/docxFileResolver';
 import { extractRepairedDocxKeys, repairDocxPlaceholdersXml } from '../../shared/docxRepairPlaceholders';
 
 const repoRoot = path.resolve(__dirname, '../..');
@@ -34,24 +35,26 @@ function assert(cond: boolean, message: string): void {
 function run(): void {
   const failures: string[] = [];
 
-  for (const def of MO_CLINICAL_TEMPLATE_DEFINITIONS) {
-    const relativePath = resolveMoClinicalTemplateRelativePath(def.template_id);
-    const docxPath = relativePath ? path.join(repoRoot, relativePath) : '';
-    if (!fs.existsSync(docxPath)) {
-      failures.push(`${def.template_id}: template file missing at ${relativePath || def.doc_path}`);
-      continue;
-    }
+  for (const haloUserId of [MO_HALO_USER_ID, HENK_HALO_USER_ID]) {
+    for (const def of MO_CLINICAL_TEMPLATE_DEFINITIONS) {
+      const relativePath = resolveClinicalTemplateRelativePath(haloUserId, def.template_id);
+      const docxPath = relativePath ? path.join(repoRoot, relativePath) : '';
+      if (!fs.existsSync(docxPath)) {
+        failures.push(`${haloUserId}:${def.template_id}: template file missing at ${relativePath || def.doc_path}`);
+        continue;
+      }
 
-    const found = extractTemplateKeys(docxPath);
-    const expected = new Set(def.fields.map((field) => field.key));
+      const found = extractTemplateKeys(docxPath);
+      const expected = new Set(def.fields.map((field) => field.key));
 
-    const missing = sorted([...expected].filter((key) => !found.has(key)));
-    const extra = sorted([...found].filter((key) => !expected.has(key)));
+      const missing = sorted([...expected].filter((key) => !found.has(key)));
+      const extra = sorted([...found].filter((key) => !expected.has(key)));
 
-    if (missing.length || extra.length) {
-      failures.push(
-        `${def.template_id}: missing=[${missing.join(', ')}] extra=[${extra.join(', ')}]`
-      );
+      if (missing.length || extra.length) {
+        failures.push(
+          `${haloUserId}:${def.template_id}: missing=[${missing.join(', ')}] extra=[${extra.join(', ')}]`
+        );
+      }
     }
   }
 
