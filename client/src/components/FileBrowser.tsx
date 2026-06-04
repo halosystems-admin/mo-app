@@ -60,14 +60,14 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
   const regularFiles = files.filter(f => !isFolder(f));
 
   return (
-    <div>
+    <div className="min-h-0">
       {/* Breadcrumb navigation + New Folder button */}
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           {!isAtRoot && (
             <button
               onClick={onNavigateBack}
-              className="p-1.5 text-slate-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors mr-1"
+              className="halo-touch-min mr-1 rounded-lg p-2 text-slate-500 transition-colors hover:bg-teal-50 hover:text-teal-600"
               title="Go back"
             >
               <ChevronLeft size={18} />
@@ -94,7 +94,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                     ? 'View sticker / billing details'
                     : undefined
                 }
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`halo-touch-min flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap ${
                   index === breadcrumbs.length - 1
                     ? 'text-teal-700 bg-teal-50'
                     : 'text-slate-500 hover:text-teal-600 hover:bg-slate-100'
@@ -127,7 +127,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
               type="button"
               onClick={onPatientUpload}
               disabled={uploadBusy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-halo-primary/35 bg-halo-primary px-2.5 py-1.5 text-[12px] font-semibold text-white shadow-[var(--shadow-halo-soft)] transition hover:bg-halo-primary-hover disabled:opacity-60"
+              className="halo-touch-min inline-flex items-center gap-1.5 rounded-lg border border-halo-primary/35 bg-halo-primary px-3 py-2 text-sm font-semibold text-white shadow-[var(--shadow-halo-soft)] transition hover:bg-halo-primary-hover disabled:opacity-60"
             >
               <Upload size={14} className="shrink-0" />
               Upload
@@ -135,7 +135,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           ) : null}
           <button
             onClick={onCreateFolder}
-            className="flex items-center gap-1.5 rounded-lg border border-teal-500/25 bg-teal-500/8 px-2.5 py-1.5 text-[12px] font-semibold text-teal-800 transition hover:bg-teal-500/12"
+            className="halo-touch-min flex items-center gap-1.5 rounded-lg border border-teal-500/25 bg-teal-500/8 px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-500/12"
           >
             <FolderPlus size={14} /> New folder
           </button>
@@ -168,7 +168,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
               <>
                 <div className="flex items-center gap-2 px-1 pt-1">
                   <FolderOpen size={13} className="text-slate-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Folders ({folders.length})</span>
+                  <span className="text-sm font-bold uppercase tracking-wide text-slate-400">Folders ({folders.length})</span>
                 </div>
                 {folders.map(folder => (
                   <div
@@ -186,7 +186,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                     <div className="flex items-center gap-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); onStartEditFile(folder); }}
-                        className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        className="halo-touch-min rounded-lg p-2 text-slate-400 opacity-0 transition-colors group-hover:opacity-100 hover:bg-slate-50 hover:text-teal-600 max-md:opacity-100"
                         title="Rename"
                       >
                         <Pencil size={16} />
@@ -203,7 +203,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
               <>
                 <div className="flex items-center gap-2 px-1 pt-2">
                   <FileText size={13} className="text-slate-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Files ({regularFiles.length})</span>
+                  <span className="text-sm font-bold uppercase tracking-wide text-slate-400">Files ({regularFiles.length})</span>
                 </div>
                 {regularFiles.map(file => {
                   const isImage = file.mimeType.includes('image');
@@ -221,33 +221,33 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                     : isPdf ? FileText
                     : File;
                   return (
-                    <div key={file.id} className="group flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-teal-200 transition-all duration-200">
-                      <div className={`p-3 rounded-lg mr-4 ${iconClass}`}>
+                    <div key={file.id} className="group flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-teal-200 transition-all duration-200 max-md:items-start max-md:gap-2.5 max-md:p-3">
+                      <div className={`p-3 rounded-lg mr-4 max-md:mr-0 max-md:p-2 ${iconClass}`}>
                         <IconComponent className="w-5 h-5" />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-slate-800 group-hover:text-teal-700 transition-colors truncate">{file.name}</h4>
-                        <p className="text-xs text-slate-500 mt-1 truncate">{file.createdTime} &bull; {getFriendlyFileType(file.mimeType)}</p>
+                      <div className="min-w-0 flex-1 max-md:self-center">
+                        <h4 className="font-semibold text-slate-800 group-hover:text-teal-700 transition-colors truncate max-md:pr-1 max-md:text-[15px] max-md:leading-snug">{file.name}</h4>
+                        <p className="text-xs text-slate-500 mt-1 truncate max-md:mt-0.5">{file.createdTime} &bull; {getFriendlyFileType(file.mimeType)}</p>
                       </div>
-                      <div className="relative z-[5] flex items-center gap-1 sm:z-auto">
-                        <button onClick={() => onStartEditFile(file)} className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100 max-md:opacity-100" title="Rename">
+                      <div className="relative z-[5] flex items-center gap-1 sm:z-auto max-md:ml-auto max-md:flex-wrap max-md:justify-end max-md:gap-0">
+                        <button onClick={() => onStartEditFile(file)} className="halo-touch-min rounded-lg p-2 text-slate-400 transition-colors opacity-0 group-hover:opacity-100 hover:bg-slate-50 hover:text-teal-600 max-md:p-1.5 max-md:opacity-100" title="Rename">
                           <Pencil size={16} />
                         </button>
-                        <button onClick={() => onDeleteFile(file)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100 max-md:opacity-100" title="Delete">
+                        <button onClick={() => onDeleteFile(file)} className="halo-touch-min rounded-lg p-2 text-slate-400 transition-colors opacity-0 group-hover:opacity-100 hover:bg-rose-50 hover:text-rose-500 max-md:p-1.5 max-md:opacity-100" title="Delete">
                           <Trash2 size={16} />
                         </button>
                         <button
                           type="button"
                           onClick={() => onViewFile(file)}
-                          className="sm:hidden p-2 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
+                          className="halo-touch-min rounded-lg p-2 text-slate-500 transition-colors hover:bg-teal-50 hover:text-teal-700 max-md:p-1.5 sm:hidden"
                           title="Preview"
                         >
                           <Eye size={18} />
                         </button>
-                        <button onClick={() => onViewFile(file)} className="hidden sm:inline-flex items-center gap-1.5 text-sm bg-slate-50 text-slate-600 px-3 py-1.5 rounded-md font-medium hover:bg-teal-50 hover:text-teal-700 transition-colors" title="Preview">
+                        <button onClick={() => onViewFile(file)} className="hidden halo-touch-min items-center gap-1.5 rounded-md bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-teal-50 hover:text-teal-700 sm:inline-flex" title="Preview">
                           <Eye size={14} /> View
                         </button>
-                        <a href={file.url} target="_blank" rel="noreferrer" className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Open in new tab">
+                        <a href={file.url} target="_blank" rel="noreferrer" className="halo-touch-min rounded-lg p-2 text-slate-400 opacity-0 transition-colors group-hover:opacity-100 hover:bg-slate-50 hover:text-teal-600 max-md:p-1.5 max-md:opacity-100" title="Open in new tab">
                           <ExternalLink size={16} />
                         </a>
                       </div>

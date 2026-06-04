@@ -35,7 +35,7 @@ function findPlaceholderReplacements(text: string): Replacement[] {
     if (close === -1) break;
 
     const rawInner = text.slice(open + 2, close);
-    const compactInner = rawInner.replace(/\s+/g, '').trim();
+    const compactInner = rawInner.trim().replace(/\s+/g, '_');
 
     if (compactInner && compactInner.length <= 120 && VALID_KEY.test(compactInner)) {
       replacements.push({

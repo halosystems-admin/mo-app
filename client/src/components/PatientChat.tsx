@@ -1,9 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { ChatMessage } from '../../../shared/types';
-import { ChevronDown, Loader2, Mail, MessageCircle, Send } from 'lucide-react';
+import { Loader2, MessageCircle, Send } from 'lucide-react';
 import { renderInlineMarkdown } from '../utils/formatting';
 
-export type EmailDocumentKind = 'script' | 'sick_note' | 'motivation' | 'referral';
+export type ChatSlashOption = {
+  value: string;
+  label: string;
+  description?: string;
+  group: 'templates' | 'patient-notes';
+};
 
 interface PatientChatProps {
   patientName: string;
@@ -12,13 +17,9 @@ interface PatientChatProps {
   onChatInputChange: (value: string) => void;
   chatLoading: boolean;
   onSendChat: () => void;
-  /** Generate + email document from Ask HALO toolbar */
-  emailDocumentActions?: {
-    onSelectKind: (kind: EmailDocumentKind) => void;
-    busyKind: EmailDocumentKind | null;
-    scriptAvailable: boolean;
-    sickNoteAvailable: boolean;
-  };
+  slashOptions?: ChatSlashOption[];
+  generatedDocument?: { name: string; url: string; fileId?: string } | null;
+  onDismissGeneratedDocument?: () => void;
 }
 
 export const PatientChat: React.FC<PatientChatProps> = ({
@@ -28,118 +29,102 @@ export const PatientChat: React.FC<PatientChatProps> = ({
   onChatInputChange,
   chatLoading,
   onSendChat,
-  emailDocumentActions,
+  slashOptions = [],
+  generatedDocument,
+  onDismissGeneratedDocument,
 }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const slashMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, chatLoading]);
 
   useEffect(() => {
-    if (!menuOpen) return;
     const onDoc = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
+      if (slashMenuRef.current && !slashMenuRef.current.contains(e.target as Node)) {
+        slashMenuRef.current.blur?.();
       }
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
     document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDoc);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [menuOpen]);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
 
-  const busy = emailDocumentActions?.busyKind ?? null;
-  const menuDisabled = chatLoading || busy !== null;
+  const referenceMatch = chatInput.match(/(?:^|\s)([\/@])([a-z0-9_-]*)$/i);
+  const referenceTrigger = referenceMatch?.[1] ?? '/';
+  const referenceQuery = (referenceMatch?.[2] ?? '').toLowerCase();
+  const filteredSlashOptions =
+    referenceMatch
+      ? slashOptions.filter((option) => {
+          if (!referenceQuery) return true;
+          return (
+            option.value.toLowerCase().includes(referenceQuery) ||
+            option.label.toLowerCase().includes(referenceQuery) ||
+            option.description?.toLowerCase().includes(referenceQuery)
+          );
+        })
+      : [];
 
-  const pickKind = (kind: EmailDocumentKind) => {
-    setMenuOpen(false);
-    emailDocumentActions?.onSelectKind(kind);
+  const groupedSlashOptions = filteredSlashOptions.reduce<Record<'templates' | 'patient-notes', ChatSlashOption[]>>(
+    (groups, option) => {
+      groups[option.group].push(option);
+      return groups;
+    },
+    { templates: [], 'patient-notes': [] }
+  );
+
+  const insertSlashOption = (option: ChatSlashOption) => {
+    const nextValue = chatInput.replace(/(?:^|\s)([\/@])([a-z0-9_-]*)$/i, (full) => {
+      const leadingSpace = full.startsWith(' ') ? ' ' : '';
+      return `${leadingSpace}${referenceTrigger}${option.value} `;
+    });
+    onChatInputChange(nextValue);
   };
 
+  const generatedDocumentOpenHref =
+    generatedDocument?.fileId
+      ? `/api/drive/files/${encodeURIComponent(generatedDocument.fileId)}/preview-docx-pdf`
+      : generatedDocument?.url;
+
   return (
-    <div className="h-[calc(100svh-240px)] max-h-[600px] min-h-[350px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div className="flex min-h-[50dvh] flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm max-md:min-h-0">
       <div className="bg-gradient-to-r from-teal-50 to-teal-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
         <MessageCircle size={16} className="text-teal-600" />
         <span className="text-sm font-bold text-teal-800 uppercase tracking-wider">Ask HALO</span>
       </div>
 
-      {emailDocumentActions && (
-        <div className="border-b border-slate-100 bg-slate-50/90 px-3 py-2">
-          <div className="relative inline-block" ref={menuRef}>
-            <button
-              type="button"
-              disabled={menuDisabled}
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              onClick={() => setMenuOpen((o) => !o)}
-              className="inline-flex items-center gap-2 rounded-lg border border-teal-600/35 bg-teal-600 px-3 py-2 text-[12px] font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-50"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden />
-              ) : (
-                <Mail className="h-4 w-4 shrink-0" aria-hidden />
-              )}
-              Email document
-              <ChevronDown className={`h-4 w-4 shrink-0 transition ${menuOpen ? 'rotate-180' : ''}`} aria-hidden />
-            </button>
-            {menuOpen && !menuDisabled ? (
-              <div
-                role="menu"
-                aria-label="Document type"
-                className="absolute left-0 top-full z-20 mt-1 min-w-[220px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+      {generatedDocument ? (
+        <div className="border-b border-slate-100 bg-emerald-50/80 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-emerald-800">Document generated</p>
+              <p className="truncate text-sm text-emerald-700">{generatedDocument.name}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={generatedDocumentOpenHref}
+                target="_blank"
+                rel="noreferrer"
+                className="halo-touch-min inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
               >
+                Open
+              </a>
+              {onDismissGeneratedDocument ? (
                 <button
                   type="button"
-                  role="menuitem"
-                  disabled={!emailDocumentActions.scriptAvailable}
-                  title={emailDocumentActions.scriptAvailable ? undefined : 'Not available for this site'}
-                  onClick={() => emailDocumentActions.scriptAvailable && pickKind('script')}
-                  className="block w-full px-3 py-2 text-left text-[13px] text-slate-800 hover:bg-teal-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-white"
+                  onClick={onDismissGeneratedDocument}
+                  className="halo-touch-min rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
                 >
-                  Script
+                  Dismiss
                 </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={!emailDocumentActions.sickNoteAvailable}
-                  title={emailDocumentActions.sickNoteAvailable ? undefined : 'Not available for this site'}
-                  onClick={() => emailDocumentActions.sickNoteAvailable && pickKind('sick_note')}
-                  className="block w-full px-3 py-2 text-left text-[13px] text-slate-800 hover:bg-teal-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-white"
-                >
-                  Sick note
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => pickKind('motivation')}
-                  className="block w-full px-3 py-2 text-left text-[13px] text-slate-800 hover:bg-teal-50"
-                >
-                  Motivational letter
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => pickKind('referral')}
-                  className="block w-full px-3 py-2 text-left text-[13px] text-slate-800 hover:bg-teal-50"
-                >
-                  Referral letter
-                </button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Chat messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 [-webkit-overflow-scrolling:touch] max-md:px-3 max-md:py-3">
         {chatMessages.length === 0 && !chatLoading && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center mb-4">
@@ -154,7 +139,7 @@ export const PatientChat: React.FC<PatientChatProps> = ({
                 <button
                   key={q}
                   onClick={() => onChatInputChange(q)}
-                  className="text-xs px-3 py-1.5 bg-slate-100 hover:bg-teal-50 text-slate-600 hover:text-teal-700 rounded-full transition-colors border border-slate-200 hover:border-teal-200"
+                  className="halo-touch-min rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 transition-colors hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
                 >
                   {q}
                 </button>
@@ -180,7 +165,7 @@ export const PatientChat: React.FC<PatientChatProps> = ({
                 }`}
               >
                 {msg.role === 'assistant' && (
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-teal-600 block mb-1">HALO</span>
+                  <span className="mb-1 block text-sm font-bold uppercase tracking-wide text-teal-600">HALO</span>
                 )}
                 <div className="text-sm whitespace-pre-wrap break-words">
                   {msg.content.split('\n').map((line, li) => (
@@ -195,7 +180,7 @@ export const PatientChat: React.FC<PatientChatProps> = ({
                 </div>
                 {!isLastAssistantStreaming && (
                   <span
-                    className={`text-[10px] mt-1 block ${msg.role === 'user' ? 'text-teal-200' : 'text-slate-400'}`}
+                    className={`mt-1 block text-sm ${msg.role === 'user' ? 'text-teal-200' : 'text-slate-400'}`}
                   >
                     {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
@@ -209,7 +194,7 @@ export const PatientChat: React.FC<PatientChatProps> = ({
           !(chatMessages.length > 0 && chatMessages[chatMessages.length - 1]?.role === 'assistant' && chatMessages[chatMessages.length - 1]?.content) && (
             <div className="flex justify-start">
               <div className="bg-slate-100 border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 max-w-[80%]">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-teal-600 block mb-1">HALO</span>
+                <span className="mb-1 block text-sm font-bold uppercase tracking-wide text-teal-600">HALO</span>
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm text-slate-500 italic animate-pulse">(HALO is thinking...)</span>
@@ -236,27 +221,62 @@ export const PatientChat: React.FC<PatientChatProps> = ({
         <div ref={chatEndRef} />
       </div>
 
-      <div className="p-3 border-t border-slate-200 bg-white">
-        <div className="flex gap-2">
+      <div className="border-t border-slate-200 bg-white p-3 max-md:px-2 max-md:pt-2 max-md:pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+        <div className="relative flex gap-2" ref={slashMenuRef}>
+          {referenceMatch && filteredSlashOptions.length > 0 ? (
+            <div className="absolute bottom-full left-0 right-14 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg max-md:right-0 max-md:max-h-52">
+              {(['templates', 'patient-notes'] as const).map((groupKey) => {
+                const options = groupedSlashOptions[groupKey];
+                if (options.length === 0) return null;
+                return (
+                  <div key={groupKey}>
+                    <div className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      {groupKey === 'templates' ? 'Templates' : 'Patient Notes'}
+                    </div>
+                    {options.map((option) => (
+                      <button
+                        key={`${groupKey}-${option.value}`}
+                        type="button"
+                        onClick={() => insertSlashOption(option)}
+                        className="halo-touch-min flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2 text-left hover:bg-teal-50"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-800">{referenceTrigger}{option.value}</div>
+                          {option.description ? (
+                            <div className="truncate text-xs text-slate-500">{option.description}</div>
+                          ) : null}
+                        </div>
+                        <div className="shrink-0 text-xs text-teal-700">{option.label}</div>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
           <input
             type="text"
             value={chatInput}
             onChange={(e) => onChatInputChange(e.target.value)}
             onKeyDown={(e) => {
+              if (e.key === 'Escape' && referenceMatch) {
+                onChatInputChange(chatInput.replace(/(?:^|\s)([\/@])([a-z0-9_-]*)$/i, ''));
+                return;
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 onSendChat();
               }
             }}
             placeholder="Ask a question about this patient..."
-            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"
+            className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none max-md:min-w-0"
             disabled={chatLoading}
           />
           <button
             type="button"
             onClick={onSendChat}
             disabled={chatLoading || !chatInput.trim()}
-            className="shrink-0 px-4 py-2.5 rounded-xl bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="halo-touch-min shrink-0 rounded-xl bg-teal-600 px-4 py-2.5 text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Send"
           >
             {chatLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}

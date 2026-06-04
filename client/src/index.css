@@ -52,6 +52,17 @@ body {
     min-height: 100dvh;
   }
 
+  body {
+    overflow-x: hidden;
+  }
+
+  #root,
+  #root > div,
+  .overflow-shell-mobile {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   /* Mobile-only: avoid duplicate titles (we render a global mobile header). */
   .halo-page-title {
     display: none;
@@ -110,13 +121,11 @@ body {
     scroll-snap-align: center;
   }
 
-  /*
-   * Note Fields (PatientWorkspace): natural document scroll — no nested scroll areas or forced heights.
-   */
   .note-fields-shell {
-    display: block;
-    flex-grow: 0;
-    height: auto;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    height: 100%;
     min-height: 0;
     min-width: 0;
   }
@@ -124,20 +133,32 @@ body {
   .note-fields-card {
     display: flex;
     flex-direction: column;
-    flex: 0 1 auto;
+    flex: 1 1 auto;
     min-height: 0;
   }
 
   .note-fields-scrollArea {
-    overflow: visible !important;
-    -webkit-overflow-scrolling: auto;
-    flex: 0 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    flex: 1 1 auto;
     min-height: 0;
+    min-width: 0;
   }
 
   .note-fields-editor-input {
-    overflow: visible !important;
-    max-height: none !important;
+    overflow: visible;
+    max-height: none;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  label,
+  [role='button'],
+  [role='tab'] {
+    font-size: max(14px, 0.875rem);
   }
 }
 
@@ -168,9 +189,22 @@ a:not(.halo-touch-min) {
   min-width: unset;
 }
 
-.halo-touch-min {
-  min-height: 44px;
-  min-width: 44px;
+@media (max-width: 768px) {
+  .halo-touch-min {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role='button']:focus-visible,
+[role='tab']:focus-visible {
+  outline: 2px solid rgba(20, 184, 166, 0.45);
+  outline-offset: 2px;
 }
 
 /* ─── Custom scrollbar (used in dark sidebar) ────────────────── */

@@ -421,6 +421,36 @@ router.get('/patients/:id/files', async (req: Request, res: Response) => {
   }
 });
 
+// GET /patients/:id/patient-notes-files?page=<token>&pageSize=<number>
+router.get('/patients/:id/patient-notes-files', async (req: Request, res: Response) => {
+  try {
+    const token = req.session.accessToken!;
+    const patientFolderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const adapter = getStorageAdapter(req.session.provider);
+    const microsoftStorageMode = req.session.microsoftStorageMode;
+    const pageSize = Math.min(Number(req.query.pageSize) || DEFAULT_PAGE_SIZE, 100);
+    const pageToken = typeof req.query.page === 'string' ? req.query.page : undefined;
+
+    const notesFolderId = await adapter.getOrCreatePatientNotesFolder({
+      token,
+      patientFolderId,
+      microsoftStorageMode,
+    });
+    const { files, nextPage } = await adapter.listFolderFiles({
+      token,
+      folderId: notesFolderId,
+      page: pageToken,
+      pageSize,
+      microsoftStorageMode,
+    });
+
+    res.json({ files, nextPage, folderId: notesFolderId });
+  } catch (err) {
+    console.error('Fetch patient notes files error:', err);
+    res.status(500).json({ error: 'Failed to fetch Patient Notes files.' });
+  }
+});
+
 // Timeout for warm upload — if it hangs, we fall back to direct list
 const WARM_UPLOAD_TIMEOUT_MS = 12_000;
 

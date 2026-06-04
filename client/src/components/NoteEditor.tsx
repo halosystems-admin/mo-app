@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Save, FileDown, Mail, Loader2, RefreshCw } from 'lucide-react';
+import { Eye, FileDown, FileText, Loader2, X } from 'lucide-react';
 import type { HaloNote, NoteField } from '../../../shared/types';
 import { AppStatus } from '../../../shared/types';
 
@@ -179,6 +179,12 @@ function fieldsToOrganizedText(fields: NoteField[]): string {
   return sections.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function resizeTextareaElement(el: HTMLTextAreaElement | null, minHeight: number): void {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.max(el.scrollHeight, minHeight)}px`;
+}
+
 interface NoteEditorProps {
   notes: HaloNote[];
   activeIndex: number;
@@ -191,11 +197,14 @@ interface NoteEditorProps {
   onTemplateChange?: (templateId: string) => void;
   onSaveAsDocx: (noteIndex: number) => void;
   onSaveAll: () => void;
-  onEmail: (noteIndex: number) => void;
   savingNoteIndex: number | null;
   regeneratingPdfIndex: number | null;
   /** When false, hide internal note tabs (used when parent provides Transcript | Context | Note tabs) */
   showNoteTabs?: boolean;
+  mobileSinglePanel?: boolean;
+  hideFooter?: boolean;
+  viewMode?: 'fields' | 'pdf';
+  onViewModeChange?: (mode: 'fields' | 'pdf') => void;
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
@@ -210,16 +219,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   onTemplateChange,
   onSaveAsDocx,
   onSaveAll,
-  onEmail,
   savingNoteIndex,
   regeneratingPdfIndex,
   showNoteTabs = true,
+  mobileSinglePanel = false,
+  hideFooter = false,
+  viewMode: controlledViewMode,
+  onViewModeChange,
 }) => {
   const activeNote = notes[activeIndex];
-  const [viewMode, setViewMode] = useState<'fields' | 'pdf'>('fields');
+  const [internalViewMode, setInternalViewMode] = useState<'fields' | 'pdf'>('fields');
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [showMobilePdfPreview, setShowMobilePdfPreview] = useState(false);
   const blobUrlRef = useRef<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fieldTextareaRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
   const busy = status === AppStatus.FILING || status === AppStatus.SAVING;
 
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -236,6 +250,16 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     if (!activeNote) return [];
     return mergeHpcIntoPresentingComplaintFields(extractNoteFields(activeNote));
   }, [activeNote]);
+  const embeddedMobileView = isMobileViewport && !showNoteTabs;
+  const unifiedMobilePanel = embeddedMobileView && mobileSinglePanel;
+  const mobileEmbeddedFieldsView = embeddedMobileView && !unifiedMobilePanel;
+  const viewMode = controlledViewMode ?? internalViewMode;
+  const setViewMode = (mode: 'fields' | 'pdf') => {
+    if (controlledViewMode === undefined) {
+      setInternalViewMode(mode);
+    }
+    onViewModeChange?.(mode);
+  };
 
   const displayContent = useMemo(() => {
     if (activeNote?.content?.trim()) return activeNote.content;
@@ -250,14 +274,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     return fieldsToOrganizedText(fields) || displayContent;
   }, [fields, displayContent, activeNote?.content]);
 
-  /** Mobile: single-page scroll — textarea grows with content (no nested scroll). */
+  /** Desktop can auto-grow, but mobile should keep a bounded editor that scrolls internally. */
   useLayoutEffect(() => {
-    if (!isMobileViewport || viewMode !== 'fields') return;
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.max(el.scrollHeight, 96)}px`;
-  }, [isMobileViewport, organizedText, viewMode, activeIndex]);
+    if (isMobileViewport || viewMode !== 'fields' || unifiedMobilePanel) return;
+    resizeTextareaElement(textareaRef.current, 96);
+    fieldTextareaRefs.current.forEach((el) => resizeTextareaElement(el, 56));
+  }, [isMobileViewport, organizedText, viewMode, activeIndex, fields, unifiedMobilePanel]);
 
   // Rebuild blob URL whenever the PDF base64 changes
   useEffect(() => {
@@ -291,30 +313,62 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     );
   }
 
-  const handleRegenerate = () => {
-    onRegeneratePdf(activeIndex, displayContent);
-    setViewMode('pdf');
-  };
-
   const openPdfPreview = () => {
-    setViewMode('pdf');
+    if (isMobileViewport) {
+      setShowMobilePdfPreview(true);
+    } else {
+      setViewMode('pdf');
+    }
     if (!displayContent.trim()) return;
     if (activeNote?.dirty || !activeNote?.previewPdfBase64?.trim()) {
       onRegeneratePdf(activeIndex, displayContent);
     }
   };
 
+  const handlePreviewAction = () => {
+    if (isMobileViewport && showMobilePdfPreview) {
+      setShowMobilePdfPreview(false);
+      return;
+    }
+    if (!isMobileViewport && viewMode === 'pdf') {
+      setViewMode('fields');
+      return;
+    }
+    openPdfPreview();
+  };
+  const previewBusy = regeneratingPdfIndex === activeIndex;
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      setShowMobilePdfPreview(false);
+    }
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+    setShowMobilePdfPreview(false);
+  }, [activeIndex]);
+
+  const handleFieldBodyChange = (fieldIndex: number, body: string) => {
+    const nextFields = fields.map((field, index) =>
+      index === fieldIndex ? { ...field, body } : field
+    );
+    onNoteChange(activeIndex, {
+      fields: nextFields,
+      content: fieldsToOrganizedText(nextFields) || fieldsToContent(nextFields),
+    });
+  };
+
   return (
-    <div className="flex min-h-0 flex-col md:flex-1 md:min-h-0 md:overflow-hidden">
+    <div className={`flex min-h-0 flex-1 flex-col overflow-hidden ${unifiedMobilePanel ? 'max-md:flex-1' : ''}`}>
       {/* Only show template picker + mini note tabs when used standalone */}
       {showNoteTabs && (
-        <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 max-md:px-3 max-md:py-1.5 max-md:gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 max-md:px-3 max-md:py-2">
           <div className="flex items-center gap-2 flex-wrap">
             {templateOptions.length > 0 && onTemplateChange && (
               <select
                 value={templateId}
                 onChange={(e) => onTemplateChange(e.target.value)}
-                className="text-xs font-medium border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-700 shadow-sm"
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 max-md:min-h-[44px] max-md:px-3 max-md:py-2 max-md:text-sm"
               >
                 {templateOptions.map((t) => (
                   <option key={t.id} value={t.id}>{t.name}</option>
@@ -328,7 +382,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 key={note.noteId}
                 type="button"
                 onClick={() => onActiveIndexChange(i)}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 max-md:min-h-[44px] max-md:px-3 max-md:py-2 max-md:text-sm ${
                   i === activeIndex ? 'bg-teal-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200/90'
                 }`}
               >
@@ -339,110 +393,176 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
-      {/* 2-tab toggle: Note Fields | PDF Preview */}
-      <div className="px-4 py-2 bg-white border-b border-slate-100 flex items-center gap-2 max-md:px-2 max-md:py-1">
-        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/70 p-0.5">
-          <button
-            type="button"
-            onClick={() => setViewMode('fields')}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition ${
-              viewMode === 'fields' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            Note Fields
-          </button>
-          <button
-            type="button"
-            onClick={openPdfPreview}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition ${
-              viewMode === 'pdf' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            PDF Preview
-          </button>
-        </div>
-      </div>
-
-      {/* Content area */}
-      {viewMode === 'fields' ? (
-        <div className="note-fields-shell flex min-h-0 flex-1 flex-col bg-slate-50/70 p-3 max-md:p-1 max-md:bg-transparent">
-          <div className="note-fields-card flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white shadow-sm max-md:rounded-lg max-md:border-0 max-md:shadow-none">
-            <div className="px-4 py-3 border-b border-slate-100 shrink-0 max-md:px-2 max-md:py-2">
-              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Note fields</div>
-            </div>
-
-            <div className="note-fields-scrollArea min-h-0 flex-1 overflow-y-auto p-3 max-md:p-2">
+      <div
+        className={
+          unifiedMobilePanel
+            ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent px-0 pt-0'
+            : `flex-1 min-h-0 bg-slate-50/70 p-3 [-webkit-overflow-scrolling:touch] ${embeddedMobileView ? 'overflow-hidden' : 'overflow-y-auto'} ${hideFooter ? 'pb-3' : 'pb-[calc(6.25rem+env(safe-area-inset-bottom,0px))]'} max-md:pt-1.5 ${embeddedMobileView ? `max-md:bg-transparent max-md:px-0.5 ${hideFooter ? 'max-md:pb-2' : 'max-md:pb-[calc(5.1rem+env(safe-area-inset-bottom,0px))]'}` : `max-md:px-2 ${hideFooter ? 'max-md:pb-2' : 'max-md:pb-[calc(5.1rem+env(safe-area-inset-bottom,0px))]'}`}`
+        }
+      >
+        {viewMode === 'fields' ? (
+          mobileEmbeddedFieldsView && fields.length === 0 ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-white p-3 [-webkit-overflow-scrolling:touch] max-md:p-2.5">
               <textarea
                 ref={textareaRef}
                 value={organizedText}
                 onChange={(e) => onNoteChange(activeIndex, { content: e.target.value })}
+                onInput={(e) => {
+                  if (!isMobileViewport && !unifiedMobilePanel) resizeTextareaElement(e.currentTarget, 96);
+                }}
                 placeholder=""
-                className="note-fields-editor-input h-full min-h-[320px] w-full resize-none rounded-xl border border-slate-200 bg-white p-4 font-sans text-sm leading-relaxed text-slate-700 focus:outline-none max-md:min-h-[12rem] max-md:p-3"
+                className="min-h-[min(40vh,320px)] w-full flex-1 resize-y overflow-y-auto rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none focus:ring-0 [-webkit-overflow-scrolling:touch] max-md:min-h-[48dvh] max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:px-0.5 max-md:py-0 max-md:focus:border-0 max-md:focus:ring-0"
               />
             </div>
+          ) : (
+          <div className={`${unifiedMobilePanel ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'note-fields-shell flex min-h-0 flex-1 flex-col'}`}>
+            <div className={`${unifiedMobilePanel ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent' : `note-fields-card flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white shadow-sm ${embeddedMobileView ? 'max-md:border-0 max-md:bg-transparent max-md:shadow-none' : ''}`}`}>
+              <div className={`${unifiedMobilePanel ? 'flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-2.5 py-2' : `note-fields-scrollArea flex min-h-0 flex-1 flex-col gap-3 p-3 ${embeddedMobileView && fields.length === 0 ? 'overflow-hidden' : 'overflow-y-auto [-webkit-overflow-scrolling:touch]'} max-md:gap-2.5 ${embeddedMobileView ? 'max-md:p-0.5' : 'max-md:p-2.5'}`}`}>
+                {fields.length > 0 ? (
+                  fields.map((field, index) => (
+                    <div key={`${field.label}-${index}`} className={`${unifiedMobilePanel ? 'px-0 py-0' : `rounded-xl border border-slate-200 bg-slate-50/65 p-3 ${embeddedMobileView ? 'max-md:bg-white' : ''}`}`}>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">
+                        {field.label}
+                      </label>
+                      <textarea
+                        ref={(el) => {
+                          fieldTextareaRefs.current[index] = el;
+                        }}
+                        value={field.body ?? ''}
+                        onChange={(e) => handleFieldBodyChange(index, e.target.value)}
+                        onInput={(e) => {
+                          if (!isMobileViewport && !unifiedMobilePanel) resizeTextareaElement(e.currentTarget, 56);
+                        }}
+                        className={`note-fields-editor-input min-h-[56px] w-full resize-none overflow-hidden rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm leading-relaxed text-slate-700 focus:border-teal-400 focus:outline-none focus:ring-0 focus-visible:border-teal-400 focus-visible:ring-0 [-webkit-overflow-scrolling:touch] ${unifiedMobilePanel ? 'max-md:min-h-[6rem] max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:px-0 max-md:py-0 max-md:focus:border-0' : 'max-md:min-h-[6rem] max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:px-0.5 max-md:py-0.5 max-md:focus:border-0'}`}
+                      />
+                    </div>
+                  ))
+                ) : (
+                  <textarea
+                    ref={textareaRef}
+                    value={organizedText}
+                    onChange={(e) => onNoteChange(activeIndex, { content: e.target.value })}
+                    onInput={(e) => {
+                      if (!isMobileViewport && !unifiedMobilePanel) resizeTextareaElement(e.currentTarget, 96);
+                    }}
+                    placeholder=""
+                    className={`note-fields-editor-input min-h-[320px] w-full resize-none overflow-hidden rounded-xl border border-slate-200 bg-white p-4 font-sans text-sm leading-relaxed text-slate-700 focus:border-teal-400 focus:outline-none focus:ring-0 focus-visible:border-teal-400 focus-visible:ring-0 [-webkit-overflow-scrolling:touch] max-md:min-h-[17.5rem] max-md:focus:ring-0 ${unifiedMobilePanel ? 'max-md:h-full max-md:min-h-0 max-md:flex-1 max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:px-0 max-md:py-0 max-md:focus:border-0' : 'max-md:h-full max-md:flex-1 max-md:min-h-0 max-md:overflow-y-auto max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:px-0.5 max-md:py-0.5 max-md:focus:border-0'}`}
+                  />
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/70 p-3">
-          {pdfUrl ? (
+          )
+        ) : pdfUrl ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <iframe
               src={pdfUrl}
               title="PDF Preview"
-              className="w-full h-full min-h-[420px] rounded-xl border border-slate-200 bg-white"
+              className="h-full min-h-0 w-full flex-1 rounded-xl border border-slate-200 bg-white max-md:rounded-lg"
             />
-          ) : (
-            <div className="h-full min-h-[320px]" aria-hidden />
-          )}
-        </div>
-      )}
+          </div>
+        ) : (
+          <div className="min-h-[320px] flex-1 rounded-xl border border-dashed border-slate-200 bg-white/80 max-md:min-h-0" aria-hidden />
+        )}
+      </div>
 
-      {/* Footer actions */}
-      <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 max-md:px-2 max-md:py-2 max-md:gap-1.5">
-        <div className="flex items-center gap-2 flex-wrap">
+      {!hideFooter ? (
+      <div className={`sticky bottom-0 z-10 border-t border-slate-200 bg-white/95 px-4 py-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm max-md:px-2.5 max-md:py-1 max-md:pb-[calc(0.35rem+env(safe-area-inset-bottom,0px))] ${embeddedMobileView ? 'max-md:mt-1' : ''} ${unifiedMobilePanel ? 'max-md:static max-md:border-t-0 max-md:bg-transparent max-md:px-1.5 max-md:pt-2 max-md:pb-1 max-md:backdrop-blur-none' : ''}`}>
+        <div className="flex flex-wrap items-center justify-between gap-3 max-md:flex-col max-md:items-stretch max-md:gap-1.5">
+        <div className="flex items-center gap-2 flex-wrap max-md:grid max-md:grid-cols-2 max-md:gap-1.5">
+          <button
+            type="button"
+            onClick={handlePreviewAction}
+            disabled={busy || !displayContent.trim() || previewBusy}
+            className="halo-touch-min flex items-center justify-center gap-1.5 rounded-full bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 disabled:opacity-50 max-md:min-h-[34px] max-md:px-2.5 max-md:py-1.5 max-md:text-[11px]"
+          >
+            {previewBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : viewMode === 'pdf' ? <FileText className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {viewMode === 'pdf' ? 'Fields' : 'Preview'}
+          </button>
           <button
             type="button"
             onClick={() => onSaveAsDocx(activeIndex)}
             disabled={busy || !displayContent.trim()}
-            className="flex items-center gap-1.5 bg-teal-600 text-white px-3 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
+            className="halo-touch-min flex items-center justify-center gap-1.5 rounded-full bg-teal-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-teal-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 disabled:opacity-50 max-md:min-h-[34px] max-md:px-2.5 max-md:py-1.5 max-md:text-[11px]"
           >
             {savingNoteIndex === activeIndex ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
             Save as DOCX
           </button>
-          <button
-            type="button"
-            onClick={handleRegenerate}
-            disabled={busy || !displayContent.trim() || regeneratingPdfIndex === activeIndex}
-            className="flex items-center gap-1.5 bg-slate-700 text-white px-3 py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
-          >
-            {regeneratingPdfIndex === activeIndex ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            Regenerate PDF
-          </button>
-          <button
-            type="button"
-            onClick={() => onEmail(activeIndex)}
-            disabled={busy || !displayContent.trim()}
-            className="flex items-center gap-1.5 bg-slate-600 text-white px-3 py-2 rounded-lg hover:bg-slate-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
-          >
-            <Mail className="w-4 h-4" /> Email
-          </button>
-          {notes.length > 1 && (
-            <button
-              type="button"
-              onClick={onSaveAll}
-              disabled={busy}
-              className="flex items-center gap-1.5 bg-teal-700 text-white px-3 py-2 rounded-lg hover:bg-teal-800 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
-            >
-              {status === AppStatus.SAVING ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Save All
-            </button>
-          )}
         </div>
         {activeNote.lastSavedAt && (
-          <span className="text-xs text-slate-400">
+          <span className="text-sm text-slate-400 max-md:text-center max-md:text-[11px]">
             Last saved: {new Date(activeNote.lastSavedAt).toLocaleString()}
           </span>
         )}
+        </div>
       </div>
+      ) : null}
+
+      {isMobileViewport && showMobilePdfPreview ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-2 backdrop-blur-[1px]">
+          <div className="flex w-full max-w-[24rem] max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-[1.2rem] border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-3 py-1.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">Preview</p>
+                <p className="truncate text-[11px] text-slate-500">{activeNote.title || 'Document preview'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMobilePdfPreview(false)}
+                className="halo-touch-min flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35"
+                aria-label="Close preview"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex items-start justify-center overflow-auto bg-slate-100 px-2 py-2">
+              {pdfUrl ? (
+                <div className="w-full max-w-full flex-none overflow-hidden rounded-[0.95rem] border border-slate-200 bg-white shadow-sm aspect-[210/297]">
+                  <iframe
+                    src={`${pdfUrl}#toolbar=0&zoom=page-width`}
+                    title="PDF Preview"
+                    className="h-full w-full bg-white"
+                  />
+                </div>
+              ) : (
+                <div className="flex aspect-[210/297] w-full max-w-full flex-none items-center justify-center rounded-[0.95rem] border border-dashed border-slate-300 bg-white">
+                  {previewBusy ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating preview...
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">Preview not available yet.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-200 px-3 py-1.5 pb-[calc(0.35rem+env(safe-area-inset-bottom,0px))]">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMobilePdfPreview(false)}
+                  className="halo-touch-min flex items-center justify-center gap-1.5 rounded-full bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35"
+                >
+                  <FileText className="h-4 w-4" />
+                  Fields
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSaveAsDocx(activeIndex)}
+                  disabled={busy || !displayContent.trim()}
+                  className="halo-touch-min flex items-center justify-center gap-1.5 rounded-full bg-teal-600 px-3 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-teal-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 disabled:opacity-50"
+                >
+                  {savingNoteIndex === activeIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                  Save as DOCX
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

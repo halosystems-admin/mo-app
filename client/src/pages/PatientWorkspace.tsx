@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import type {
   Patient,
   DriveFile,
@@ -19,6 +19,7 @@ import {
   fetchFilesFirstPage,
   fetchFilesPage,
   fetchFolderContents,
+  fetchPatientNotesFiles,
   warmAndListFiles,
   uploadFile,
   updatePatient,
@@ -36,14 +37,12 @@ import {
   getHaloTemplates,
   describeFile,
   appendLongitudinalContextPdf,
-  fetchPatientSessions,
-  savePatientSession,
-  getPatientHaloProfile,
-  generatePatientLetterDocx,
-  uploadPatientHaloProfile,
-  emailPatientDoc,
-  emailPatientFile,
-} from '../services/api';
+    fetchPatientSessions,
+    savePatientSession,
+    getPatientHaloProfile,
+    generatePatientLetterDocx,
+    uploadPatientHaloProfile,
+  } from '../services/api';
 import { uploadAndExtractSmartContext } from '../services/smartContext';
 import {
   Upload, CheckCircle2, ChevronLeft, Loader2, Camera,
@@ -61,7 +60,7 @@ import { generateNotePreviewWithFallback } from '../services/generateNotePreview
 import { FileViewer } from '../components/FileViewer';
 import { FileBrowser } from '../components/FileBrowser';
 import { NoteEditor } from '../components/NoteEditor';
-import { PatientChat, type EmailDocumentKind } from '../components/PatientChat';
+import { PatientChat, type ChatSlashOption } from '../components/PatientChat';
 import { getErrorMessage } from '../utils/formatting';
 import { CLINICAL_BTN_PRIMARY } from '../features/clinical/shared/tableScrollClasses';
 import { formatPatientDisplayName } from '../features/clinical/shared/clinicalDisplay';
@@ -72,7 +71,7 @@ const MAX_MAIN_COMPLAINT_LEN = 80;
 const EDITOR_VIEW_SHELL =
   'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60';
 const EDITOR_VIEW_HEADER =
-  'flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2.5';
+  'flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2.5 max-md:flex-col max-md:items-stretch';
 const EDITOR_VIEW_TITLE = 'text-[11px] font-semibold uppercase tracking-wide text-slate-500';
 
 /** Internal scribe state file — never list in browser/context picker (still stored in cloud). */
@@ -80,6 +79,407 @@ const SCRIBE_SESSIONS_FILE_NAME = 'halo_scribe_sessions.json';
 
 function excludeHiddenPatientFiles(files: DriveFile[]): DriveFile[] {
   return files.filter((f) => f.name !== SCRIBE_SESSIONS_FILE_NAME);
+}
+
+function sortNewestFirst(files: DriveFile[]): DriveFile[] {
+  return [...files].sort((a, b) => {
+    const aTime = Date.parse(a.createdTime || '') || 0;
+    const bTime = Date.parse(b.createdTime || '') || 0;
+    return bTime - aTime;
+  });
+}
+
+function orderFilesForPatientView(files: DriveFile[], isRootFolder: boolean): DriveFile[] {
+  if (!isRootFolder) return files;
+  const visible = excludeHiddenPatientFiles(files);
+  const folders = visible.filter((file) => file.mimeType === FOLDER_MIME_TYPE);
+  const regularFiles = visible.filter((file) => file.mimeType !== FOLDER_MIME_TYPE);
+  return [...sortNewestFirst(folders), ...sortNewestFirst(regularFiles)];
+}
+
+function detectGeneratedDocumentIntent(input: string): 'motivation' | 'referral' | null {
+  const question = input.trim().toLowerCase();
+  if (!question) return null;
+  const referral =
+    question.includes('referral letter') ||
+    (question.includes('referral') && question.includes('letter')) ||
+    question.includes('refer this patient');
+  if (referral) return 'referral';
+
+  const motivation =
+    question.includes('motivational letter') ||
+    question.includes('motivation letter') ||
+    (question.includes('motivation') && question.includes('letter'));
+  if (motivation) return 'motivation';
+
+  return null;
+}
+
+type AskHaloTemplateIntent = {
+  templateId: string;
+  templateName: string;
+};
+
+type AskHaloNoteReference = {
+  note?: HaloNote;
+  file?: DriveFile;
+  reference: string;
+  cleanedRequest: string;
+  displayLabel: string;
+};
+
+type AskHaloNoteReferenceResult = {
+  match: AskHaloNoteReference | null;
+  hadReferenceSyntax: boolean;
+};
+
+type AskHaloTemplateSlashKind = 'referral' | 'motivational' | 'sick-note';
+
+type AskHaloTemplateReference = {
+  kind: AskHaloTemplateSlashKind;
+  label: string;
+  cleanedValue: string;
+};
+
+type AskHaloResolvedReferences = {
+  noteMatch: AskHaloNoteReference | null;
+  templateMatch: AskHaloTemplateReference | null;
+  hadReferenceSyntax: boolean;
+  unknownReferences: string[];
+  cleanedRequest: string;
+};
+
+function normalizeTemplateIntentText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function buildTemplateIntentAliases(templateId: string, templateName: string): string[] {
+  const base = [templateName, templateId.replace(/_/g, ' ')];
+  switch (templateId) {
+    case 'admission':
+      return [...base, 'admission note'];
+    case 'colonoscopy':
+      return [...base, 'colonoscopy note'];
+    case 'gastroscopy':
+      return [...base, 'gastroscopy note', 'ogd'];
+    case 'inpatient_fu':
+      return [...base, 'inpatient follow up', 'inpatient follow-up'];
+    case 'operation':
+    case 'op_report':
+      return [...base, 'operation report', 'op report', 'operative note', 'operation note'];
+    case 'outpt_consult':
+      return [...base, 'outpatient consult', 'outpatient note', 'consult note', 'clinic note'];
+    case 'script':
+      return [...base, 'prescription'];
+    case 'sick_note':
+      return [...base, 'medical certificate', 'sick leave'];
+    case 'ward_dictation':
+      return [...base, 'ward note'];
+    default:
+      return base;
+  }
+}
+
+function detectAskHaloTemplateIntent(
+  input: string,
+  templates: Array<{ id: string; name: string }>
+): AskHaloTemplateIntent | null {
+  const normalizedQuestion = normalizeTemplateIntentText(input);
+  if (!normalizedQuestion) return null;
+  if (!/\b(write|draft|generate|create|make|prepare|populate)\b/.test(normalizedQuestion)) return null;
+
+  let bestMatch: AskHaloTemplateIntent | null = null;
+  let bestAliasLength = -1;
+
+  for (const template of templates) {
+    for (const alias of buildTemplateIntentAliases(template.id, template.name)) {
+      const normalizedAlias = normalizeTemplateIntentText(alias);
+      if (!normalizedAlias || !normalizedQuestion.includes(normalizedAlias)) continue;
+      if (normalizedAlias.length <= bestAliasLength) continue;
+      bestAliasLength = normalizedAlias.length;
+      bestMatch = { templateId: template.id, templateName: template.name };
+    }
+  }
+
+  return bestMatch;
+}
+
+function normalizeNoteReferenceKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function buildAskHaloNoteReferenceAliases(
+  note: HaloNote,
+  noteIndex: number,
+  templates: Array<{ id: string; name: string }>
+): string[] {
+  const templateNameById = new Map(templates.map((template) => [template.id, template.name]));
+  const templateId = note.template_id || '';
+  const templateName = templateNameById.get(templateId) || note.title || templateId || `note ${noteIndex + 1}`;
+  return [
+    note.title || '',
+    templateId,
+    templateName,
+    `note ${noteIndex + 1}`,
+    `note${noteIndex + 1}`,
+    `tab ${noteIndex + 1}`,
+    `tab${noteIndex + 1}`,
+    noteIndex === 0 ? 'first note' : '',
+    ...buildTemplateIntentAliases(templateId, templateName),
+  ].filter(Boolean);
+}
+
+function buildAskHaloReferenceHelp(notes: HaloNote[], templates: Array<{ id: string; name: string }>): string {
+  return notes
+    .slice(0, 5)
+    .map((note, index) => {
+      const aliases = buildAskHaloNoteReferenceAliases(note, index, templates);
+      const preferred = aliases.find((alias) => alias && !alias.startsWith('note ') && !alias.startsWith('tab ')) || `note-${index + 1}`;
+      return `/${preferred.replace(/\s+/g, '-').toLowerCase()}`;
+    })
+    .join(', ');
+}
+
+function buildAskHaloSlashOptions(notes: HaloNote[], templates: Array<{ id: string; name: string }>): ChatSlashOption[] {
+  return notes.map((note, index) => {
+    const aliases = buildAskHaloNoteReferenceAliases(note, index, templates);
+    const preferredAlias =
+      aliases.find((alias) => alias && !/^note\s*\d+$/i.test(alias) && !/^tab\s*\d+$/i.test(alias)) ||
+      `note ${index + 1}`;
+    const templateName =
+      templates.find((template) => template.id === note.template_id)?.name ||
+      note.template_id ||
+      'Clinical note';
+    return {
+      value: preferredAlias.replace(/\s+/g, '-').toLowerCase(),
+      label: note.title || templateName,
+      description: `Note ${index + 1} • ${templateName}`,
+      group: 'patient-notes',
+    };
+  });
+}
+
+function buildAskHaloTemplateSlashOptions(templates: Array<{ id: string; name: string }>): ChatSlashOption[] {
+  const sickNoteTemplate = templates.find((template) => template.id === 'sick_note');
+  return [
+    {
+      value: 'referral',
+      label: 'Referral',
+      description: 'Create a referral letter',
+      group: 'templates',
+    },
+    {
+      value: 'motivational',
+      label: 'Motivational',
+      description: 'Create a motivational letter',
+      group: 'templates',
+    },
+    {
+      value: 'sick-note',
+      label: 'Sick note',
+      description: `Create ${sickNoteTemplate?.name || 'a sick note'}`,
+      group: 'templates',
+    },
+  ];
+}
+
+function buildRootFileReferenceAliases(file: DriveFile): string[] {
+  const baseName = file.name.replace(/\.[^.]+$/i, '');
+  const segments = baseName.split(' - ').map((part) => part.trim()).filter(Boolean);
+  const trailing = segments[segments.length - 1] || baseName;
+  return [
+    trailing,
+    trailing.replace(/_/g, ' '),
+    baseName,
+    baseName.replace(/_/g, ' '),
+  ].filter(Boolean);
+}
+
+function buildRootFileSlashOptions(files: DriveFile[]): ChatSlashOption[] {
+  const seen = new Set<string>();
+  return files
+    .filter((file) => file.mimeType !== FOLDER_MIME_TYPE)
+    .map((file) => {
+      const aliases = buildRootFileReferenceAliases(file);
+      const preferred = aliases[0] || file.name;
+      const value = preferred.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase();
+      if (!value || seen.has(value)) return null;
+      seen.add(value);
+      return {
+        value,
+        label: preferred,
+        description: file.name,
+        group: 'patient-notes',
+      } as ChatSlashOption;
+    })
+    .filter((option): option is ChatSlashOption => option != null);
+}
+
+function buildAskHaloReferenceContext(
+  reference: AskHaloNoteReference | null,
+  templateReference?: AskHaloTemplateReference | null
+): string {
+  const parts: string[] = [];
+  if (templateReference) {
+    parts.push(`Requested output template: ${templateReference.label}`);
+  }
+  if (reference?.note) {
+    parts.push(`Referenced note for this request: ${reference.displayLabel}`);
+  }
+  if (reference?.file) {
+    parts.push(`Referenced saved patient note for this request: ${reference.file.name}`);
+  }
+  return parts.join('\n');
+}
+
+function buildAskHaloTemplateHelp(): string {
+  return ['/referral', '/motivational', '/sick-note'].join(', ');
+}
+
+function parseDraftedLetterSections(
+  reply: string
+): { clinicalSummary: string; justification: string; fallbackBody: string } {
+  const text = reply.trim();
+  if (!text) {
+    return { clinicalSummary: '', justification: '', fallbackBody: '' };
+  }
+
+  const summaryMatch = text.match(/CLINICAL_SUMMARY:\s*([\s\S]*?)(?:\nJUSTIFICATION:|$)/i);
+  const justificationMatch = text.match(/JUSTIFICATION:\s*([\s\S]*?)$/i);
+  const clinicalSummary = summaryMatch?.[1]?.trim() ?? '';
+  const justification = justificationMatch?.[1]?.trim() ?? '';
+
+  return {
+    clinicalSummary,
+    justification,
+    fallbackBody: text
+      .replace(/CLINICAL_SUMMARY:\s*/i, '')
+      .replace(/\nJUSTIFICATION:\s*/i, '\n')
+      .trim(),
+  };
+}
+
+function resolveAskHaloReferences(
+  input: string,
+  notes: HaloNote[],
+  templates: Array<{ id: string; name: string }>,
+  patientNotesFiles: DriveFile[]
+): AskHaloResolvedReferences {
+  const matches = [...input.matchAll(/(?:^|\s)([\/@])([a-z0-9_-]+)/gi)];
+  if (matches.length === 0) {
+    return {
+      noteMatch: null,
+      templateMatch: null,
+      hadReferenceSyntax: false,
+      unknownReferences: [],
+      cleanedRequest: input.trim(),
+    };
+  }
+
+  const templateReferences: Record<string, AskHaloTemplateReference> = {
+    referral: { kind: 'referral', label: 'Referral', cleanedValue: 'referral' },
+    'referral-letter': { kind: 'referral', label: 'Referral', cleanedValue: 'referral' },
+    motivation: { kind: 'motivational', label: 'Motivational', cleanedValue: 'motivational' },
+    motivational: { kind: 'motivational', label: 'Motivational', cleanedValue: 'motivational' },
+    'motivation-letter': { kind: 'motivational', label: 'Motivational', cleanedValue: 'motivational' },
+    'motivational-letter': { kind: 'motivational', label: 'Motivational', cleanedValue: 'motivational' },
+    sicknote: { kind: 'sick-note', label: 'Sick note', cleanedValue: 'sick-note' },
+    'sick-note': { kind: 'sick-note', label: 'Sick note', cleanedValue: 'sick-note' },
+    'sick-note-docx': { kind: 'sick-note', label: 'Sick note', cleanedValue: 'sick-note' },
+    'medical-certificate': { kind: 'sick-note', label: 'Sick note', cleanedValue: 'sick-note' },
+  };
+
+  let templateMatch: AskHaloTemplateReference | null = null;
+  let noteMatch: AskHaloNoteReference | null = null;
+  const unknownReferences: string[] = [];
+  let cleanedRequest = input;
+
+  for (const match of matches) {
+    const rawReference = match[2]?.trim();
+    if (!rawReference) continue;
+    const normalizedReference = normalizeNoteReferenceKey(rawReference.replace(/[_-]/g, ' '));
+    cleanedRequest = cleanedRequest.replace(match[0], ' ');
+
+    const normalizedTemplateKey = rawReference.replace(/_/g, '-').toLowerCase();
+    if (!templateMatch && templateReferences[normalizedTemplateKey]) {
+      templateMatch = templateReferences[normalizedTemplateKey];
+      continue;
+    }
+
+    if (!noteMatch) {
+      const note = notes.find((candidate, index) => {
+        const noteKeys = new Set(
+          buildAskHaloNoteReferenceAliases(candidate, index, templates)
+            .map((value) => normalizeNoteReferenceKey(value))
+            .filter(Boolean)
+        );
+        return noteKeys.has(normalizedReference);
+      });
+
+      if (note) {
+        noteMatch = {
+          note,
+          reference: rawReference,
+          cleanedRequest: '',
+          displayLabel: note.title || rawReference,
+        };
+        continue;
+      }
+    }
+
+    if (!noteMatch) {
+      const file = patientNotesFiles.find((candidate) => {
+        const fileKeys = new Set(
+          buildRootFileReferenceAliases(candidate)
+            .map((value) => normalizeNoteReferenceKey(value))
+            .filter(Boolean)
+        );
+        return fileKeys.has(normalizedReference);
+      });
+
+      if (file) {
+        noteMatch = {
+          file,
+          reference: rawReference,
+          cleanedRequest: '',
+          displayLabel: file.name,
+        };
+        continue;
+      }
+    }
+
+    unknownReferences.push(rawReference);
+  }
+
+  const finalRequest = cleanedRequest.replace(/\s{2,}/g, ' ').trim() || input.trim();
+  if (noteMatch) noteMatch.cleanedRequest = finalRequest;
+
+  return {
+    noteMatch,
+    templateMatch,
+    hadReferenceSyntax: true,
+    unknownReferences,
+    cleanedRequest: finalRequest,
+  };
+}
+
+function extractLetterFieldValue(text: string, labels: string[]): string {
+  if (!text.trim()) return '';
+  const lines = text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? '';
+    const lower = line.toLowerCase();
+    for (const label of labels) {
+      const normalized = label.toLowerCase();
+      if (lower.startsWith(`${normalized}:`)) {
+        return line.slice(line.indexOf(':') + 1).trim();
+      }
+      if (lower === normalized && index + 1 < lines.length) {
+        return lines[index + 1]!.trim();
+      }
+    }
+  }
+  return '';
 }
 
 /** Extract a short main complaint from note content for session list title (e.g. "Ankle Fracture"). */
@@ -178,6 +578,7 @@ export const PatientWorkspace: React.FC<Props> = ({
   onStickerProfileOpenFromParentHandled,
 }) => {
   const [files, setFiles] = useState<DriveFile[]>([]);
+  const [patientNotesFiles, setPatientNotesFiles] = useState<DriveFile[]>([]);
   const [summary, setSummary] = useState<string[]>([]);
   const [alerts, setAlerts] = useState<LabAlert[]>([]);
   const [notes, setNotes] = useState<HaloNote[]>([]);
@@ -257,6 +658,7 @@ export const PatientWorkspace: React.FC<Props> = ({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [generatedChatDocument, setGeneratedChatDocument] = useState<{ name: string; url: string; fileId?: string } | null>(null);
   const chatMessagesRef = useRef<ChatMessage[]>([]);
   chatMessagesRef.current = chatMessages;
 
@@ -265,7 +667,18 @@ export const PatientWorkspace: React.FC<Props> = ({
   const [stickerProfileModalOpen, setStickerProfileModalOpen] = useState(false);
   const [stickerProfileDraft, setStickerProfileDraft] = useState<HaloPatientProfile | null>(null);
   const [stickerProfileSaving, setStickerProfileSaving] = useState(false);
-  const [emailDocumentBusy, setEmailDocumentBusy] = useState<EmailDocumentKind | null>(null);
+  const availableReferenceTemplates =
+    selectedHospital === 'louis_leipoldt'
+      ? templateOptions
+      : (activeHospitalConfig.templates as Array<{ id: string; name: string }>);
+  const askHaloNoteSlashOptions =
+    buildRootFileSlashOptions(patientNotesFiles).length > 0
+      ? buildRootFileSlashOptions(patientNotesFiles)
+      : buildAskHaloSlashOptions(notes, availableReferenceTemplates);
+  const askHaloSlashOptions = [
+    ...buildAskHaloTemplateSlashOptions(availableReferenceTemplates),
+    ...askHaloNoteSlashOptions,
+  ];
 
   const refreshHaloPatientProfile = useCallback(async () => {
     setHaloProfileLoading(true);
@@ -349,9 +762,59 @@ export const PatientWorkspace: React.FC<Props> = ({
 
   const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
 
+  const getPrimaryEditorNote = useCallback(() => {
+    return typeof consultSubTab === 'number' && notes[consultSubTab]
+      ? notes[consultSubTab]
+      : notes[activeNoteIndex] ?? null;
+  }, [activeNoteIndex, consultSubTab, notes]);
+
+  const buildAskHaloLiveContext = useCallback((sourceNote?: HaloNote | null) => {
+    const activeEditorNote = sourceNote ?? getPrimaryEditorNote();
+    const contextParts = [
+      haloPatientProfile
+        ? `Patient profile:\nName: ${haloPatientProfile.fullName || patient.name}\nDOB: ${haloPatientProfile.dob || patient.dob}\nSex: ${haloPatientProfile.sex || patient.sex}`
+        : `Patient: ${patient.name}\nDOB: ${patient.dob}\nSex: ${patient.sex}`,
+      activeEditorNote
+        ? `Current note:\nTitle: ${activeEditorNote.title || 'Untitled note'}\n${getNoteText(activeEditorNote)}`
+        : '',
+      lastTranscript.trim() ? `Transcript:\n${lastTranscript.trim()}` : '',
+      consultContext.trim() ? `Smart context:\n${consultContext.trim()}` : '',
+      activeSessionId ? `Active session id: ${activeSessionId}` : '',
+    ].filter(Boolean);
+    return contextParts.join('\n\n').trim();
+  }, [
+    activeSessionId,
+    consultContext,
+    getPrimaryEditorNote,
+    haloPatientProfile,
+    lastTranscript,
+    patient.dob,
+    patient.name,
+    patient.sex,
+  ]);
+
+  const buildLetterTemplateContext = useCallback((sourceNote?: HaloNote | null) => {
+    const activeEditorNote = sourceNote ?? getPrimaryEditorNote();
+    const noteText = activeEditorNote ? getNoteText(activeEditorNote) : '';
+    return {
+      contextText: buildAskHaloLiveContext(activeEditorNote),
+      diagnoses: extractLetterFieldValue(noteText, ['diagnosis', 'diagnoses', 'admission diagnosis']),
+      icds: extractLetterFieldValue(noteText, ['icd', 'icd-10', 'icds', 'icd 10']),
+    };
+  }, [buildAskHaloLiveContext, getPrimaryEditorNote]);
+
   useEffect(() => {
     if (activeTab !== 'notes') setEditorPanelView('noteFields');
   }, [activeTab]);
+
+  useLayoutEffect(() => {
+    const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+    if (!isMobile || editorPanelView !== 'transcription' || isLiveStreaming) return;
+    const el = transcriptInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(el.scrollHeight, 320)}px`;
+  }, [editorPanelView, isLiveStreaming, lastTranscript]);
 
   // Load folder contents (with loading indicator)
   const loadFolderContents = useCallback(async (folderId: string) => {
@@ -360,7 +823,8 @@ export const PatientWorkspace: React.FC<Props> = ({
       const contents = folderId === patient.id
         ? await fetchFiles(patient.id)
         : await fetchFolderContents(folderId);
-      setFiles(excludeHiddenPatientFiles(contents));
+      const ordered = orderFilesForPatientView(contents, folderId === patient.id);
+      setFiles(ordered);
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
     }
@@ -373,11 +837,21 @@ export const PatientWorkspace: React.FC<Props> = ({
       const contents = currentFolderId === patient.id
         ? await fetchFiles(patient.id)
         : await fetchFolderContents(currentFolderId);
-      setFiles(excludeHiddenPatientFiles(contents));
+      const ordered = orderFilesForPatientView(contents, currentFolderId === patient.id);
+      setFiles(ordered);
     } catch {
       // Silent — don't show errors for background refreshes
     }
   }, [currentFolderId, patient.id]);
+
+  const refreshPatientNotesFiles = useCallback(async () => {
+    try {
+      const contents = await fetchPatientNotesFiles(patient.id);
+      setPatientNotesFiles(sortNewestFirst(contents));
+    } catch {
+      // best-effort only for slash suggestions
+    }
+  }, [patient.id]);
 
   // Poll for external changes every 30 seconds
   useEffect(() => {
@@ -406,6 +880,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       setAlerts([]);
       setChatMessages([]);
       setChatInput("");
+      setGeneratedChatDocument(null);
       setUploadMessage(null);
       setCurrentFolderId(patient.id);
       setBreadcrumbs([{ id: patient.id, name: patient.name }]);
@@ -426,10 +901,11 @@ export const PatientWorkspace: React.FC<Props> = ({
           firstFiles = warm.files;
           nextPage = warm.nextPage;
         }
-        firstFiles = excludeHiddenPatientFiles(firstFiles);
+        firstFiles = orderFilesForPatientView(firstFiles, true);
         if (!isMounted) return;
         setFiles(firstFiles);
         setStatus(AppStatus.IDLE);
+        void refreshPatientNotesFiles();
 
         // Fetch remaining pages in background and append (so full list appears without blocking UI)
         if (nextPage) {
@@ -440,7 +916,10 @@ export const PatientWorkspace: React.FC<Props> = ({
               try {
                 const data = await fetchFilesPage(patient.id, page);
                 all.push(...excludeHiddenPatientFiles(data.files));
-                if (isMounted) setFiles([...all]);
+                if (isMounted) {
+                  const ordered = orderFilesForPatientView(all, true);
+                  setFiles(ordered);
+                }
                 page = data.nextPage;
               } catch {
                 break;
@@ -771,6 +1250,47 @@ export const PatientWorkspace: React.FC<Props> = ({
     [patient.name, templateOptions]
   );
 
+  const persistCustomGeneratedNote = useCallback(
+    async (prompt: string, content: string): Promise<HaloNote> => {
+      const preferredTemplateId =
+        templateOptions.find((t) => t.id === 'script')?.id ||
+        templateId ||
+        templateOptions[0]?.id ||
+        'script';
+      const preferredTemplateName =
+        templateOptions.find((t) => t.id === preferredTemplateId)?.name ||
+        templateOptions[0]?.name ||
+        'Clinical note';
+      const title = prompt.length > 60 ? `${prompt.slice(0, 57)}…` : prompt;
+      const today = new Date().toISOString().slice(0, 10);
+      const displayName = formatPatientDisplayName(patient.name);
+      const fileName = `${displayName} - ${today} - ${title || 'Custom note'}`
+        .replace(/[^\w\s\-,.]/g, '')
+        .trim()
+        .slice(0, 110);
+      const saved = await saveNoteAsDocx({
+        patientId: patient.id,
+        template_id: preferredTemplateId,
+        text: content,
+        fileName,
+        template_name: preferredTemplateName,
+        saveTarget: 'root',
+      });
+      if (!saved?.fileId) {
+        throw new Error('Custom note did not save.');
+      }
+      return {
+        noteId: `custom-${saved.fileId}`,
+        title: title || 'Custom note',
+        content,
+        template_id: preferredTemplateId,
+        lastSavedAt: new Date().toISOString(),
+        dirty: false,
+      };
+    },
+    [patient.id, patient.name, templateId, templateOptions]
+  );
+
   const handleSaveAsDocx = useCallback(async (noteIndex: number) => {
     const note = notes[noteIndex];
     const text = note ? getNoteText(note) : '';
@@ -790,6 +1310,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       });
       setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
       await loadFolderContents(currentFolderId);
+      void refreshPatientNotesFiles();
       onDataChange();
       onToast('Note saved as DOCX to Patient Notes folder.', 'success');
     } catch (err) {
@@ -822,6 +1343,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       }
       if (saved > 0) {
         await loadFolderContents(currentFolderId);
+        void refreshPatientNotesFiles();
         onDataChange();
         onToast(`Saved ${saved} note(s) as DOCX.`, 'success');
       }
@@ -830,75 +1352,6 @@ export const PatientWorkspace: React.FC<Props> = ({
     }
     setStatus(AppStatus.IDLE);
   }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions]);
-
-  const handleEmail = useCallback(
-    async (noteIndex: number) => {
-      const note = notes[noteIndex];
-      const text = note ? getNoteText(note) : '';
-      if (!text.trim()) {
-        onToast('Nothing to email.', 'info');
-        return;
-      }
-      let pdfB64 = note?.previewPdfBase64?.trim();
-      if (!pdfB64 || note?.dirty) {
-        const tplId = note.template_id || templateId;
-        const tplName = templateOptions.find((t) => t.id === tplId)?.name;
-        setRegeneratingPdfIndex(noteIndex);
-        try {
-          const { pdfBase64 } = await generateNotePreviewPdf({
-            template_id: tplId,
-            text: text.trim(),
-            template_name: tplName,
-            patientId: patient.id,
-            mergeFields: note?.docxMerge,
-          });
-          pdfB64 = pdfBase64;
-          setNotes((prev) =>
-            prev.map((n, i) => (i === noteIndex ? { ...n, previewPdfBase64: pdfBase64 } : n))
-          );
-        } catch (err) {
-          onToast(getErrorMessage(err), 'error');
-          return;
-        } finally {
-          setRegeneratingPdfIndex(null);
-        }
-      }
-      if (!pdfB64) {
-        onToast('Could not build PDF for email.', 'error');
-        return;
-      }
-      let profile: HaloPatientProfile | null = null;
-      try {
-        profile = await getPatientHaloProfile(patient.id);
-      } catch {
-        profile = null;
-      }
-      const to = profile?.email?.trim();
-      if (!to) {
-        onToast('Add a patient email first (green name bar → Sticker & billing).', 'info');
-        return;
-      }
-      const subject = `${note?.title?.trim() || 'Clinical note'} — ${formatPatientDisplayName(patient.name) || patient.name}`;
-      try {
-        const res = await emailPatientDoc({
-          patientId: patient.id,
-          to,
-          subject,
-          pdfBase64: pdfB64,
-          attachmentName: `${(note?.title || 'note').replace(/[^\w\-]+/g, '_').slice(0, 60)}.pdf`,
-        });
-        if (res.mailtoUrl) {
-          window.location.href = res.mailtoUrl;
-          onToast('Finish sending in your mail app.', 'info');
-        } else {
-          onToast('Email sent.', 'success');
-        }
-      } catch (err) {
-        onToast(getErrorMessage(err), 'error');
-      }
-    },
-    [notes, patient.id, patient.name, templateId, templateOptions, onToast]
-  );
 
   const handleRegeneratePdf = useCallback(async (noteIndex: number, text: string) => {
     const note = notes[noteIndex];
@@ -1084,6 +1537,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       setPendingTranscript(combined);
       setSelectedTemplatesForGenerate([]);
       setActiveTab('notes');
+      setEditorPanelView('noteFields');
     },
     [lastTranscript, onToast]
   );
@@ -1164,11 +1618,13 @@ export const PatientWorkspace: React.FC<Props> = ({
       if (isResume) {
         setPendingTranscript(null);
         setActiveTab('notes');
+        setEditorPanelView('noteFields');
         void generateNotesFromTranscript(combined, false);
       } else {
         setPendingTranscript(combined);
         setSelectedTemplatesForGenerate([]);
         setActiveTab('notes');
+        setEditorPanelView('noteFields');
       }
     },
     [activeSessionId, generateNotesFromTranscript, lastTranscript, notes.length]
@@ -1227,12 +1683,186 @@ export const PatientWorkspace: React.FC<Props> = ({
     return () => clearInterval(interval);
   }, [notes.length]);
 
+  const generateAskHaloLetter = useCallback(
+    async (
+      kind: 'motivation' | 'referral',
+      requestText: string,
+      sourceNote?: HaloNote | null,
+      referenceLabel?: string,
+      referenceFile?: DriveFile | null
+    ): Promise<{ name: string; url: string; fileId?: string } | null> => {
+      const referencedFileContext = referenceFile ? await describeFile(patient.id, referenceFile).catch(() => '') : '';
+      const extraContext = [
+        buildAskHaloLiveContext(sourceNote),
+        referencedFileContext ? `Referenced saved patient note (${referenceLabel || referenceFile?.name}):\n${referencedFileContext}` : '',
+      ].filter(Boolean).join('\n\n');
+      const letterTemplateContext = buildLetterTemplateContext(sourceNote);
+      const draftingPrompt =
+        kind === 'motivation'
+          ? [
+              'Draft two separate sections for a medical motivation letter for this patient.',
+              'Use a professional clinical tone.',
+              'Include the clinical rationale for the requested treatment, investigation, or authorization.',
+              'If a PMB, medical aid, or general surgery reference extract exists in the patient files or Patient Notes, use its criteria and phrasing style.',
+              'Use the referenced clinical note as the primary source when one is explicitly provided.',
+              ...(referenceLabel ? [`Referenced source: ${referenceLabel}`] : []),
+              'Return plain text in exactly this format:',
+              'CLINICAL_SUMMARY: <brief patient summary, diagnosis, current management, relevant findings>',
+              'JUSTIFICATION: <distinct PMB/medical-aid justification explaining why the request should be approved, grounded in PMB/general surgery criteria where available>',
+              `User request: ${requestText}`,
+            ].join(' ')
+          : [
+              'Draft two separate sections for a referral letter for this patient.',
+              'Summarize the relevant history, diagnosis, and reason for referral.',
+              'Keep this as a standard clinical referral letter.',
+              'Do not mention PMB, prescribed minimum benefits, funding, authorization, approval, or medical aid unless the user explicitly asks for a medical aid / funding letter.',
+              'Use the referenced clinical note as the primary source when one is explicitly provided.',
+              ...(referenceLabel ? [`Referenced source: ${referenceLabel}`] : []),
+              'Return plain text in exactly this format:',
+              'CLINICAL_SUMMARY: <brief referral summary with history, diagnosis, and current management>',
+              'JUSTIFICATION: <distinct referral rationale stating why specialist review or further care is required>',
+              `User request: ${requestText}`,
+            ].join(' ');
+
+      const { reply } = await askHalo(patient.id, draftingPrompt, chatMessagesRef.current, extraContext);
+      const parsed = parseDraftedLetterSections(reply ?? '');
+      const body = parsed.fallbackBody;
+      if (!body) return null;
+
+      const result = await generatePatientLetterDocx({
+        patientId: patient.id,
+        letterKind: kind,
+        body,
+        clinicalSummary: parsed.clinicalSummary,
+        justification: parsed.justification,
+        requestText,
+        contextText: letterTemplateContext.contextText,
+        diagnoses: letterTemplateContext.diagnoses,
+        icds: letterTemplateContext.icds,
+        referenceFileId: referenceFile?.id,
+        referenceFileName: referenceFile?.name,
+      });
+      if (!result?.fileId || !result.file?.url) return null;
+
+      await loadFolderContents(currentFolderId);
+      void refreshPatientNotesFiles();
+      onDataChange();
+      setGeneratedChatDocument({ name: result.file.name || result.name, url: result.file.url, fileId: result.fileId });
+      return { name: result.file.name || result.name, url: result.file.url, fileId: result.fileId };
+    },
+    [buildAskHaloLiveContext, buildLetterTemplateContext, currentFolderId, loadFolderContents, onDataChange, patient.id]
+  );
+
+  const generateAskHaloTemplateDocument = useCallback(
+    async (
+      templateIntent: AskHaloTemplateIntent,
+      requestText: string,
+      sourceNote?: HaloNote | null,
+      referenceLabel?: string,
+      referenceFile?: DriveFile | null
+    ): Promise<{ name: string; url: string; fileId?: string } | null> => {
+      const referencedFileContext = referenceFile ? await describeFile(patient.id, referenceFile).catch(() => '') : '';
+      const extraContext = [
+        buildAskHaloLiveContext(sourceNote),
+        referencedFileContext ? `Referenced saved patient note (${referenceLabel || referenceFile?.name}):\n${referencedFileContext}` : '',
+      ].filter(Boolean).join('\n\n');
+      const draftingPrompt = [
+        `Draft the clinical content for a ${templateIntent.templateName} document for this patient.`,
+        'Use the current patient, note, transcript, and clinical context.',
+        'Use the referenced clinical note as the primary source when one is explicitly provided.',
+        ...(referenceLabel ? [`Referenced source: ${referenceLabel}`] : []),
+        `Make the content appropriate for the ${templateIntent.templateName} template.`,
+        'Output only the clinical content needed to populate the document.',
+        `User request: ${requestText}`,
+      ].join(' ');
+
+      const { reply } = await askHalo(patient.id, draftingPrompt, chatMessagesRef.current, extraContext);
+      const body = reply?.trim();
+      if (!body) return null;
+
+      const result = await saveNoteAsDocx({
+        patientId: patient.id,
+        template_id: templateIntent.templateId,
+        text: body,
+        fileName: buildNoteFileName(templateIntent.templateId, templateIntent.templateName),
+        user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
+        template_name: templateIntent.templateName,
+        saveTarget: 'root',
+      });
+      if (!result?.fileId || !result.file?.url) return null;
+
+      await loadFolderContents(currentFolderId);
+      void refreshPatientNotesFiles();
+      onDataChange();
+      setGeneratedChatDocument({ name: result.file.name || result.name, url: result.file.url, fileId: result.fileId });
+      return { name: result.file.name || result.name, url: result.file.url, fileId: result.fileId };
+    },
+    [
+      activeHospitalConfig.userId,
+      buildAskHaloLiveContext,
+      buildNoteFileName,
+      currentFolderId,
+      loadFolderContents,
+      onDataChange,
+      patient.id,
+      selectedHospital,
+    ]
+  );
+
   // Chat handler — uses streaming for progressive response display
   const handleSendChat = async () => {
     const question = chatInput.trim();
     if (!question || chatLoading) return;
 
+    const slashReferenceResult = resolveAskHaloReferences(
+      question,
+      notes,
+      availableReferenceTemplates,
+      patientNotesFiles
+    );
+    if (slashReferenceResult.hadReferenceSyntax && slashReferenceResult.unknownReferences.length > 0) {
+      const availableTemplateHints = buildAskHaloTemplateHelp();
+      const availableRootHints = askHaloNoteSlashOptions.map((option) => `/${option.value}`).slice(0, 5).join(', ');
+      setGeneratedChatDocument(null);
+      setChatMessages(prev => [
+        ...prev,
+        { role: 'user', content: question, timestamp: Date.now() },
+        {
+          role: 'assistant',
+          content: `I couldn't find ${slashReferenceResult.unknownReferences.map((value) => `/${value}`).join(', ')}. Try a template like ${availableTemplateHints} and a patient note like ${availableRootHints || buildAskHaloReferenceHelp(notes, availableReferenceTemplates) || '/admission, /operation, /script'}.`,
+          timestamp: Date.now(),
+        },
+      ]);
+      setChatInput("");
+      onToast('Slash reference not found.', 'info');
+      return;
+    }
+
+    const noteReference = slashReferenceResult.noteMatch;
+    const templateReference = slashReferenceResult.templateMatch;
+    const normalizedQuestion = slashReferenceResult.cleanedRequest || question;
+    const referenceContext = buildAskHaloReferenceContext(noteReference, templateReference);
+    const liveContext = [buildAskHaloLiveContext(noteReference?.note), referenceContext].filter(Boolean).join('\n\n');
+    const documentIntent =
+      templateReference?.kind === 'referral'
+        ? 'referral'
+        : templateReference?.kind === 'motivational'
+          ? 'motivation'
+          : detectGeneratedDocumentIntent(normalizedQuestion);
+    const noteTemplateIntent =
+      documentIntent
+        ? null
+        : templateReference?.kind === 'sick-note'
+          ? {
+              templateId: 'sick_note',
+              templateName: availableReferenceTemplates.find((template) => template.id === 'sick_note')?.name || 'Sick note',
+            }
+          : detectAskHaloTemplateIntent(
+              normalizedQuestion,
+              availableReferenceTemplates
+            );
     const userMessage: ChatMessage = { role: 'user', content: question, timestamp: Date.now() };
+    setGeneratedChatDocument(null);
     setChatMessages(prev => [...prev, userMessage]);
     setChatInput("");
     setChatLoading(true);
@@ -1241,9 +1871,61 @@ export const PatientWorkspace: React.FC<Props> = ({
     setChatMessages(prev => [...prev, assistantPlaceholder]);
 
     try {
+      if (documentIntent) {
+        const generated = await generateAskHaloLetter(
+          documentIntent,
+          normalizedQuestion,
+          noteReference?.note,
+          noteReference?.displayLabel,
+          noteReference?.file
+        );
+        if (!generated) {
+          throw new Error('HALO could not generate the requested document.');
+        }
+        setChatMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last?.role !== 'assistant') return prev;
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...last,
+              content: `${documentIntent === 'motivation' ? 'Motivation' : 'Referral'} letter generated: ${generated.name}${noteReference ? ` using ${noteReference.displayLabel}` : ''}`,
+            },
+          ];
+        });
+        onToast(`${documentIntent === 'motivation' ? 'Motivation' : 'Referral'} letter saved`, 'success');
+        return;
+      }
+
+      if (noteTemplateIntent) {
+        const generated = await generateAskHaloTemplateDocument(
+          noteTemplateIntent,
+          normalizedQuestion,
+          noteReference?.note,
+          noteReference?.displayLabel,
+          noteReference?.file
+        );
+        if (!generated) {
+          throw new Error(`HALO could not generate the requested ${noteTemplateIntent.templateName} document.`);
+        }
+        setChatMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last?.role !== 'assistant') return prev;
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...last,
+              content: `${noteTemplateIntent.templateName} generated: ${generated.name}`,
+            },
+          ];
+        });
+        onToast(`${noteTemplateIntent.templateName} saved`, 'success');
+        return;
+      }
+
       await askHaloStream(
         patient.id,
-        question,
+        normalizedQuestion,
         chatMessagesRef.current,
         (chunk) => {
           setChatMessages(prev => {
@@ -1253,7 +1935,8 @@ export const PatientWorkspace: React.FC<Props> = ({
             }
             return prev;
           });
-        }
+        },
+        liveContext
       );
     } catch (err) {
       setChatMessages(prev => {
@@ -1271,147 +1954,6 @@ export const PatientWorkspace: React.FC<Props> = ({
       setChatLoading(false);
     }
   };
-
-  const handleEmailDocumentKind = useCallback(
-    async (kind: EmailDocumentKind) => {
-      if (emailDocumentBusy) return;
-      let profile = haloPatientProfile;
-      if (!profile?.email?.trim()) {
-        try {
-          profile = await getPatientHaloProfile(patient.id);
-        } catch {
-          profile = null;
-        }
-      }
-      const to = profile?.email?.trim();
-      if (!to) {
-        onToast('Add a patient email first (green name bar → Sticker & billing).', 'info');
-        return;
-      }
-
-      setEmailDocumentBusy(kind);
-      try {
-        if (kind === 'motivation' || kind === 'referral') {
-          const prompt =
-            kind === 'motivation'
-              ? 'Draft the body text for a medical motivation letter for this patient. Use a professional clinical tone. Include clear rationale for the requested investigation or treatment. Output body paragraphs only — no letterhead, addresses, or signature blocks.'
-              : 'Draft the body text for a referral letter for this patient. Summarize relevant history and the reason for referral. Output body paragraphs only — no letterhead, addresses, or signature blocks.';
-          const { reply } = await askHalo(patient.id, prompt, chatMessagesRef.current);
-          const body = reply?.trim();
-          if (!body) {
-            onToast('No letter text from HALO. Try again.', 'error');
-            return;
-          }
-          const gen = await generatePatientLetterDocx({ patientId: patient.id, letterKind: kind, body });
-          if (!gen?.fileId) {
-            onToast('Letter could not be saved to Patient Notes.', 'error');
-            return;
-          }
-          await loadFolderContents(currentFolderId);
-          onDataChange();
-          void refreshHaloPatientProfile();
-          try {
-            await emailPatientFile({ patientId: patient.id, fileId: gen.fileId });
-            onToast(`${kind === 'motivation' ? 'Motivation' : 'Referral'} letter saved and emailed.`, 'success');
-          } catch (mailErr) {
-            const msg = getErrorMessage(mailErr);
-            if (/503|not configured|Outbound email/i.test(msg)) {
-              onToast('Letter saved. Outbound email is not configured on the server.', 'error');
-            } else {
-              onToast(`Letter saved. Email failed: ${msg}`, 'error');
-            }
-          }
-          return;
-        }
-
-        const template_id = kind === 'script' ? 'script' : 'sick_note';
-        const template_name =
-          templateOptions.find((t) => t.id === template_id)?.name ?? (kind === 'script' ? 'Script' : 'Sick note');
-
-        let text = buildNoteGenerationInput(lastTranscript, consultContext).trim();
-        if (!text) {
-          const draftPrompt =
-            kind === 'script'
-              ? 'Draft the clinical content for an outpatient prescription / script for this patient using folder context. Output body text suitable for a formal script template — concise, professional, no letterhead.'
-              : 'Draft the clinical content for a sick leave / medical certificate for this patient using folder context. Output body text suitable for a formal sick note template — concise, professional, no letterhead.';
-          const { reply } = await askHalo(patient.id, draftPrompt, chatMessagesRef.current);
-          text = reply?.trim() ?? '';
-        }
-        if (!text.trim()) {
-          onToast('Add transcript, context in the editor, or use Ask HALO first.', 'info');
-          return;
-        }
-
-      const noteResult = await generateNotePreviewWithFallback({
-          template_id,
-          text,
-          user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
-          template_name,
-          patientId: patient.id,
-          haloUserId,
-          patientProfile: haloPatientProfile,
-        });
-        const first = noteResult.notes?.[0];
-        const fromFields =
-          first?.fields && first.fields.length > 0
-            ? first.fields.map((f) => (f.label ? `${f.label}:\n${f.body ?? ''}` : f.body)).filter(Boolean).join('\n\n')
-            : '';
-        const content = first?.content?.trim() || fromFields || '';
-        if (!content.trim()) {
-          onToast('Note generation returned no content.', 'error');
-          return;
-        }
-
-        const { pdfBase64 } = await generateNotePreviewPdf({
-          template_id,
-          text,
-          user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
-          template_name,
-          patientId: patient.id,
-          mergeFields: first?.docxMerge,
-        });
-        if (!pdfBase64?.trim()) {
-          onToast('Could not build PDF for email.', 'error');
-          return;
-        }
-
-        const subject = `${template_name} — ${formatPatientDisplayName(patient.name) || patient.name}`;
-        const res = await emailPatientDoc({
-          patientId: patient.id,
-          to,
-          subject,
-          pdfBase64,
-          attachmentName: `${template_id.replace(/[^\w-]+/g, '_')}.pdf`,
-        });
-        if (res.mailtoUrl) {
-          window.location.href = res.mailtoUrl;
-          onToast('Finish sending in your mail app.', 'info');
-        } else {
-          onToast(`${template_name} emailed.`, 'success');
-        }
-      } catch (err) {
-        onToast(getErrorMessage(err), 'error');
-      } finally {
-        setEmailDocumentBusy(null);
-      }
-    },
-    [
-      emailDocumentBusy,
-      haloPatientProfile,
-      patient.id,
-      patient.name,
-      currentFolderId,
-      loadFolderContents,
-      onDataChange,
-      onToast,
-      refreshHaloPatientProfile,
-      lastTranscript,
-      consultContext,
-      selectedHospital,
-      activeHospitalConfig.userId,
-      templateOptions,
-    ]
-  );
 
   // If opened from a calendar booking, generate a light prep note and start in the editor
   useEffect(() => {
@@ -1582,6 +2124,7 @@ export const PatientWorkspace: React.FC<Props> = ({
         setActiveTab('notes');
         setPendingLongitudinalImage(null);
         setSelectedTemplatesForGenerate([]);
+        setGeneratedChatDocument(null);
         return;
       }
 
@@ -1703,23 +2246,6 @@ export const PatientWorkspace: React.FC<Props> = ({
                   <Keyboard className="size-3.5 shrink-0" aria-hidden />
                   <span className="max-md:sr-only md:not-sr-only">Type</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={handleGenerateAiInsights}
-                  disabled={aiLoading || status === AppStatus.LOADING}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/20 bg-teal-500/10 px-3 py-1.5 text-xs font-semibold text-teal-800 transition hover:bg-teal-500/14 disabled:opacity-50"
-                >
-                  {aiLoading ? '…' : 'AI insights'}
-                </button>
-                {hasAiContent ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowAiPanel((prev) => !prev)}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-200/90 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-50"
-                  >
-                    {showAiPanel ? 'Hide' : 'Show'}
-                  </button>
-                ) : null}
               </div>
               <input
                 ref={fileInputRef}
@@ -1761,7 +2287,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       </div>
 
       {/* Content */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-halo-bg p-3 md:p-4 max-md:pb-[calc(7.25rem+env(safe-area-inset-bottom,0px))]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-halo-bg p-3 md:p-4 max-md:pb-[calc(9rem+env(safe-area-inset-bottom,0px))] [-webkit-overflow-scrolling:touch]">
         <div className="mx-auto flex w-full max-w-[min(96rem,100%)] min-h-0 flex-1 flex-col">
           {/* AI Panel */}
           {activeTab === 'overview' && hasAiContent && showAiPanel && (
@@ -1797,34 +2323,34 @@ export const PatientWorkspace: React.FC<Props> = ({
 
           {/* CTA to generate insights (only when not yet generated) */}
           {/* Tabs */}
-          <div className="mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-b border-slate-200/70 mb-4">
-            <div className="flex gap-2 md:gap-4 overflow-x-auto items-center min-w-0">
-              <button onClick={() => setActiveTab('overview')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>Files</button>
+          <div className="mb-4 mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-slate-200/70 max-md:mb-2 max-md:mt-1 max-md:flex-col max-md:items-stretch max-md:border-b-0">
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto md:gap-4 max-md:grid max-md:grid-cols-4 max-md:gap-1.5 max-md:overflow-visible max-md:rounded-2xl max-md:border max-md:border-slate-200/80 max-md:bg-white max-md:p-1">
+              <button onClick={() => setActiveTab('overview')} className={`halo-touch-min border-b-2 py-2 text-sm font-bold uppercase tracking-wide whitespace-nowrap transition-colors max-md:min-w-0 max-md:rounded-full max-md:border max-md:border-b max-md:px-1.5 max-md:py-2 max-md:text-[11px] ${activeTab === 'overview' ? 'border-halo-primary text-halo-text max-md:border-teal-300 max-md:bg-teal-50 max-md:ring-1 max-md:ring-teal-200/80' : 'border-transparent text-halo-muted hover:text-halo-text-secondary max-md:border-slate-200/80 max-md:bg-white'}`}>Files</button>
               <button
                 type="button"
                 onClick={() => {
                   setActiveTab('notes');
                 }}
-                className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${
+                className={`halo-touch-min border-b-2 py-2 text-sm font-bold uppercase tracking-wide whitespace-nowrap transition-colors max-md:min-w-0 max-md:rounded-full max-md:border max-md:border-b max-md:px-1.5 max-md:py-2 max-md:text-[11px] ${
                   activeTab === 'notes'
-                    ? 'border-halo-primary text-halo-text'
-                    : 'border-transparent text-halo-muted hover:text-halo-text-secondary'
+                    ? 'border-halo-primary text-halo-text max-md:border-teal-300 max-md:bg-teal-50 max-md:ring-1 max-md:ring-teal-200/80'
+                    : 'border-transparent text-halo-muted hover:text-halo-text-secondary max-md:border-slate-200/80 max-md:bg-white'
                 }`}
               >
                 Editor
               </button>
-              <button onClick={() => setActiveTab('chat')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>
-              <MessageCircle size={14} className="shrink-0" /> Ask HALO
+              <button onClick={() => setActiveTab('chat')} className={`halo-touch-min flex items-center gap-1.5 border-b-2 py-2 text-sm font-bold uppercase tracking-wide whitespace-nowrap transition-colors max-md:min-w-0 max-md:justify-center max-md:rounded-full max-md:border max-md:border-b max-md:px-1.5 max-md:py-2 max-md:text-[11px] ${activeTab === 'chat' ? 'border-halo-primary text-halo-text max-md:border-teal-300 max-md:bg-teal-50 max-md:ring-1 max-md:ring-teal-200/80' : 'border-transparent text-halo-muted hover:text-halo-text-secondary max-md:border-slate-200/80 max-md:bg-white'}`}>
+              <MessageCircle size={14} className="shrink-0 max-md:hidden" /> Ask HALO
               </button>
-              <button onClick={() => setActiveTab('sessions')} className={`py-2 text-[11px] md:text-xs font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'sessions' ? 'border-halo-primary text-halo-text' : 'border-transparent text-halo-muted hover:text-halo-text-secondary'}`}>
-              <History size={14} className="shrink-0" /> Sessions
+              <button onClick={() => setActiveTab('sessions')} className={`halo-touch-min flex items-center gap-1.5 border-b-2 py-2 text-sm font-bold uppercase tracking-wide whitespace-nowrap transition-colors max-md:min-w-0 max-md:justify-center max-md:rounded-full max-md:border max-md:border-b max-md:px-1.5 max-md:py-2 max-md:text-[11px] ${activeTab === 'sessions' ? 'border-halo-primary text-halo-text max-md:border-teal-300 max-md:bg-teal-50 max-md:ring-1 max-md:ring-teal-200/80' : 'border-transparent text-halo-muted hover:text-halo-text-secondary max-md:border-slate-200/80 max-md:bg-white'}`}>
+              <History size={14} className="shrink-0 max-md:hidden" /> Sessions
               </button>
               {patient.webUrl ? (
                 <a
                   href={patient.webUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mb-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-[10px] border border-halo-border bg-halo-section text-[10px] font-semibold text-halo-text-secondary hover:text-halo-primary hover:border-halo-primary/40 transition-colors whitespace-nowrap shrink-0"
+                  className="halo-touch-min mb-0.5 inline-flex shrink-0 items-center gap-1 rounded-[10px] border border-halo-border bg-halo-section px-3 py-2 text-sm font-semibold text-halo-text-secondary transition-colors hover:border-halo-primary/40 hover:text-halo-primary whitespace-nowrap max-md:hidden"
                   title="Open cloud folder (Drive / OneDrive)"
                 >
                   <FolderOpen className="w-3 h-3 opacity-90" aria-hidden />
@@ -1833,28 +2359,10 @@ export const PatientWorkspace: React.FC<Props> = ({
                 </a>
               ) : null}
             </div>
-            {(() => {
-              const hasSessionContent =
-                Boolean(activeSessionId) ||
-                notes.length > 0 ||
-                Boolean(lastTranscript?.trim()) ||
-                Boolean(consultContext?.trim()) ||
-                Boolean(pendingTranscript?.trim());
-              if (!hasSessionContent) return null;
-              return (
-                <button
-                  type="button"
-                  onClick={() => handleLoadSession(null)}
-                  className="mb-0.5 text-[10px] font-semibold text-halo-text flex items-center gap-1 px-2 py-0.5 rounded-[10px] border border-halo-border bg-halo-card hover:bg-halo-primary-muted transition whitespace-nowrap"
-                >
-                  <Plus className="w-3 h-3" /> New session
-                </button>
-              );
-            })()}
           </div>
 
           {activeTab === 'notes' && showContextUploadChooser ? (
-            <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-900/40 p-3 md:items-center">
+            <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-900/40 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:items-center">
               <div
                 className="absolute inset-0"
                 onClick={() => setShowContextUploadChooser(false)}
@@ -1929,8 +2437,8 @@ export const PatientWorkspace: React.FC<Props> = ({
             />
           ) : activeTab === 'sessions' ? (
             <div className="min-h-[40dvh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm max-md:flex max-md:min-h-0 max-md:flex-1 max-md:flex-col">
-              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/80">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-3">
+                <span className="text-sm font-semibold uppercase tracking-wide text-slate-400">
                   Previous Sessions
                 </span>
               </div>
@@ -1965,7 +2473,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                           <button
                             type="button"
                             onClick={() => handleLoadSession(session)}
-                            className="w-full flex items-center justify-between gap-4 px-4 py-3 rounded-xl border border-slate-200 bg-white text-left hover:bg-teal-50 hover:border-teal-200 transition-colors group"
+                            className="halo-touch-min group flex w-full items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-teal-200 hover:bg-teal-50"
                           >
                             <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                               <span className="font-medium text-slate-800 truncate">{listTitle}</span>
@@ -1992,21 +2500,21 @@ export const PatientWorkspace: React.FC<Props> = ({
               </div>
             </div>
           ) : activeTab === 'notes' ? (
-            <div className="flex min-h-0 flex-1 flex-col max-md:min-h-[50dvh]">
+            <div className="flex min-h-0 flex-1 flex-col max-md:min-h-[58dvh]">
               {/* Editor workspace: fills remaining viewport height */}
-              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70 max-md:min-h-[50dvh]">
+              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70 max-md:min-h-[58dvh]">
                 {pendingTranscript ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/90 p-4">
                     <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{pendingTranscript}</p>
                   </div>
                 ) : (
                   <>
-                    <div className="flex w-full min-w-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50/80 px-3 py-2.5">
-                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                        {notes.length > 0 ? (
-                          <>
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Notes</span>
-                            <div className="hidden h-4 w-px bg-slate-200 sm:block" aria-hidden />
+                    <div className="flex w-full min-w-0 flex-col gap-2 border-b border-slate-200 bg-slate-50/80 px-3 py-2.5 max-md:gap-1.5 max-md:px-2 max-md:py-2">
+                      {notes.length > 0 ? (
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="text-sm font-bold uppercase tracking-wide text-slate-400">Notes</span>
+                          <div className="h-4 w-px bg-slate-200" aria-hidden />
+                          <div className="flex min-w-0 max-w-full items-center gap-2 overflow-x-auto pb-1">
                             {notes.map((note, i) => (
                               <button
                                 key={note.noteId}
@@ -2015,7 +2523,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                                   setConsultSubTab(i);
                                   setActiveNoteIndex(i);
                                 }}
-                                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10px] font-semibold transition-all ${
+                                className={`halo-touch-min flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-[10px] font-semibold transition-all ${
                                   consultSubTab === i
                                     ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/20'
                                     : 'bg-white text-slate-600 ring-1 ring-slate-200/80 hover:ring-teal-300/60'
@@ -2024,44 +2532,44 @@ export const PatientWorkspace: React.FC<Props> = ({
                                 {note.title || `Note ${i + 1}`}
                               </button>
                             ))}
-                          </>
-                        ) : null}
-                        <div
-                          className="flex flex-wrap items-center gap-1.5"
-                          role="tablist"
-                          aria-label="Editor view"
-                        >
-                          <button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorPanelView === 'noteFields'}
-                            onClick={() => setEditorPanelView('noteFields')}
-                            className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-xs font-semibold shadow-[var(--shadow-halo-soft)] transition-all ${
-                              editorPanelView === 'noteFields'
-                                ? 'bg-white text-teal-900 ring-2 ring-teal-500/45'
-                                : 'bg-white/90 text-slate-600 ring-1 ring-slate-200/80 hover:bg-white hover:ring-teal-300/50'
-                            }`}
-                          >
-                            <FileText className="size-3.5 shrink-0" aria-hidden />
-                            Note fields
-                          </button>
-                          <button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorPanelView === 'transcription'}
-                            onClick={() => setEditorPanelView('transcription')}
-                            className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-xs font-semibold shadow-[var(--shadow-halo-soft)] transition-all ${
-                              editorPanelView === 'transcription'
-                                ? 'bg-white text-teal-900 ring-2 ring-teal-500/45'
-                                : 'bg-white/90 text-slate-600 ring-1 ring-slate-200/80 hover:bg-white hover:ring-teal-300/50'
-                            }`}
-                          >
-                            <Captions className="size-3.5 shrink-0" aria-hidden />
-                            Transcription
-                          </button>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
+                      ) : null}
+                      <div
+                        className="flex min-w-0 flex-wrap items-center gap-1.5"
+                        role="tablist"
+                        aria-label="Editor view"
+                      >
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={editorPanelView === 'noteFields'}
+                          onClick={() => setEditorPanelView('noteFields')}
+                          className={`halo-touch-min inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold shadow-[var(--shadow-halo-soft)] transition-all max-md:px-2 max-md:py-1.5 max-md:text-[11px] ${
+                            editorPanelView === 'noteFields'
+                              ? 'bg-white text-teal-900 ring-2 ring-teal-400/70 ring-offset-1 ring-offset-white'
+                              : 'bg-white/90 text-slate-600 ring-1 ring-slate-200/80 hover:bg-white hover:ring-teal-300/50'
+                          }`}
+                        >
+                          <FileText className="size-3.5 shrink-0 max-md:hidden" aria-hidden />
+                          <span className="truncate max-md:hidden">Note fields</span>
+                          <span className="truncate md:hidden">Fields</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={editorPanelView === 'transcription'}
+                          onClick={() => setEditorPanelView('transcription')}
+                          className={`halo-touch-min inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold shadow-[var(--shadow-halo-soft)] transition-all max-md:px-2 max-md:py-1.5 max-md:text-[11px] ${
+                            editorPanelView === 'transcription'
+                              ? 'bg-white text-teal-900 ring-2 ring-teal-400/70 ring-offset-1 ring-offset-white'
+                              : 'bg-white/90 text-slate-600 ring-1 ring-slate-200/80 hover:bg-white hover:ring-teal-300/50'
+                          }`}
+                        >
+                          <Captions className="size-3.5 shrink-0 max-md:hidden" aria-hidden />
+                          <span className="truncate max-md:hidden">Transcription</span>
+                          <span className="truncate md:hidden">Transcript</span>
+                        </button>
                         <button
                           type="button"
                           role="tab"
@@ -2069,14 +2577,15 @@ export const PatientWorkspace: React.FC<Props> = ({
                           id="editor-smart-context-tab"
                           aria-controls="editor-smart-context-panel"
                           onClick={() => setEditorPanelView('smartContext')}
-                          className={`inline-flex items-center gap-2 rounded-[10px] px-3 py-1.5 text-xs font-semibold text-white shadow-[var(--shadow-halo-soft)] transition-all bg-halo-primary hover:bg-halo-primary-hover ${
+                          className={`halo-touch-min inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full bg-halo-primary px-3 py-1.5 text-xs font-semibold text-white shadow-[var(--shadow-halo-soft)] transition-all hover:bg-halo-primary-hover max-md:px-2 max-md:py-1.5 max-md:text-[11px] ${
                             editorPanelView === 'smartContext'
-                              ? 'ring-2 ring-white/90 ring-offset-2 ring-offset-slate-100'
+                              ? 'ring-2 ring-white/90 ring-offset-1 ring-offset-slate-100'
                               : ''
                           }`}
                         >
-                          <Layers className="size-3.5 shrink-0 text-white" aria-hidden />
-                          Smart context
+                          <Layers className="size-3.5 shrink-0 text-white max-md:hidden" aria-hidden />
+                          <span className="truncate max-md:hidden">Smart context</span>
+                          <span className="truncate md:hidden">Context</span>
                         </button>
                         <button
                           type="button"
@@ -2084,7 +2593,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                             setShowAddNoteModal(true);
                             setSelectedTemplatesForGenerate([]);
                           }}
-                          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-teal-700 ring-1 ring-teal-200/80 bg-teal-50/80 hover:bg-teal-100/90 transition"
+                          className="halo-touch-min flex size-[38px] shrink-0 items-center justify-center rounded-full bg-teal-50/80 text-teal-700 ring-1 ring-teal-200/80 transition hover:bg-teal-100/90"
                           title="Add note"
                           aria-label="Add note"
                         >
@@ -2094,11 +2603,8 @@ export const PatientWorkspace: React.FC<Props> = ({
                     </div>
                     <div className="flex min-h-0 flex-1 flex-col bg-slate-100/50 p-2 md:p-3 max-md:p-1">
                       {editorPanelView === 'noteFields' ? (
-                        <div className={`${EDITOR_VIEW_SHELL} min-h-[240px] lg:min-h-0 max-md:min-h-0`}>
-                          <div className={`${EDITOR_VIEW_HEADER} max-md:px-2 max-md:py-2 max-md:gap-1`}>
-                            <span className={EDITOR_VIEW_TITLE}>Note fields</span>
-                          </div>
-                          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white max-md:min-h-0">
+                        <div className={`${EDITOR_VIEW_SHELL} min-h-[240px] lg:min-h-0 max-md:min-h-0 max-md:focus-within:ring-[1.5px] max-md:focus-within:ring-teal-300/90`}>
+                          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white max-md:min-h-0 max-md:bg-transparent">
                             {typeof consultSubTab === 'number' && notes[consultSubTab] ? (
                               <NoteEditor
                                 notes={notes}
@@ -2115,7 +2621,6 @@ export const PatientWorkspace: React.FC<Props> = ({
                                 onTemplateChange={setTemplateId}
                                 onSaveAsDocx={handleSaveAsDocx}
                                 onSaveAll={handleSaveAll}
-                                onEmail={handleEmail}
                                 savingNoteIndex={savingNoteIndex}
                                 regeneratingPdfIndex={regeneratingPdfIndex}
                                 showNoteTabs={false}
@@ -2126,12 +2631,12 @@ export const PatientWorkspace: React.FC<Props> = ({
                           </div>
                         </div>
                       ) : editorPanelView === 'transcription' ? (
-                        <div className={EDITOR_VIEW_SHELL}>
+                        <div className={`${EDITOR_VIEW_SHELL} max-md:focus-within:ring-[1.5px] max-md:focus-within:ring-teal-300/90`}>
                           <div className={EDITOR_VIEW_HEADER}>
                             <div className="flex items-center gap-2">
                               <span className={EDITOR_VIEW_TITLE}>Transcription</span>
                               {isLiveStreaming ? (
-                                <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-teal-800">
+                                <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-teal-800 max-md:px-2 max-md:py-1 max-md:text-sm">
                                   Live
                                 </span>
                               ) : null}
@@ -2141,7 +2646,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                                 type="button"
                                 onClick={handleContinueTypedTranscript}
                                 disabled={isLiveStreaming || isGeneratingNotes || !lastTranscript.trim()}
-                                className="inline-flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-sm hover:bg-teal-700 disabled:opacity-40"
+                                className="halo-touch-min inline-flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-sm hover:bg-teal-700 disabled:opacity-40 max-md:px-3 max-md:py-2 max-md:text-sm"
                               >
                                 Continue
                               </button>
@@ -2149,15 +2654,15 @@ export const PatientWorkspace: React.FC<Props> = ({
                                 type="button"
                                 onClick={handleCopyTranscript}
                                 disabled={!currentTranscript.trim()}
-                                className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 hover:bg-slate-50 disabled:opacity-40"
+                                className="halo-touch-min inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 hover:bg-slate-50 disabled:opacity-40 max-md:px-3 max-md:py-2 max-md:text-sm"
                               >
                                 {didCopyTranscript ? 'Copied' : 'Copy'}
                               </button>
                             </div>
                           </div>
-                          <div className="flex min-h-0 flex-1 flex-col bg-white p-3">
+                          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-white p-3 [-webkit-overflow-scrolling:touch] max-md:p-2.5">
                             {isLiveStreaming ? (
-                              <div className="min-h-0 flex-1 overflow-auto text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                              <div className="min-h-0 flex-1 overflow-auto text-sm leading-relaxed text-slate-700 whitespace-pre-wrap [-webkit-overflow-scrolling:touch] max-md:rounded-lg max-md:bg-transparent max-md:px-0.5">
                                 {isGeneratingNotes ? (
                                   <span className="inline-flex items-center gap-2 text-slate-500">
                                     <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden />
@@ -2172,7 +2677,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                                 value={lastTranscript}
                                 onChange={(e) => setLastTranscript(e.target.value)}
                                 disabled={isGeneratingNotes}
-                                className="min-h-[min(40vh,320px)] w-full flex-1 resize-y rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400/60 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                                className="min-h-[min(40vh,320px)] w-full flex-1 resize-y overflow-y-auto rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none focus:ring-0 [-webkit-overflow-scrolling:touch] max-md:min-h-[48dvh] max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:px-0.5 max-md:py-0 max-md:focus:border-0 max-md:focus:ring-0"
                                 placeholder="Type your consultation text here, then tap Continue for templates…"
                               />
                             )}
@@ -2193,7 +2698,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                                 type="button"
                                 disabled={contextEnrichBusy}
                                 onClick={handleContextUploadClick}
-                                className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                                className="halo-touch-min inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 shadow-sm hover:bg-slate-50 disabled:opacity-50 max-md:px-3 max-md:py-2 max-md:text-sm"
                               >
                                 {contextEnrichBusy ? <Loader2 className="size-3 animate-spin" /> : <CloudUpload className="size-3" />}
                                 {contextEnrichBusy ? '…' : 'Upload'}
@@ -2201,7 +2706,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                               <button
                                 type="button"
                                 onClick={openContextDrivePicker}
-                                className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 shadow-sm hover:bg-slate-50"
+                                className="halo-touch-min inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200/80 shadow-sm hover:bg-slate-50 max-md:px-3 max-md:py-2 max-md:text-sm"
                               >
                                 <FolderOpen className="size-3" /> Drive
                               </button>
@@ -2228,7 +2733,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                             <textarea
                               value={consultContext}
                               onChange={(e) => setConsultContext(e.target.value)}
-                              className="min-h-0 w-full flex-1 resize-y rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400/60 focus:outline-none focus:ring-2 focus:ring-teal-500/20 md:min-h-[12rem]"
+                              className="min-h-0 w-full flex-1 resize-y rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none focus:ring-0 md:min-h-[12rem]"
                               placeholder="Paste or upload context for this consultation…"
                             />
                           </div>
@@ -2241,7 +2746,7 @@ export const PatientWorkspace: React.FC<Props> = ({
 
               {/* Template choice modal — when new transcript or "+" add note; hide while generating */}
               {(pendingTranscript != null || showAddNoteModal) && !isGeneratingNotes && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 backdrop-blur-[2px] p-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-[2px]">
                   <div
                     className="bg-white rounded-xl shadow-xl border border-slate-200/90 w-full max-w-md overflow-hidden"
                     role="dialog"
@@ -2265,7 +2770,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                               setSelectedTemplatesForGenerate([]);
                               setTemplateSearch('');
                             }}
-                            className={`flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-all ${
+                            className={`halo-touch-min flex-1 rounded-md py-2 text-sm font-semibold transition-all ${
                               selectedHospital === h.key
                                 ? 'bg-white text-teal-800 shadow-sm border border-slate-200/60'
                                 : 'text-slate-500 hover:text-slate-700'
@@ -2280,7 +2785,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                           type="text"
                           value={templateSearch}
                           onChange={e => setTemplateSearch(e.target.value)}
-                          className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-slate-50/80 text-xs text-slate-800 focus:bg-white focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/15 outline-none"
+                          className="flex-1 rounded-lg border border-slate-200/90 bg-slate-50/80 px-3 py-2 text-sm text-slate-800 focus:bg-white focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/15 outline-none"
                         />
                       </div>
                       <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200/80 bg-slate-50/40 divide-y divide-slate-100/90">
@@ -2297,7 +2802,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                                 key={t.id}
                                 type="button"
                                 onClick={() => toggleTemplateForGenerate(t.id)}
-                                className={`w-full px-3 py-2 flex items-center justify-between text-xs font-medium transition-all ${
+                                className={`halo-touch-min flex w-full items-center justify-between px-3 py-2 text-sm font-medium transition-all ${
                                   selected
                                     ? 'bg-white text-teal-900'
                                     : 'bg-transparent text-slate-700 hover:bg-white/90'
@@ -2312,7 +2817,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                                   <span className="truncate">{t.name}</span>
                                 </span>
                                 {selected && (
-                                  <span className="text-[9px] font-semibold text-halo-primary uppercase tracking-wide shrink-0">
+                                  <span className="shrink-0 text-sm font-semibold uppercase tracking-wide text-halo-primary">
                                     Selected
                                   </span>
                                 )}
@@ -2320,7 +2825,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                             );
                           })}
                         {(selectedHospital === 'louis_leipoldt' ? templateOptions : activeHospitalConfig.templates).length === 0 && (
-                          <div className="px-4 py-6 text-xs text-slate-500 text-center">
+                          <div className="px-4 py-6 text-sm text-slate-500 text-center">
                             No templates available. HALO will fall back to the default clinical note.
                           </div>
                         )}
@@ -2330,14 +2835,14 @@ export const PatientWorkspace: React.FC<Props> = ({
                           type="button"
                           onClick={handleGenerateFromTemplates}
                           disabled={selectedTemplatesForGenerate.length === 0 || isGeneratingNotes}
-                          className="px-2.5 py-1 rounded-[10px] text-[11px] font-semibold bg-halo-primary text-white hover:bg-halo-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition shadow-[var(--shadow-halo-soft)]"
+                          className="halo-touch-min rounded-[10px] bg-halo-primary px-3 py-2 text-sm font-semibold text-white shadow-[var(--shadow-halo-soft)] transition hover:bg-halo-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {isGeneratingNotes ? '…' : 'Continue'}
                         </button>
                         <button
                           type="button"
                           onClick={() => { setPendingTranscript(null); setShowAddNoteModal(false); }}
-                          className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white border border-slate-200/90 text-slate-600 hover:bg-slate-50 transition"
+                          className="halo-touch-min rounded-md border border-slate-200/90 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
                         >
                           Cancel
                         </button>
@@ -2350,7 +2855,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                             setShowCustomAiNoteModal(true);
                             setCustomAiPrompt('');
                           }}
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-white border border-teal-500/25 text-teal-800 hover:bg-teal-500/6 transition"
+                          className="halo-touch-min inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-teal-500/25 bg-white px-3 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-500/6"
                         >
                           <MessageCircle className="w-3.5 h-3.5" /> Custom note
                         </button>
@@ -2361,19 +2866,16 @@ export const PatientWorkspace: React.FC<Props> = ({
               )}
             </div>
           ) : (
-            <PatientChat
+              <PatientChat
               patientName={formatPatientDisplayName(patient.name) || patient.name}
               chatMessages={chatMessages}
               chatInput={chatInput}
               onChatInputChange={setChatInput}
               chatLoading={chatLoading}
               onSendChat={handleSendChat}
-              emailDocumentActions={{
-                onSelectKind: (k) => void handleEmailDocumentKind(k),
-                busyKind: emailDocumentBusy,
-                scriptAvailable: templateOptions.some((t) => t.id === 'script'),
-                sickNoteAvailable: templateOptions.some((t) => t.id === 'sick_note'),
-              }}
+              slashOptions={askHaloSlashOptions}
+              generatedDocument={generatedChatDocument}
+              onDismissGeneratedDocument={() => setGeneratedChatDocument(null)}
             />
           )}
         </div>
@@ -2934,30 +3436,24 @@ export const PatientWorkspace: React.FC<Props> = ({
                   setCustomAiLoading(true);
                   try {
                     const historyForContext = chatMessagesRef.current || [];
-                    const response = await askHalo(patient.id, prompt, historyForContext);
+                    const response = await askHalo(patient.id, prompt, historyForContext, buildAskHaloLiveContext());
                     const content = response.reply?.trim();
                     if (!content) {
                       onToast('HALO did not return any text for this request. Please try again.', 'error');
                     } else {
-                      const title = prompt.length > 60 ? `${prompt.slice(0, 57)}…` : prompt;
-                      const newNote: HaloNote = {
-                        noteId: `custom-${Date.now()}`,
-                        title: title || 'Custom note',
-                        content,
-                        template_id: 'script',
-                        lastSavedAt: new Date().toISOString(),
-                        dirty: true,
-                      };
+                      const newNote = await persistCustomGeneratedNote(prompt, content);
                       setNotes((prev) => [...prev, newNote]);
                       const newIndex = notes.length;
                       setActiveNoteIndex(newIndex);
                       setConsultSubTab(newIndex);
+                      await loadFolderContents(currentFolderId);
+                      onDataChange();
                       setShowCustomAiNoteModal(false);
                       setCustomAiPrompt('');
-                      onToast('Custom note drafted. You can edit and save it as DOCX.', 'success');
+                      onToast('Note saved', 'success');
                     }
                   } catch (err) {
-                    onToast(getErrorMessage(err), 'error');
+                    onToast('Save failed — please try again.', 'error');
                   }
                   setCustomAiLoading(false);
                 }}

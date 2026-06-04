@@ -740,12 +740,13 @@ export const App = () => {
       </div>
 
       <div
-        className={`flex flex-1 min-h-0 min-w-0 flex-col relative overscroll-x-none overflow-x-hidden h-screen ${
-          isSignedIn ? 'max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom))]' : ''
+        className={`overflow-shell-mobile relative flex h-screen min-h-0 min-w-0 flex-1 flex-col overscroll-x-none overflow-x-hidden ${
+          isSignedIn ? 'max-md:pb-[calc(4.5rem+env(safe-area-inset-bottom))]' : ''
         }`}
       >
         {isSignedIn ? (
-          <header className="md:hidden flex items-center gap-4 px-4 pt-3 pb-2 bg-halo-bg shrink-0">
+          <header className="shrink-0 bg-halo-bg px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] md:hidden">
+            <div className="flex items-center gap-4">
             <button
               type="button"
               onClick={() => setMobileSidebarOpen(true)}
@@ -765,6 +766,19 @@ export const App = () => {
                     ? activePatient.name
                     : 'Folders'}
             </h1>
+            {mainNav === 'folders' && activePatient?.webUrl ? (
+              <a
+                href={activePatient.webUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="halo-touch-min inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white/90 p-2 text-slate-700 shadow-sm"
+                aria-label="Open patient folder"
+                title="Open patient folder"
+              >
+                <FolderOpen size={18} />
+              </a>
+            ) : null}
+            </div>
           </header>
         ) : null}
         {mainNav === 'ward' ? (
@@ -982,7 +996,7 @@ export const App = () => {
       {isSignedIn && (
         <>
           <nav
-            className={`md:hidden fixed inset-x-0 bottom-0 z-[45] items-stretch justify-around gap-1 border-t border-slate-200/90 bg-white/95 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] backdrop-blur-sm ${
+            className={`md:hidden fixed inset-x-0 bottom-0 z-[45] items-stretch justify-around gap-1 border-t border-slate-200/90 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] backdrop-blur-sm ${
               mobileSidebarOpen ? 'hidden' : 'flex'
             }`}
             aria-label="Main sections"
@@ -990,7 +1004,7 @@ export const App = () => {
             <button
               type="button"
               onClick={() => setMainNav('ward')}
-              className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg py-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+              className={`halo-touch-min flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-sm font-semibold uppercase tracking-wide focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 ${
                 mainNav === 'ward' ? 'text-teal-700 bg-teal-50' : 'text-slate-500'
               }`}
             >
@@ -1000,7 +1014,7 @@ export const App = () => {
             <button
               type="button"
               onClick={() => setMainNav('sheets')}
-              className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg py-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+              className={`halo-touch-min flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-sm font-semibold uppercase tracking-wide focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 ${
                 mainNav === 'sheets' ? 'text-teal-700 bg-teal-50' : 'text-slate-500'
               }`}
             >
@@ -1013,7 +1027,7 @@ export const App = () => {
                 setMainNav('folders');
                 setMobileSidebarOpen(true);
               }}
-              className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg py-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+              className={`halo-touch-min flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-sm font-semibold uppercase tracking-wide focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 ${
                 mainNav === 'folders' ? 'text-teal-700 bg-teal-50' : 'text-slate-500'
               }`}
             >

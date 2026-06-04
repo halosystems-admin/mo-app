@@ -353,8 +353,8 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
     if (viewerType === 'markdown' && textContent !== null) {
       return (
-        <div className="h-full overflow-auto px-8 py-8">
-          <article className="max-w-3xl mx-auto bg-white rounded-xl border border-slate-200/80 shadow-sm px-8 py-10 text-[15px]">
+        <div className="h-full overflow-auto px-8 py-8 max-md:px-3 max-md:py-3">
+          <article className="max-w-3xl mx-auto bg-white rounded-xl border border-slate-200/80 shadow-sm px-8 py-10 text-[15px] max-md:px-4 max-md:py-5">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownDocumentComponents}>
               {textContent}
             </ReactMarkdown>
@@ -365,9 +365,9 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
     if (viewerType === 'docx' && docxHtml !== null) {
       return (
-        <div className="h-full overflow-auto px-8 py-8">
+        <div className="h-full overflow-auto px-8 py-8 max-md:px-3 max-md:py-3">
           <article
-            className="docx-preview max-w-3xl mx-auto bg-white rounded-xl border border-slate-200/80 shadow-sm px-8 py-10 text-[15px] text-slate-800 [&_p]:mb-3 [&_p]:leading-relaxed [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-6 [&_h1]:mb-2 [&_h1:first-child]:mt-0 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:ml-5 [&_ul]:my-3 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:ml-5 [&_ol]:my-3 [&_ol]:space-y-1 [&_table]:w-full [&_table]:text-sm [&_table]:my-4 [&_td]:border [&_td]:border-slate-200 [&_td]:px-2 [&_td]:py-1.5 [&_td]:align-top [&_th]:border [&_th]:border-slate-200 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold [&_th]:bg-slate-50 [&_a]:text-teal-600 [&_strong]:font-semibold"
+            className="docx-preview max-w-3xl mx-auto bg-white rounded-xl border border-slate-200/80 shadow-sm px-8 py-10 text-[15px] text-slate-800 max-md:px-4 max-md:py-5 [&_p]:mb-3 [&_p]:leading-relaxed [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-6 [&_h1]:mb-2 [&_h1:first-child]:mt-0 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:ml-5 [&_ul]:my-3 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:ml-5 [&_ol]:my-3 [&_ol]:space-y-1 [&_table]:w-full [&_table]:text-sm [&_table]:my-4 [&_td]:border [&_td]:border-slate-200 [&_td]:px-2 [&_td]:py-1.5 [&_td]:align-top [&_th]:border [&_th]:border-slate-200 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold [&_th]:bg-slate-50 [&_a]:text-teal-600 [&_strong]:font-semibold"
             dangerouslySetInnerHTML={{ __html: docxHtml }}
           />
         </div>
@@ -376,7 +376,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
     if (viewerType === 'text' && textContent !== null) {
       return (
-        <div className="h-full overflow-auto p-6">
+        <div className="h-full overflow-auto p-6 max-md:px-3 max-md:py-3">
           <pre className="whitespace-pre-wrap font-mono text-sm text-slate-700 leading-relaxed">
             {textContent}
           </pre>
@@ -389,35 +389,35 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/70 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-[95vw] h-[90vh] max-w-6xl flex flex-col overflow-hidden"
+        className="flex h-[min(90vh,calc(100dvh-1.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] w-[95vw] max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl max-md:h-[calc(100dvh-1rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] max-md:w-full max-md:rounded-[20px]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50 rounded-t-2xl shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 shrink-0 rounded-t-2xl max-md:flex-col max-md:items-stretch max-md:px-3 max-md:py-2.5">
+          <div className="flex min-w-0 items-center gap-3">
             <FileText size={18} className="text-teal-600 shrink-0" />
-            <h3 className="font-semibold text-slate-800 truncate">{fileName}</h3>
-            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+            <h3 className="min-w-0 flex-1 break-all text-sm font-semibold text-slate-800 md:truncate">{fileName}</h3>
+            <span className="hidden shrink-0 rounded-full bg-slate-100 px-2 py-1 text-sm text-slate-400 md:inline-flex">
               {effectiveMime.split('/').pop()?.toUpperCase() || 'FILE'}
             </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center justify-end gap-2 shrink-0 max-md:w-full">
             <a
               href={fileUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition"
+              className="halo-touch-min inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-teal-50 hover:text-teal-700 max-md:flex-1 max-md:justify-center"
               title="Open in new tab"
             >
               <ExternalLink size={15} /> New Tab
             </a>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+              className="halo-touch-min shrink-0 rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
               aria-label="Close"
             >
               <X size={20} />

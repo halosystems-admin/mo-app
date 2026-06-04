@@ -7,6 +7,8 @@ export const MO_TEMPLATES_DIR_NAME = 'Mo templates';
 export const HENK_TEMPLATES_DIR_NAME = 'Henk templates';
 export const MO_MOTIVATION_TEMPLATE_FILENAME = 'Mo_motivation_template.docx';
 export const HENK_MOTIVATION_TEMPLATE_FILENAME = 'Henk_motivational_letter.docx';
+export const MO_REFERRAL_TEMPLATE_FILENAME = 'Referral letter.docx';
+export const HENK_REFERRAL_TEMPLATE_FILENAME = 'Henk Referral letter .docx';
 
 const MO_FILENAME_OVERRIDES: Record<string, string> = {};
 const HENK_FILENAME_OVERRIDES: Record<string, string> = {
@@ -73,6 +75,14 @@ export function resolveHenkMotivationLetterRelativePath(): string {
   return path.join(HENK_TEMPLATES_DIR_NAME, HENK_MOTIVATION_TEMPLATE_FILENAME);
 }
 
+export function resolveMoReferralLetterRelativePath(): string {
+  return path.join(MO_TEMPLATES_DIR_NAME, MO_REFERRAL_TEMPLATE_FILENAME);
+}
+
+export function resolveHenkReferralLetterRelativePath(): string {
+  return path.join(HENK_TEMPLATES_DIR_NAME, HENK_REFERRAL_TEMPLATE_FILENAME);
+}
+
 export function resolveMoClinicalTemplateAbsolutePath(
   templateId: string,
   repoRoot: string
@@ -111,6 +121,16 @@ export function resolveMoMotivationLetterAbsolutePath(repoRoot: string): string 
 
 export function resolveHenkMotivationLetterAbsolutePath(repoRoot: string): string | null {
   const abs = path.join(repoRoot, resolveHenkMotivationLetterRelativePath());
+  return fs.existsSync(abs) ? abs : null;
+}
+
+export function resolveMoReferralLetterAbsolutePath(repoRoot: string): string | null {
+  const abs = path.join(repoRoot, resolveMoReferralLetterRelativePath());
+  return fs.existsSync(abs) ? abs : null;
+}
+
+export function resolveHenkReferralLetterAbsolutePath(repoRoot: string): string | null {
+  const abs = path.join(repoRoot, resolveHenkReferralLetterRelativePath());
   return fs.existsSync(abs) ? abs : null;
 }
 

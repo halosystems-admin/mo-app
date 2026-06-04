@@ -429,7 +429,7 @@ export const WardPage: React.FC<WardPageProps> = ({
   );
 
   return (
-    <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden overscroll-x-none bg-halo-bg px-5 py-3 max-md:pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:px-10 md:py-5 lg:px-12">
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden overscroll-x-none bg-halo-bg px-5 py-3 max-md:pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:px-10 md:py-5 lg:px-12">
       <div className="w-full max-w-[1600px] mx-auto flex flex-col flex-1 min-h-0 gap-4 md:gap-5">
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 shrink-0">
           <h1 className="halo-page-title text-xl md:text-2xl font-semibold text-halo-text tracking-tight">Ward</h1>

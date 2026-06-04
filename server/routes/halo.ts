@@ -1,9 +1,15 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { requireAuth } from '../middleware/requireAuth';
 import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { config } from '../config';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { HENK_HALO_USER_ID } from '../../shared/clinicalTemplates/constants';
+import {
+  resolveHenkReferralLetterAbsolutePath,
+  resolveMoReferralLetterAbsolutePath,
+} from '../../shared/clinicalTemplates/docxFileResolver';
 import { generateNote, type HaloNote } from '../services/haloApi';
 import {
   getLocalTemplateDefinition,
@@ -23,7 +29,6 @@ import {
 } from '../utils/prompts';
 import type { HaloPatientProfile } from '../../shared/types';
 import {
-  buildLetterReLine,
   displayNameFromProfile,
   renderPatientLetterDocx,
   type PatientLetterKind,
@@ -39,6 +44,8 @@ router.use(resolveWorkspace);
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const PDF_MIME = 'application/pdf';
 const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
+const MO_LOCAL_LETTER_TEMPLATE = 'Mo_motivation_template.docx';
+const HENK_LOCAL_LETTER_TEMPLATE = 'Henk_motivational_letter.docx';
 
 function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConfig?: boolean }): string {
   if (opts?.useMobileConfig) return config.haloMobileUserId;
@@ -56,6 +63,177 @@ function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConf
 
 function resolveBundledTemplateDefinition(req: Request, userId: string, templateId: string) {
   return getLocalTemplateDefinition(userId, templateId);
+}
+
+function isHenkPractice(req: Request): boolean {
+  const driveRoot = (req.appUser?.driveRootFolderName || '').trim().toLowerCase();
+  return (
+    (req.appUser?.email && isHenkOutboundEmail(req.appUser.email)) ||
+    driveRoot === config.henkDriveRootFolderName.trim().toLowerCase()
+  );
+}
+
+function loadLocalLetterTemplateBuffer(req: Request, letterKind: PatientLetterKind): Buffer {
+  const templatePath =
+    letterKind === 'referral'
+      ? isHenkPractice(req)
+        ? resolveHenkReferralLetterAbsolutePath(config.clinicalTemplateRoot)
+        : resolveMoReferralLetterAbsolutePath(config.clinicalTemplateRoot)
+      : path.resolve(
+          config.clinicalTemplateRoot,
+          isHenkPractice(req) ? 'Henk templates' : 'Mo templates',
+          isHenkPractice(req) ? HENK_LOCAL_LETTER_TEMPLATE : MO_LOCAL_LETTER_TEMPLATE
+        );
+  if (!templatePath || !fs.existsSync(templatePath)) {
+    throw new Error(`Local letter template not found at ${templatePath}.`);
+  }
+  return fs.readFileSync(templatePath);
+}
+
+function extractLetterFieldFromContext(context: string | undefined, labels: string[]): string {
+  const text = typeof context === 'string' ? context : '';
+  if (!text.trim()) return '';
+  const lines = text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? '';
+    const lower = line.toLowerCase();
+    for (const label of labels) {
+      const normalized = label.toLowerCase();
+      if (lower.startsWith(`${normalized}:`)) {
+        return line.slice(line.indexOf(':') + 1).trim();
+      }
+      if (lower === normalized && index + 1 < lines.length) {
+        return lines[index + 1]!.trim();
+      }
+    }
+  }
+  return '';
+}
+
+function buildLetterTopic(params: {
+  letterKind: PatientLetterKind;
+  requestText?: string;
+  diagnoses?: string;
+}): string {
+  const diagnosis = params.diagnoses?.trim();
+  if (diagnosis) return diagnosis;
+
+  const request = params.requestText?.trim();
+  if (request) {
+    const cleaned = request
+      .replace(/\b(please|write|draft|create|generate|make|prepare)\b/gi, '')
+      .replace(/\b(docx|letter)\b/gi, '')
+      .replace(/\busing\s*$/i, '')
+      .replace(/\bto\s+medical\s+aid\b/gi, 'medical aid')
+      .trim()
+      .replace(/\s+/g, ' ');
+    if (cleaned) return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+
+  return params.letterKind === 'referral' ? 'Specialist referral' : 'Medical motivation';
+}
+
+function requestTargetsMedicalAid(requestText: string | undefined): boolean {
+  const text = (requestText || '').toLowerCase();
+  return /\b(medical aid|pmb|prescribed minimum benefit|funding|authori[sz]ation|approval|scheme)\b/.test(text);
+}
+
+function buildFallbackJustification(params: {
+  letterKind: PatientLetterKind;
+  diagnosesText: string;
+  icdsText: string;
+}): string {
+  const diagnosisLine = params.diagnosesText
+    ? `The working diagnosis is ${params.diagnosesText}${params.icdsText ? ` (ICD-10: ${params.icdsText})` : ''}.`
+    : params.icdsText
+      ? `The relevant ICD-10 code(s) are ${params.icdsText}.`
+      : '';
+
+  if (params.letterKind === 'referral') {
+    return [
+      diagnosisLine,
+      'Referral is clinically indicated for specialist assessment, definitive workup, and ongoing management.',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  return [
+    diagnosisLine,
+    'The requested intervention is clinically indicated and should be approved on medical necessity grounds.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function buildFallbackReferralRequest(params: {
+  diagnosesText: string;
+  icdsText: string;
+}): string {
+  const diagnosisLine = params.diagnosesText
+    ? `Please assess and manage ${params.diagnosesText}${params.icdsText ? ` (ICD-10: ${params.icdsText})` : ''}.`
+    : params.icdsText
+      ? `Please assess and manage the condition coded ${params.icdsText}.`
+      : 'Please assess and advise on further workup and management.';
+  return diagnosisLine;
+}
+
+function sanitizeReferralRequestPlan(text: string, requestText: string | undefined): string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+  if (requestTargetsMedicalAid(requestText)) return trimmed;
+
+  const filtered = trimmed
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/\b(PMB|prescribed minimum benefit|medical aid|funding|authori[sz]ation|approval|scheme)\b/i.test(sentence))
+    .join(' ')
+    .trim();
+
+  return filtered || '';
+}
+
+function withFallback(value: string, fallback: string): string {
+  return value.trim() || fallback;
+}
+
+async function extractReferencedLetterContext(
+  req: Request,
+  fileId: string | undefined,
+  fileName: string | undefined
+): Promise<string> {
+  if (!fileId || !fileName || !req.session.accessToken) return '';
+  try {
+    const adapter = getStorageAdapter(req.session.provider);
+    return await adapter.extractTextFromFile({
+      token: req.session.accessToken,
+      file: {
+        id: fileId,
+        name: fileName,
+        mimeType: fileName.toLowerCase().endsWith('.pdf')
+          ? 'application/pdf'
+          : fileName.toLowerCase().endsWith('.docx')
+            ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            : 'text/plain',
+      },
+      maxChars: 4000,
+      microsoftStorageMode: req.session.microsoftStorageMode,
+    });
+  } catch (err) {
+    console.warn('[Halo] Could not read referenced letter source file:', err);
+    return '';
+  }
+}
+
+function buildRetryFileNames(baseFileName: string): string[] {
+  const extMatch = baseFileName.match(/(\.[^.]+)$/);
+  const ext = extMatch?.[1] ?? '';
+  const stem = ext ? baseFileName.slice(0, -ext.length) : baseFileName;
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return [
+    baseFileName,
+    `${stem}_${timestamp}${ext}`,
+    `${stem}_${timestamp}_2${ext}`,
+  ];
 }
 
 async function loadPatientProfile(
@@ -273,12 +451,12 @@ router.post('/templates', async (req: Request, res: Response) => {
 });
 
 // POST /api/halo/generate-note
-// Body: { user_id?, template_id?, text, return_type: 'note' | 'docx', patientId?, fileName?, useMobileConfig? }
+// Body: { user_id?, template_id?, text, return_type: 'note' | 'docx', patientId?, fileName?, useMobileConfig?, saveTarget? }
 // If useMobileConfig is true, use config.haloMobileUserId and config.haloMobileTemplateId (for mobile preview).
-// If return_type === 'docx' and patientId is set, uploads DOCX to patient's Patient Notes folder and returns { success, fileId, name }.
+// If return_type === 'docx' and patientId is set, uploads DOCX to the chosen patient folder target and returns { success, fileId, name, file }.
 router.post('/generate-note', async (req: Request, res: Response) => {
   try {
-    const { user_id, template_id, text, return_type, patientId, fileName, useMobileConfig, template_name, mergeFields } = req.body as {
+    const { user_id, template_id, text, return_type, patientId, fileName, useMobileConfig, template_name, mergeFields, saveTarget } = req.body as {
       user_id?: string;
       template_id?: string;
       text: string;
@@ -287,6 +465,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       fileName?: string;
       useMobileConfig?: boolean;
       mergeFields?: Record<string, string>;
+      saveTarget?: 'patient_notes' | 'root';
       /** Display name for template (e.g. Admission) — forwarded into composed Halo prompt for Markdown sections. */
       template_name?: string;
     };
@@ -367,11 +546,14 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     const adapter = getStorageAdapter(req.session.provider);
     const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    const patientNotesFolderId = await adapter.getOrCreatePatientNotesFolder({
-      token,
-      patientFolderId: patientId,
-      microsoftStorageMode,
-    });
+    const destinationFolderId =
+      saveTarget === 'root'
+        ? patientId
+        : await adapter.getOrCreatePatientNotesFolder({
+            token,
+            patientFolderId: patientId,
+            microsoftStorageMode,
+          });
     const baseName = fileName && fileName.trim() ? fileName.replace(/\.docx$/i, '') : `Clinical_Note_${new Date().toISOString().split('T')[0]}`;
     const finalFileName = baseName.endsWith('.docx') ? baseName : `${baseName}.docx`;
 
@@ -382,7 +564,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       try {
         uploaded = await adapter.uploadFile({
           token,
-          parentFolderId: patientNotesFolderId,
+          parentFolderId: destinationFolderId,
           fileName: finalFileName,
           fileType: DOCX_MIME,
           base64Data,
@@ -396,7 +578,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     }
     if (!uploaded) throw lastUploadErr instanceof Error ? lastUploadErr : new Error('DOCX upload failed.');
 
-    res.json({ success: true, fileId: uploaded.id, name: uploaded.name });
+    res.json({ success: true, fileId: uploaded.id, name: uploaded.name, file: uploaded });
   } catch (err) {
     console.error('[Halo] generate-note error:', err);
     const message = err instanceof Error ? err.message : 'Note generation failed.';
@@ -559,13 +741,33 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
 });
 
 // POST /api/halo/generate-letter-docx
-// Body: { patientId, letterKind: 'motivation' | 'referral', body } — fills motivational_template.docx and uploads to Patient Notes.
+// Body: { patientId, letterKind: 'motivation' | 'referral', body } — fills a local repo DOCX template and uploads to the patient root folder.
 router.post('/generate-letter-docx', async (req: Request, res: Response) => {
   try {
-    const { patientId, letterKind, body: letterBody } = req.body as {
+    const {
+      patientId,
+      letterKind,
+      body: letterBody,
+      clinicalSummary,
+      justification,
+      contextText,
+      diagnoses,
+      icds,
+      requestText,
+      referenceFileId,
+      referenceFileName,
+    } = req.body as {
       patientId?: string;
       letterKind?: PatientLetterKind;
       body?: string;
+      clinicalSummary?: string;
+      justification?: string;
+      contextText?: string;
+      diagnoses?: string;
+      icds?: string;
+      requestText?: string;
+      referenceFileId?: string;
+      referenceFileName?: string;
     };
 
     if (!patientId || typeof letterBody !== 'string' || !letterBody.trim()) {
@@ -585,15 +787,7 @@ router.post('/generate-letter-docx', async (req: Request, res: Response) => {
     const adapter = getStorageAdapter(req.session.provider);
     const microsoftStorageMode = req.session.microsoftStorageMode;
 
-    const templateBuf = await adapter.getMotivationLetterTemplateDocxBuffer({
-      token,
-      rootFolderName: req.workspaceFolderName,
-      microsoftStorageMode,
-    });
-    if (!templateBuf) {
-      res.status(404).json({ error: 'motivational_template.docx not found in Halo_Patients root.' });
-      return;
-    }
+    const templateBuf = loadLocalLetterTemplateBuffer(req, letterKind);
 
     const profile = await adapter.getPatientHaloProfile({
       token,
@@ -605,35 +799,118 @@ router.post('/generate-letter-docx', async (req: Request, res: Response) => {
       [req.appUser.firstName, req.appUser.lastName].filter(Boolean).join(' ').trim() || 'Clinician';
     const patientName = profile ? displayNameFromProfile(profile.fullName) : 'Patient';
     const dob = profile?.dob?.trim() ?? '';
-
-    const docxBuffer = renderPatientLetterDocx(templateBuf, {
-      patient_name: patientName,
-      dob,
-      body: letterBody.trim(),
-      re: buildLetterReLine(letterKind),
-      doctor_name: doctorName,
+    const medicalAid = profile?.medicalAidName?.trim() ?? '';
+    const idNumber = profile?.idNumber?.trim() ?? '';
+    const medicalAidNumber = profile?.medicalAidMemberNumber?.trim() ?? '';
+    const contact = [profile?.medicalAidPhone?.trim(), profile?.email?.trim()].filter(Boolean).join(' | ');
+    const contextBlock = typeof contextText === 'string' ? contextText.trim() : '';
+    const referencedFileText = await extractReferencedLetterContext(
+      req,
+      typeof referenceFileId === 'string' ? referenceFileId : undefined,
+      typeof referenceFileName === 'string' ? referenceFileName : undefined
+    );
+    const combinedContext = [contextBlock, referencedFileText].filter(Boolean).join('\n\n');
+    const diagnosesText =
+      (typeof diagnoses === 'string' ? diagnoses.trim() : '') ||
+      extractLetterFieldFromContext(combinedContext, ['diagnosis', 'diagnoses', 'admission diagnosis']) ||
+      '';
+    const icdsText =
+      (typeof icds === 'string' ? icds.trim() : '') ||
+      extractLetterFieldFromContext(combinedContext, ['icd', 'icd-10', 'icds', 'icd 10']) ||
+      '';
+    const topic = buildLetterTopic({
+      letterKind,
+      requestText: typeof requestText === 'string' ? requestText : '',
+      diagnoses: diagnosesText,
     });
+    const clinicalSummaryText =
+      (typeof clinicalSummary === 'string' ? clinicalSummary.trim() : '') ||
+      letterBody.trim();
+    const justificationText =
+      (typeof justification === 'string' ? justification.trim() : '') ||
+      buildFallbackJustification({
+        letterKind,
+        diagnosesText,
+        icdsText,
+      });
+    const referralRequestText = sanitizeReferralRequestPlan(
+      (typeof justification === 'string' ? justification.trim() : '') ||
+        buildFallbackReferralRequest({ diagnosesText, icdsText }),
+      typeof requestText === 'string' ? requestText : ''
+    );
 
-    const patientNotesFolderId = await adapter.getOrCreatePatientNotesFolder({
-      token,
-      patientFolderId: patientId,
-      microsoftStorageMode,
-    });
+    const placeholderData: Record<string, string> =
+      letterKind === 'referral'
+        ? {
+            patient_name: patientName,
+            dob,
+            medical_aid: withFallback(medicalAid, 'Not discussed'),
+            id: withFallback(idNumber, 'Not discussed'),
+            medical_aid_no: withFallback(medicalAidNumber, 'Not discussed'),
+            contact: withFallback(contact, 'Not discussed'),
+            admission_date: extractLetterFieldFromContext(combinedContext, ['admission date', 'date of admission']) || 'Not discussed',
+            urgency: extractLetterFieldFromContext(combinedContext, ['urgency of admission', 'urgency', 'admission urgency']) || 'Not discussed',
+            admission_urgency:
+              extractLetterFieldFromContext(combinedContext, ['urgency of admission', 'urgency', 'admission urgency']) ||
+              'Not discussed',
+            discharge_date: extractLetterFieldFromContext(combinedContext, ['discharge date', 'date of discharge']) || 'Not discussed',
+            diagnosis: withFallback(diagnosesText, 'Not specified'),
+            icd10: withFallback(icdsText, 'Not specified'),
+            icds: withFallback(icdsText, 'Not specified'),
+            receiver: 'Colleague',
+            clinical_summary: clinicalSummaryText,
+            request_plan:
+              referralRequestText ||
+              buildFallbackReferralRequest({ diagnosesText, icdsText }),
+          }
+        : {
+            patient_name: patientName,
+            dob,
+            motivation_topic: topic,
+            clinical_summary_and_motivation: clinicalSummaryText,
+            pmb_justification: justificationText,
+            doctor_name: doctorName,
+            medical_aid: withFallback(medicalAid, 'Not discussed'),
+            id: withFallback(idNumber, 'Not discussed'),
+            medical_aid_no: withFallback(medicalAidNumber, 'Not discussed'),
+            contact: withFallback(contact, 'Not discussed'),
+            diagnoses: withFallback(diagnosesText, 'Not specified'),
+            icds: withFallback(icdsText, 'Not specified'),
+          };
+
+    const docxBuffer = renderPatientLetterDocx(templateBuf, placeholderData);
 
     const dateStamp = new Date().toISOString().split('T')[0];
     const baseLabel = letterKind === 'referral' ? 'Referral_Letter' : 'Motivation_Letter';
     const finalFileName = `${baseLabel}_${dateStamp}.docx`;
+    const uploadNames = buildRetryFileNames(finalFileName);
+    const base64Data = docxBuffer.toString('base64');
+    let uploaded: Awaited<ReturnType<typeof adapter.uploadFile>> | null = null;
+    let lastUploadError: unknown = null;
+    for (const candidateName of uploadNames) {
+      try {
+        uploaded = await adapter.uploadFile({
+          token,
+          parentFolderId: patientId,
+          fileName: candidateName,
+          fileType: DOCX_MIME,
+          base64Data,
+          microsoftStorageMode,
+        });
+        break;
+      } catch (error) {
+        lastUploadError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/resourceLocked|notAllowed|locked/i.test(message)) {
+          throw error;
+        }
+      }
+    }
+    if (!uploaded) {
+      throw lastUploadError instanceof Error ? lastUploadError : new Error('Letter upload failed.');
+    }
 
-    const uploaded = await adapter.uploadFile({
-      token,
-      parentFolderId: patientNotesFolderId,
-      fileName: finalFileName,
-      fileType: DOCX_MIME,
-      base64Data: docxBuffer.toString('base64'),
-      microsoftStorageMode,
-    });
-
-    res.json({ success: true, fileId: uploaded.id, name: uploaded.name });
+    res.json({ success: true, fileId: uploaded.id, name: uploaded.name, file: uploaded });
   } catch (err) {
     console.error('[Halo] generate-letter-docx error:', err);
     const message = err instanceof Error ? err.message : 'Letter generation failed.';
@@ -641,8 +918,8 @@ router.post('/generate-letter-docx', async (req: Request, res: Response) => {
   }
 });
 
-/** Ensure fileId is a direct child of Patient Notes (where motivation/referral letters are saved). */
-async function assertFileIdInPatientNotesFolder(
+/** Ensure fileId is a direct child of the patient root or Patient Notes. */
+async function assertFileIdInPatientScope(
   req: Request,
   adapter: ReturnType<typeof getStorageAdapter>,
   patientFolderId: string,
@@ -650,28 +927,33 @@ async function assertFileIdInPatientNotesFolder(
 ): Promise<void> {
   const token = req.session.accessToken!;
   const microsoftStorageMode = req.session.microsoftStorageMode;
-  const notesFolderId = await adapter.getOrCreatePatientNotesFolder({
-    token,
+  const folderIds = [
     patientFolderId,
-    microsoftStorageMode,
-  });
-  let page: string | undefined;
-  for (let i = 0; i < 50; i++) {
-    const { files, nextPage } = await adapter.listFolderFiles({
+    await adapter.getOrCreatePatientNotesFolder({
       token,
-      folderId: notesFolderId,
-      page,
-      pageSize: 100,
+      patientFolderId,
       microsoftStorageMode,
-    });
-    if (files.some((f) => f.id === fileId)) return;
-    if (!nextPage) break;
-    page = nextPage;
+    }),
+  ];
+  for (const folderId of folderIds) {
+    let page: string | undefined;
+    for (let i = 0; i < 50; i++) {
+      const { files, nextPage } = await adapter.listFolderFiles({
+        token,
+        folderId,
+        page,
+        pageSize: 100,
+        microsoftStorageMode,
+      });
+      if (files.some((f) => f.id === fileId)) return;
+      if (!nextPage) break;
+      page = nextPage;
+    }
   }
-  throw new Error('That file is not in this patient’s Patient Notes folder.');
+  throw new Error('That file is not in this patient folder.');
 }
 
-// POST /api/halo/email-patient-file — attach a file from Patient Notes (e.g. motivation/referral DOCX). Requires outbound mail.
+// POST /api/halo/email-patient-file — attach a file from the patient root or Patient Notes. Requires outbound mail.
 router.post('/email-patient-file', async (req: Request, res: Response) => {
   try {
     if (!req.appUser) {
@@ -702,7 +984,7 @@ router.post('/email-patient-file', async (req: Request, res: Response) => {
     const pid = patientId.trim();
     const fid = fileId.trim();
 
-    await assertFileIdInPatientNotesFolder(req, adapter, pid, fid);
+    await assertFileIdInPatientScope(req, adapter, pid, fid);
 
     const token = req.session.accessToken!;
     const microsoftStorageMode = req.session.microsoftStorageMode;
@@ -755,7 +1037,7 @@ router.post('/email-patient-file', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[Halo] email-patient-file error:', err);
     const message = err instanceof Error ? err.message : 'Email failed.';
-    const status = message.includes('Patient Notes folder') ? 403 : 500;
+    const status = message.includes('patient folder') ? 403 : 500;
     res.status(status).json({ error: message });
   }
 });

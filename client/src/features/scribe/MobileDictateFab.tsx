@@ -18,7 +18,7 @@ export const MobileDictateFab: React.FC = () => {
     <div
       className="md:hidden fixed inset-x-0 z-40 flex flex-col items-center justify-end gap-2 pointer-events-none px-4"
       style={{
-        bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))',
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)',
         height: '5.5rem',
       }}
     >
@@ -32,7 +32,7 @@ export const MobileDictateFab: React.FC = () => {
           <button
             type="button"
             onClick={onPause}
-            className={`flex h-8 w-8 items-center justify-center rounded-full ${
+            className={`halo-touch-min flex h-11 w-11 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 ${
               isPaused ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-200'
             }`}
             aria-label={isPaused ? 'Resume dictation' : 'Pause dictation'}
@@ -47,7 +47,7 @@ export const MobileDictateFab: React.FC = () => {
         onClick={onDictate}
         disabled={isBusy}
         title={isLive ? 'Stop dictation' : isBusy ? 'Processing…' : 'Dictate'}
-        className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg ring-4 transition-all active:scale-95 disabled:opacity-60 ${
+        className={`halo-touch-min flex h-14 w-14 items-center justify-center rounded-full shadow-lg ring-4 transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 disabled:opacity-60 ${
           isLive
             ? 'bg-rose-500 text-white ring-rose-200/80 animate-pulse'
             : 'bg-teal-600 text-white ring-[var(--color-halo-bg,#f7f9fb)] hover:bg-teal-700 hover:scale-105'

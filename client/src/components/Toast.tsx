@@ -35,13 +35,13 @@ export const Toast: React.FC<Props> = ({ message, type, onClose, duration = 4000
   }, [onClose, duration]);
 
   return (
-    <div className="fixed top-6 right-6 z-[100] animate-in slide-in-from-top-4 fade-in duration-300">
-      <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg max-w-sm ${STYLES[type]}`}>
+    <div className="fixed right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[100] animate-in slide-in-from-top-4 fade-in duration-300 sm:right-6 sm:top-6">
+      <div className={`flex max-w-[min(22rem,calc(100vw-1.5rem))] items-center gap-3 rounded-xl border px-4 py-3 shadow-lg ${STYLES[type]}`}>
         <Icon className={`w-5 h-5 shrink-0 ${ICON_STYLES[type]}`} />
         <p className="text-sm font-medium flex-1">{message}</p>
         <button
           onClick={onClose}
-          className="p-1 rounded-full hover:bg-black/5 transition-colors shrink-0"
+          className="halo-touch-min rounded-full p-1 transition-colors hover:bg-black/5 shrink-0"
         >
           <X className="w-4 h-4" />
         </button>

@@ -475,6 +475,21 @@ export const fetchFolderContents = async (folderId: string): Promise<DriveFile[]
   return all;
 };
 
+export const fetchPatientNotesFiles = async (patientId: string): Promise<DriveFile[]> => {
+  const all: DriveFile[] = [];
+  let page: string | undefined;
+
+  do {
+    const data = await request<FilesResponse>(
+      `/api/drive/patients/${encodeURIComponent(patientId)}/patient-notes-files?pageSize=100${page ? `&page=${encodeURIComponent(page)}` : ''}`
+    );
+    all.push(...data.files);
+    page = data.nextPage ?? undefined;
+  } while (page);
+
+  return all;
+};
+
 export const uploadFile = async (patientId: string, file: File, customName?: string): Promise<DriveFile> => {
   const nameForMime = customName || file.name;
   const inferred = mimeFromFilename(nameForMime);
@@ -736,8 +751,9 @@ export const saveNoteAsDocx = (params: {
   user_id?: string;
   template_name?: string;
   mergeFields?: Record<string, string>;
+  saveTarget?: 'patient_notes' | 'root';
 }) =>
-  request<{ success: boolean; fileId: string; name: string }>('/api/halo/generate-note', {
+  request<{ success: boolean; fileId: string; name: string; file?: DriveFile }>('/api/halo/generate-note', {
     method: 'POST',
     body: JSON.stringify({
       template_id: params.template_id,
@@ -747,6 +763,7 @@ export const saveNoteAsDocx = (params: {
       fileName: params.fileName,
       user_id: params.user_id,
       mergeFields: params.mergeFields,
+      saveTarget: params.saveTarget,
       ...(params.template_name ? { template_name: params.template_name } : {}),
     }),
   });
@@ -758,8 +775,16 @@ export const generatePatientLetterDocx = (params: {
   patientId: string;
   letterKind: PatientLetterKind;
   body: string;
+  clinicalSummary?: string;
+  justification?: string;
+  requestText?: string;
+  contextText?: string;
+  diagnoses?: string;
+  icds?: string;
+  referenceFileId?: string;
+  referenceFileName?: string;
 }) =>
-  request<{ success: boolean; fileId: string; name: string }>('/api/halo/generate-letter-docx', {
+  request<{ success: boolean; fileId: string; name: string; file?: DriveFile }>('/api/halo/generate-letter-docx', {
     method: 'POST',
     body: JSON.stringify(params),
   });
@@ -778,11 +803,12 @@ export const searchPatientsByConcept = async (
 export const askHalo = async (
   patientId: string,
   question: string,
-  history: ChatMessage[]
+  history: ChatMessage[],
+  extraContext?: string
 ): Promise<{ reply: string }> => {
   return request<{ reply: string }>('/api/ai/chat', {
     method: 'POST',
-    body: JSON.stringify({ patientId, question, history }),
+    body: JSON.stringify({ patientId, question, history, extraContext }),
   });
 };
 
@@ -794,7 +820,8 @@ export const askHaloStream = async (
   patientId: string,
   question: string,
   history: ChatMessage[],
-  onChunk: (text: string) => void
+  onChunk: (text: string) => void,
+  extraContext?: string
 ): Promise<void> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 90_000);
@@ -804,7 +831,7 @@ export const askHaloStream = async (
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ patientId, question, history }),
+      body: JSON.stringify({ patientId, question, history, extraContext }),
       signal: controller.signal,
     });
 

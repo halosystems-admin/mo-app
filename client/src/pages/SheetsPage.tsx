@@ -17,7 +17,7 @@ export const SheetsPage: React.FC<SheetsPageProps> = ({
   onOpenPatient,
 }) => {
   return (
-    <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden bg-halo-bg px-4 py-3 max-md:pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:px-8 md:py-5">
+    <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden bg-halo-bg px-4 py-3 max-md:pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:px-8 md:py-5 [-webkit-overflow-scrolling:touch]">
       <div className="w-full max-w-none mx-auto space-y-4">
         <header>
           <h1 className="halo-page-title text-xl md:text-2xl font-semibold text-halo-text tracking-tight">Sheets</h1>

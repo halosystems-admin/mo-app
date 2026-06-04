@@ -33,6 +33,22 @@ function adapterFetchAllFilesInFolder(req: Request, folderId: string) {
   });
 }
 
+async function adapterFetchPatientNotesFiles(req: Request, patientFolderId: string) {
+  const token = req.session.accessToken!;
+  const adapter = getStorageAdapter(req.session.provider);
+  const microsoftStorageMode = req.session.microsoftStorageMode as MicrosoftStorageMode | undefined;
+  const notesFolderId = await adapter.getOrCreatePatientNotesFolder({
+    token,
+    patientFolderId,
+    microsoftStorageMode,
+  });
+  return adapter.fetchAllFilesInFolder({
+    token,
+    folderId: notesFolderId,
+    microsoftStorageMode,
+  });
+}
+
 function adapterExtractTextFromFile(
   req: Request,
   file: { id: string; name: string; mimeType: string },
@@ -46,6 +62,26 @@ function adapterExtractTextFromFile(
     maxChars,
     microsoftStorageMode: req.session.microsoftStorageMode as MicrosoftStorageMode | undefined,
   });
+}
+
+function isReadableClinicalFile(file: { name: string; mimeType: string }): boolean {
+  return (
+    file.name.endsWith('.txt') ||
+    file.name.endsWith('.pdf') ||
+    file.name.endsWith('.docx') ||
+    file.name.endsWith('.doc') ||
+    file.mimeType === 'text/plain' ||
+    file.mimeType === 'application/pdf' ||
+    file.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    file.mimeType === 'application/msword' ||
+    file.mimeType === 'application/vnd.google-apps.document'
+  );
+}
+
+function isLikelyPmbReferenceFile(file: { name: string }): boolean {
+  return /(pmb|general surgery|medical aid|motivation|guideline|extract|prescribed minimum benefit)/i.test(
+    file.name
+  );
 }
 
 // POST /summary — enhanced: reads actual file content (PDF, DOCX, TXT, Google Docs)
@@ -259,9 +295,15 @@ async function buildChatContext(
   req: Request,
   patientId: string,
   question: string,
-  history: Array<{ role: string; content: string }>
+  history: Array<{ role: string; content: string }>,
+  extraContext?: string
 ): Promise<string> {
   const contextParts: string[] = [];
+
+  const liveContext = typeof extraContext === 'string' ? extraContext.trim().slice(0, 12000) : '';
+  if (liveContext) {
+    contextParts.push(`Live consultation/editor context:\n${liveContext}`);
+  }
 
   try {
     const adapter = getStorageAdapter(req.session.provider);
@@ -282,17 +324,7 @@ async function buildChatContext(
   }
 
   const allFiles = await adapterFetchAllFilesInFolder(req, patientId);
-  const readableFiles = allFiles.filter(f =>
-    f.name.endsWith('.txt') ||
-    f.name.endsWith('.pdf') ||
-    f.name.endsWith('.docx') ||
-    f.name.endsWith('.doc') ||
-    f.mimeType === 'text/plain' ||
-    f.mimeType === 'application/pdf' ||
-    f.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-    f.mimeType === 'application/msword' ||
-    f.mimeType === 'application/vnd.google-apps.document'
-  ).slice(0, 10);
+  const readableFiles = allFiles.filter(isReadableClinicalFile).slice(0, 10);
 
   const fileList = allFiles
     .filter(f => f.mimeType !== 'application/vnd.google-apps.folder')
@@ -305,6 +337,30 @@ async function buildChatContext(
     if (textContent.trim()) {
       contextParts.push(`\n--- File: ${file.name} ---\n${textContent}`);
     }
+  }
+
+  try {
+    const patientNotesFiles = await adapterFetchPatientNotesFiles(req, patientId);
+    const pmbReferenceFiles = patientNotesFiles
+      .filter(isReadableClinicalFile)
+      .filter(isLikelyPmbReferenceFile)
+      .slice(0, 3);
+
+    if (pmbReferenceFiles.length > 0) {
+      contextParts.push(
+        `\nPatient Notes reference files relevant to medical aid / PMB justification:\n${pmbReferenceFiles
+          .map((file) => `- ${file.name}`)
+          .join('\n')}`
+      );
+      for (const file of pmbReferenceFiles) {
+        const textContent = await adapterExtractTextFromFile(req, file, 3000);
+        if (textContent.trim()) {
+          contextParts.push(`\n--- PMB Reference File: ${file.name} ---\n${textContent}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[ai/buildChatContext] Could not load Patient Notes PMB references:', e);
   }
 
   const fullContext = contextParts.join('\n').substring(0, 15000);
@@ -323,6 +379,7 @@ router.post('/chat-stream', async (req: Request, res: Response) => {
       patientId?: string;
       question?: string;
       history?: Array<{ role: string; content: string }>;
+      extraContext?: string;
     };
 
     if (!patientId || !question || typeof question !== 'string') {
@@ -330,7 +387,7 @@ router.post('/chat-stream', async (req: Request, res: Response) => {
       return;
     }
 
-    const prompt = await buildChatContext(req, patientId, question, history || []);
+    const prompt = await buildChatContext(req, patientId, question, history || [], req.body?.extraContext);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -362,6 +419,7 @@ router.post('/chat', async (req: Request, res: Response) => {
       patientId?: string;
       question?: string;
       history?: Array<{ role: string; content: string }>;
+      extraContext?: string;
     };
 
     if (!patientId || !question || typeof question !== 'string') {
@@ -369,7 +427,7 @@ router.post('/chat', async (req: Request, res: Response) => {
       return;
     }
 
-    const prompt = await buildChatContext(req, patientId, question, history || []);
+    const prompt = await buildChatContext(req, patientId, question, history || [], req.body?.extraContext);
     const reply = await generateText(prompt);
     res.json({ reply });
   } catch (err) {
