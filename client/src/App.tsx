@@ -71,7 +71,7 @@ export const App = () => {
       ? currentUser.haloUserId.trim()
       : currentUser &&
           (
-            currentUser.email.trim().toLowerCase() === 'henk@halo.africa' ||
+            currentUser.email.trim().toLowerCase() === 'hjkrugersurgery@gmail.com' ||
             (currentUser.driveRootFolderName || '').trim().toLowerCase() === 'henk kruger'
           )
         ? HENK_HALO_USER_ID
@@ -292,7 +292,7 @@ export const App = () => {
       loginProfile === 'mo'
         ? 'mo@practice.halo.africa'
         : loginProfile === 'henk'
-          ? 'henk@halo.africa'
+          ? 'hjkrugersurgery@gmail.com'
           : '';
     if (loginProfile !== 'other') setLoginEmail(emailForProfile);
     localStorage.setItem('halo_loginProfile', loginProfile);
@@ -573,7 +573,7 @@ export const App = () => {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-bold text-slate-800 truncate">Dr Henk Kruger</div>
-                      <div className="text-xs font-semibold text-slate-500 truncate">henk@halo.africa</div>
+                      <div className="text-xs font-semibold text-slate-500 truncate">hjkrugersurgery@gmail.com</div>
                     </div>
                   </div>
                 </button>

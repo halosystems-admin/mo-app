@@ -35,7 +35,7 @@ export function isLikelyKrugerAccount(user: Pick<CurrentUser, 'firstName' | 'las
   const ln = (user.lastName || '').toLowerCase();
   const em = (user.email || '').toLowerCase();
   return (
-    em === 'henk@halo.africa' ||
+    em === 'hjkrugersurgery@gmail.com' ||
     ln.includes('kruger') ||
     em.includes('kruger') ||
     em.includes('henk')

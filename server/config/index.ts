@@ -138,7 +138,7 @@ export const config = {
   graphMailSendAs: (process.env.GRAPH_MAIL_SEND_AS || '').trim(),
 
   /** Per-user Henk Gmail SMTP (patient email only when signed in as this address). */
-  henkOutboundEmail: (process.env.HENK_OUTBOUND_EMAIL || 'henk@halo.africa').trim().toLowerCase(),
+  henkOutboundEmail: (process.env.HENK_OUTBOUND_EMAIL || 'hjkrugersurgery@gmail.com').trim().toLowerCase(),
   henkDriveRootFolderName: (process.env.HENK_DRIVE_ROOT_FOLDER_NAME || 'Henk Kruger').trim(),
   henkSmtpHost: (process.env.HENK_SMTP_HOST || '').trim(),
   henkSmtpPort: Number(process.env.HENK_SMTP_PORT) || 587,
