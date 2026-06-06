@@ -364,6 +364,53 @@ const BASE_MOCK_INPATIENTS: InpatientRecord[] = [
 export const MOCK_INPATIENTS: InpatientRecord[] = BASE_MOCK_INPATIENTS;
 
 const MOCK_INPATIENTS_BY_WORKSPACE: Record<string, InpatientRecord[]> = Object.create(null);
+const MOCK_WARD_SUPPRESSED_STORAGE_PREFIX = 'halo:clinical:suppressed-ward-mock:';
+
+function suppressedWardMockStorageKey(): string {
+  return `${MOCK_WARD_SUPPRESSED_STORAGE_PREFIX}${getActiveWorkspaceKey()}`;
+}
+
+function readSuppressedWardMockIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(suppressedWardMockStorageKey());
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      parsed
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter(Boolean)
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function writeSuppressedWardMockIds(ids: Set<string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(suppressedWardMockStorageKey(), JSON.stringify([...ids]));
+  } catch {
+    /* ignore local storage failures */
+  }
+}
+
+function isBundledMockInpatientId(id: string): boolean {
+  return BASE_MOCK_INPATIENTS.some((row) => row.id === id);
+}
+
+function isSuppressedWardMockInpatientId(id: string): boolean {
+  return readSuppressedWardMockIds().has(id);
+}
+
+export function suppressBundledMockWardInpatient(id: string): void {
+  const trimmed = id.trim();
+  if (!trimmed || !isBundledMockInpatientId(trimmed)) return;
+  const next = readSuppressedWardMockIds();
+  next.add(trimmed);
+  writeSuppressedWardMockIds(next);
+}
 
 function getMockInpatientsArray(): InpatientRecord[] {
   const ws = getActiveWorkspaceKey();
@@ -613,12 +660,16 @@ export function findInpatientMatchingHaloPatient(
 
 export async function fetchCurrentInpatients(): Promise<InpatientRecord[]> {
   await delay(180);
-  return clone(getMockInpatientsArray().filter((x) => x.currentlyAdmitted));
+  return clone(
+    getMockInpatientsArray().filter(
+      (x) => x.currentlyAdmitted && !(isBundledMockInpatientId(x.id) && isSuppressedWardMockInpatientId(x.id))
+    )
+  );
 }
 
 export async function fetchAdmissionsAll(): Promise<InpatientRecord[]> {
   await delay(180);
-  return clone(getMockInpatientsArray());
+  return clone(getMockInpatientsArray().filter((x) => !x.removedFromSheets));
 }
 
 export interface RoundFilters {
@@ -684,6 +735,21 @@ export async function updateInpatientRecord(
   const idx = arr.findIndex((p) => p.id === id);
   if (idx < 0) return null;
   arr[idx] = { ...arr[idx], ...patch } as InpatientRecord;
+  return clone(arr[idx]);
+}
+
+export async function removeInpatientFromSheets(id: string): Promise<InpatientRecord | null> {
+  await delay(120);
+  const arr = getMockInpatientsArray();
+  const idx = arr.findIndex((p) => p.id === id);
+  if (idx < 0) return null;
+  arr[idx] = {
+    ...arr[idx],
+    removedFromSheets: true,
+    currentlyAdmitted: false,
+    wardBoardColumn: undefined,
+    wardColumnOrder: undefined,
+  };
   return clone(arr[idx]);
 }
 
@@ -1158,7 +1224,8 @@ function normalizedNameKeys(displayName: string): string[] {
 export function getMockWardKanbanSeed(patient: Patient): string[] {
   const keys = normalizedNameKeys(patient.name);
   if (!keys.length) return [];
-  for (const r of MOCK_INPATIENTS) {
+  for (const r of getMockInpatientsArray()) {
+    if (isBundledMockInpatientId(r.id) && isSuppressedWardMockInpatientId(r.id)) continue;
     const k1 = `${r.firstName} ${r.surname}`.trim().toLowerCase().replace(/\s+/g, ' ');
     const k2 = `${r.surname}, ${r.firstName}`.trim().toLowerCase().replace(/\s+/g, ' ');
     if (keys.includes(k1) || keys.includes(k2)) {

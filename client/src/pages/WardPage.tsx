@@ -6,6 +6,7 @@ import {
   addWardTodoToInpatient,
   fetchCurrentInpatients,
   mergeAdmittedRowWithMockKanbanSeeds,
+  suppressBundledMockWardInpatient,
   setWardTodoDone as setUnlinkedWardTodoDone,
   updateInpatientBoardFields,
   updateInpatientRecord,
@@ -553,6 +554,8 @@ export const WardPage: React.FC<WardPageProps> = ({
         initialSummaryText={resolveRemoveInpatientRecord()?.inpatientNotes?.trim() || ''}
         inpatientRecord={resolveRemoveInpatientRecord()}
         onFinished={async () => {
+          const resolved = resolveRemoveInpatientRecord();
+          if (resolved) suppressBundledMockWardInpatient(resolved.id);
           await Promise.all([loadKanban(), reloadInpatients()]);
           setRemoveTarget(null);
         }}

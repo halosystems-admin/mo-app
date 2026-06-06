@@ -19,6 +19,8 @@ import {
   getClinicalWards,
   getInpatientById,
   createEmptyOtherSurgeonDraft,
+  removeInpatientFromSheets,
+  suppressBundledMockWardInpatient,
   updateInpatientRecord,
   type RoundFilters,
 } from '../../../services/clinicalData';
@@ -30,7 +32,7 @@ import {
   wardBadgeClass,
 } from '../shared/clinicalDisplay';
 import { exportInpatientsCsv, exportInpatientsPdf, printInpatientsTable } from './sheetsExports';
-import { fetchWardKanban } from '../../../services/wardBoardBackend';
+import { fetchWardKanban, saveWardKanban } from '../../../services/wardBoardBackend';
 import { DischargePatientModal } from '../shared/DischargePatientModal';
 import { buildDischargeClinicalContext } from '../shared/dischargeContext';
 import { InpatientDetailPanel } from '../shared/InpatientDetailPanel';
@@ -315,6 +317,40 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
       await load();
     },
     [load]
+  );
+
+  const removeRowFromSheets = useCallback(
+    async (record: InpatientRecord) => {
+      const confirmed = window.confirm(
+        'Remove this patient from Sheets? This will not delete the patient folder.'
+      );
+      if (!confirmed) return;
+      try {
+        const removed = await removeInpatientFromSheets(record.id);
+        if (!removed) {
+          onToast?.('Could not remove this patient from Sheets.', 'error');
+          return;
+        }
+        suppressBundledMockWardInpatient(record.id);
+        const haloPatientId =
+          record.linkedDrivePatientId?.trim() ||
+          resolvePatientIdFromClinicalNames(patients, record.firstName, record.surname);
+        if (haloPatientId) {
+          const wardRows = await fetchWardKanban();
+          const baseWardRows = Array.isArray(wardRows) ? wardRows : [];
+          const nextWardRows = baseWardRows.filter((row) => row.patientId !== haloPatientId);
+          if (nextWardRows.length !== baseWardRows.length) {
+            await saveWardKanban(nextWardRows, patients);
+          }
+        }
+        setSelectedId(null);
+        await load();
+        onToast?.('Removed from Sheets.', 'success');
+      } catch {
+        onToast?.('Could not remove this patient from Sheets.', 'error');
+      }
+    },
+    [load, onToast, patients]
   );
 
   const displayedRows = useMemo(() => {
@@ -906,6 +942,7 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
           onClose={() => setSelectedId(null)}
           onSaved={() => void load()}
           onRequestDischarge={() => void openDischargeFlow(selected)}
+          onRequestRemove={() => void removeRowFromSheets(selected)}
           onOpenDictate={() => setShowDictate(true)}
           onOpenTypeNote={
             onOpenPatient

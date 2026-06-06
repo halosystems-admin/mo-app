@@ -31,6 +31,8 @@ export type SheetAdmissionDateKind = 'doa' | 'fu';
 export interface InpatientRecord {
   id: string;
   currentlyAdmitted: boolean;
+  /** Administrative Sheets-only removal flag; does not delete patient data. */
+  removedFromSheets?: boolean;
   bed: string;
   surname: string;
   firstName: string;

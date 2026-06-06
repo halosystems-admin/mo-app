@@ -20,6 +20,8 @@ interface Props {
   onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   /** Discharge flow (Hospital sheet + ward board + optional summary). Shown when admitted. */
   onRequestDischarge?: () => void;
+  /** Administrative removal from Sheets only; does not delete the patient folder. */
+  onRequestRemove?: () => void;
   /** Opens sheet dictation for this admission (surgeon plan, notes, ward tasks, etc.). */
   onOpenDictate?: () => void;
   /** Opens patient workspace for clinical Type note (transcript → templates). */
@@ -33,6 +35,7 @@ export const InpatientDetailPanel: React.FC<Props> = ({
   patients = [],
   onToast,
   onRequestDischarge,
+  onRequestRemove,
   onOpenDictate,
   onOpenTypeNote,
 }) => {
@@ -618,6 +621,15 @@ export const InpatientDetailPanel: React.FC<Props> = ({
                     className="inline-flex items-center justify-center min-h-[44px] px-3 py-2 rounded-lg text-[11px] font-bold tracking-tight text-teal-800 bg-teal-100 border border-teal-300 hover:bg-teal-200"
                   >
                     D/C
+                  </button>
+                ) : null}
+                {onRequestRemove ? (
+                  <button
+                    type="button"
+                    onClick={onRequestRemove}
+                    className="inline-flex items-center justify-center min-h-[44px] px-3 py-2 rounded-lg text-[11px] font-bold tracking-tight text-rose-800 bg-rose-50 border border-rose-200 hover:bg-rose-100"
+                  >
+                    Remove
                   </button>
                 ) : null}
               </div>
