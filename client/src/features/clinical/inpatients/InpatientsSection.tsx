@@ -10,11 +10,9 @@ import type {
 } from '../../../types/clinical';
 import type { ExtractedPatientSticker } from '../../../../../shared/types';
 import {
-  MOCK_INPATIENTS,
   addInpatientRecord,
   applyHaloPatientToAdmissionDraft,
   createEmptyInpatientRecord,
-  duplicateInpatientFromTemplate,
   fetchAdmissionsAll,
   getClinicalWards,
   getInpatientById,
@@ -224,11 +222,8 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
   const [addSaving, setAddSaving] = useState(false);
   const [newAdmission, setNewAdmission] = useState<InpatientRecord>(() => createEmptyInpatientRecord());
   const [addHaloPatientId, setAddHaloPatientId] = useState('');
-  const [addTemplateId, setAddTemplateId] = useState('');
   const addHaloRef = useRef(addHaloPatientId);
-  const addTemplateRef = useRef(addTemplateId);
   addHaloRef.current = addHaloPatientId;
-  addTemplateRef.current = addTemplateId;
 
   const [statusFilter, setStatusFilter] = useState<'' | InpatientSheetStatus>('');
   const [taskFilter, setTaskFilter] = useState<'' | 'vericlaim_open' | 'aslip_open'>('');
@@ -372,19 +367,13 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
   const openAddAdmissionModal = () => {
     setNewAdmission(createEmptyInpatientRecord());
     setAddHaloPatientId('');
-    setAddTemplateId('');
     setShowAddAdmission(true);
   };
 
   const applyAddFormHalo = async (patientId: string) => {
     setAddHaloPatientId(patientId);
     const p = patientId ? patients.find((x) => x.id === patientId) ?? null : null;
-    const tid = addTemplateRef.current;
     setNewAdmission((prev) => {
-      if (tid) {
-        const base = duplicateInpatientFromTemplate(tid);
-        return applyHaloPatientToAdmissionDraft(base, p);
-      }
       return applyHaloPatientToAdmissionDraft(prev, p);
     });
     const id = patientId.trim();
@@ -397,20 +386,6 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
     } catch {
       /* ignore — admission draft still has HALO link */
     }
-  };
-
-  const applyAddFormTemplate = (templateId: string) => {
-    setAddTemplateId(templateId);
-    const haloId = addHaloRef.current;
-    const p = patients.find((x) => x.id === haloId) ?? null;
-    setNewAdmission(() => {
-      if (!templateId) {
-        const empty = createEmptyInpatientRecord();
-        return applyHaloPatientToAdmissionDraft(empty, p);
-      }
-      const base = duplicateInpatientFromTemplate(templateId);
-      return applyHaloPatientToAdmissionDraft(base, p);
-    });
   };
 
   const saveNewAdmission = async () => {
@@ -1047,21 +1022,6 @@ export const InpatientsSection: React.FC<Props> = ({ onToast, patients = [], onO
                   {patients.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-600">Autofill from existing demo admission</label>
-                <select
-                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200"
-                  value={addTemplateId}
-                  onChange={(e) => applyAddFormTemplate(e.target.value)}
-                >
-                  <option value="">— Blank —</option>
-                  {MOCK_INPATIENTS.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {formatInpatientDisplayName(m.firstName, m.surname)} · {m.admissionDiagnosis || '—'}
                     </option>
                   ))}
                 </select>
