@@ -24,6 +24,19 @@ export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+const HENK_LOGIN_EMAILS = [
+  'hjkrugersurgery@gmail.com',
+  'henk@halo.africa',
+] as const;
+
+function henkLoginAliases(email: string): string[] {
+  const normalized = normalizeEmail(email);
+  if (!HENK_LOGIN_EMAILS.includes(normalized as (typeof HENK_LOGIN_EMAILS)[number])) {
+    return [normalized];
+  }
+  return [...HENK_LOGIN_EMAILS];
+}
+
 function requireSupabase() {
   if (!isSupabaseAdminConfigured()) {
     throw new Error('Supabase admin is not configured (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY).');
@@ -35,11 +48,13 @@ function requireSupabase() {
 
 export async function findUserByEmail(email: string): Promise<AppUserRow | null> {
   const sb = requireSupabase();
-  const { data, error } = await sb
-    .from('app_users')
-    .select('*')
-    .eq('email', normalizeEmail(email))
-    .maybeSingle<AppUserRow>();
+  const aliases = henkLoginAliases(email);
+  const query = sb.from('app_users').select('*');
+  const filtered =
+    aliases.length === 1
+      ? query.eq('email', aliases[0])
+      : query.in('email', aliases);
+  const { data, error } = await filtered.limit(1).maybeSingle<AppUserRow>();
   if (error) throw new Error(error.message);
   return data ?? null;
 }
@@ -164,4 +179,3 @@ export async function acceptInvite(params: {
 
   return { userId: user.id, email: user.email, role: user.role };
 }
-
