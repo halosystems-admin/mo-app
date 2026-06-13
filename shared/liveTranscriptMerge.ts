@@ -21,6 +21,8 @@ export function appendUtteranceSegment(segments: string[], chunk: string): strin
   if (c === joined) return segments;
   if (c.startsWith(joined)) return [c];
   if (joined.startsWith(c)) return segments;
+  // Deepgram sometimes revises the whole utterance without sharing a prefix.
+  if (joined.endsWith(c)) return segments;
 
   const maxOverlap = Math.min(
     joined.split(/\s+/).length,

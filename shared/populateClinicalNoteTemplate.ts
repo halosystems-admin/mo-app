@@ -50,6 +50,42 @@ function todayDdMmYyyyDash(): string {
   return `${dd}-${mm}-${d.getFullYear()}`;
 }
 
+/** ASR often mis-hears titles as first names, e.g. "Van der Westhuizen, Mrs." */
+function looksLikeMisextractedPatientName(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  if (/^[^,]+,\s*(Mrs|Mr|Ms|Miss|Dr)\.?$/i.test(v)) return true;
+  if (/^(Mrs|Mr|Ms|Miss|Dr)\.?\s+\S+$/i.test(v) && !v.includes(',')) return true;
+  return false;
+}
+
+function surnameToken(name: string): string {
+  const t = name.trim();
+  if (!t) return '';
+  if (t.includes(',')) return t.split(',')[0]!.trim().toLowerCase();
+  const parts = t.split(/\s+/).filter(Boolean);
+  return (parts[parts.length - 1] ?? '').toLowerCase();
+}
+
+function shouldPreferChartPatientName(extracted: string, chartFormatted: string): boolean {
+  if (!chartFormatted.trim()) return false;
+  if (!extracted.trim() || looksLikeMisextractedPatientName(extracted)) return true;
+  const chartSurname = surnameToken(chartFormatted);
+  const extractedSurname = surnameToken(extracted);
+  if (chartSurname && extractedSurname && chartSurname !== extractedSurname) {
+    if (Math.abs(chartSurname.length - extractedSurname.length) <= 2) {
+      let diffs = 0;
+      const maxLen = Math.max(chartSurname.length, extractedSurname.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (chartSurname[i] !== extractedSurname[i]) diffs++;
+      }
+      if (diffs <= 2) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 const PROFILE_KEY_FILLERS: Array<{
   keys: string[];
   fill: (p: HaloPatientProfile) => string;
@@ -79,6 +115,11 @@ export function enrichParsedDataWithChart(
   if (!profile) return out;
 
   const allowed = new Set(templateDefinition?.fields.map((f) => f.key) ?? Object.keys(out));
+
+  const chartPatientName = formatPatientDisplayName(profile.fullName?.trim() || '');
+  if (allowed.has('patient_name') && shouldPreferChartPatientName(out.patient_name ?? '', chartPatientName)) {
+    out.patient_name = chartPatientName;
+  }
 
   for (const { keys, fill } of PROFILE_KEY_FILLERS) {
     for (const key of keys) {

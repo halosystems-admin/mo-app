@@ -1,6 +1,12 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Mic, Square, Radio, Pause, Play, ChevronDown, X } from 'lucide-react';
 import { getTranscribeWebSocketUrl, transcribeAudio } from '../../services/api';
+import {
+  applyLiveTranscriptChunk,
+  createLiveTranscriptState,
+  flushLiveTranscriptState,
+  type LiveTranscriptState,
+} from '../../../../shared/liveTranscriptMerge';
 
 export interface LiveScribeProps {
   /** Called when live streaming has started (connection open, mic streaming). */
@@ -36,7 +42,10 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
   const [audioLevel, setAudioLevel] = useState(0);
   const [visibleTranscript, setVisibleTranscript] = useState('');
   const transcriptRef = useRef<string>('');
+  const transcriptStateRef = useRef<LiveTranscriptState>(createLiveTranscriptState());
   const hadLiveTranscriptRef = useRef(false);
+  const isStoppingRef = useRef(false);
+  const isLiveRef = useRef(false);
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -113,10 +122,10 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
     setIsPaused(false);
   }, []);
 
-  const runFallbackTranscription = useCallback(async (): Promise<string> => {
-    if (!chunksRef.current.length) return '';
+  const runFallbackTranscription = useCallback(async (audioChunks: Blob[]): Promise<string> => {
+    if (!audioChunks.length) return '';
     try {
-      const blob = new Blob(chunksRef.current, {
+      const blob = new Blob(audioChunks, {
         type: recordingMimeTypeRef.current || 'audio/webm',
       });
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -151,7 +160,15 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
   }, [onError]);
 
   const stopLive = useCallback(async () => {
-    const streamedText = transcriptRef.current.trim();
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
+    isLiveRef.current = false;
+
+    const flushed = flushLiveTranscriptState(transcriptStateRef.current);
+    transcriptStateRef.current = flushed.state;
+    transcriptRef.current = flushed.display;
+    const streamedText = flushed.display.trim();
+    const audioChunks = [...chunksRef.current];
     cleanup();
     setIsLive(false);
     onLiveEnded?.();
@@ -160,8 +177,8 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
 
     // Prefer the full-session transcription for final saved text because it has
     // better whole-utterance context than the live websocket stream.
-    if (chunksRef.current.length > 0) {
-      const batchTranscript = await runFallbackTranscription();
+    if (audioChunks.length > 0) {
+      const batchTranscript = await runFallbackTranscription(audioChunks);
       if (batchTranscript) {
         finalText = batchTranscript;
       }
@@ -200,7 +217,9 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
       return;
     }
     transcriptRef.current = '';
+    transcriptStateRef.current = createLiveTranscriptState();
     hadLiveTranscriptRef.current = false;
+    isStoppingRef.current = false;
     chunksRef.current = [];
     setVisibleTranscript('');
     setConnectionState('connecting');
@@ -239,18 +258,32 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
           }
         };
         mediaRecorder.start(100);
+        isLiveRef.current = true;
       };
 
       ws.onmessage = (event) => {
         try {
-          const msg = JSON.parse(event.data as string) as { type: string; transcript?: string; message?: string };
+          const msg = JSON.parse(event.data as string) as {
+            type: string;
+            transcript?: string;
+            message?: string;
+            isFinal?: boolean;
+            speechFinal?: boolean;
+          };
           if (msg.type === 'transcript' && typeof msg.transcript === 'string' && msg.transcript.trim()) {
-            const prev = transcriptRef.current;
-            const sep = prev ? (prev.endsWith(' ') || msg.transcript.startsWith(' ') ? '' : ' ') : '';
-            transcriptRef.current = prev + sep + msg.transcript.trim();
+            const merged = applyLiveTranscriptChunk(
+              transcriptStateRef.current,
+              msg.transcript,
+              msg.isFinal === true,
+              msg.speechFinal === true
+            );
+            transcriptStateRef.current = merged.state;
+            transcriptRef.current = merged.display;
             hadLiveTranscriptRef.current = true;
-            onLiveTranscriptUpdate(transcriptRef.current);
-            setVisibleTranscript(transcriptRef.current);
+            if (merged.display) {
+              onLiveTranscriptUpdate(merged.display);
+              setVisibleTranscript(merged.display);
+            }
           }
           if (msg.type === 'error') {
             console.error('[LiveScribe] WebSocket error message from server:', msg.message);
@@ -263,19 +296,10 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
 
       ws.onclose = () => {
         console.log('[LiveScribe] WebSocket closed');
-        onLiveEnded?.();
-        setIsLive(false);
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
-          mediaRecorderRef.current = null;
-        }
-        stream.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        wsRef.current = null;
-        stopAudioVisualization();
         setConnectionState('closed');
-        setIsModalOpen(false);
-        setIsMinimized(false);
+        if (isLiveRef.current && !isStoppingRef.current) {
+          void stopLive();
+        }
       };
 
       ws.onerror = () => {
@@ -292,7 +316,7 @@ export const LiveScribe: React.FC<LiveScribeProps> = ({
         err instanceof Error ? err.message : 'Could not access microphone. Please check your browser permissions.'
       );
     }
-  }, [isLive, onLiveTranscriptUpdate, onError]);
+  }, [isLive, onLiveTranscriptUpdate, onError, onLiveStarted, stopLive]);
 
   const handlePrimaryClick = () => {
     if (isLive) {

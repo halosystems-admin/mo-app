@@ -344,9 +344,9 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
     if ((viewerType === 'pdf' || viewerType === 'docx') && blobUrl) {
       return (
         <iframe
-          src={blobUrl}
+          src={`${blobUrl}#view=FitH&toolbar=1`}
           title={fileName}
-          className="w-full h-full rounded-b-xl border-0"
+          className="h-full w-full rounded-b-xl border-0 bg-white"
         />
       );
     }

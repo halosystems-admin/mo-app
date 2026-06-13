@@ -21,7 +21,7 @@ import {
 } from './services/api';
 import type { Patient, UserSettings } from '../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
-import { HENK_HALO_USER_ID } from '../../shared/clinicalTemplates/constants';
+import { resolvePracticeHaloUserId } from '../../shared/resolvePracticeHaloUserId';
 import {
   LogIn,
   Loader,
@@ -66,16 +66,13 @@ export const App = () => {
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState(() =>
     typeof window !== 'undefined' ? getActiveWorkspaceId() : ''
   );
-  const effectiveHaloUserId =
-    currentUser?.haloUserId?.trim()
-      ? currentUser.haloUserId.trim()
-      : currentUser &&
-          (
-            currentUser.email.trim().toLowerCase() === 'hjkrugersurgery@gmail.com' ||
-            (currentUser.driveRootFolderName || '').trim().toLowerCase() === 'henk kruger'
-          )
-        ? HENK_HALO_USER_ID
-        : null;
+  const effectiveHaloUserId = currentUser
+    ? resolvePracticeHaloUserId({
+        haloUserId: currentUser.haloUserId,
+        email: currentUser.email,
+        driveRootFolderName: currentUser.driveRootFolderName,
+      })
+    : null;
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);

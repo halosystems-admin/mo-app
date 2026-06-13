@@ -1,4 +1,5 @@
 import type { CurrentUser } from '../services/api';
+import { HENK_LOGIN_EMAIL } from '../../../shared/resolvePracticeHaloUserId';
 
 type UserLike = Pick<CurrentUser, 'firstName' | 'lastName' | 'email'> | null | undefined;
 
@@ -35,10 +36,9 @@ export function isLikelyKrugerAccount(user: Pick<CurrentUser, 'firstName' | 'las
   const ln = (user.lastName || '').toLowerCase();
   const em = (user.email || '').toLowerCase();
   return (
-    em === 'hjkrugersurgery@gmail.com' ||
+    em === HENK_LOGIN_EMAIL ||
     ln.includes('kruger') ||
-    em.includes('kruger') ||
-    em.includes('henk')
+    em.includes('kruger')
   );
 }
 

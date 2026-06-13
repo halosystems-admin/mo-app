@@ -12,6 +12,7 @@ import type {
   HaloPatientProfile,
 } from '../../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID, HALO_TEMPLATE_OPTIONS, HOSPITALS, type HospitalKey } from '../../../shared/haloTemplates';
+import { resolvePracticeHaloUserId } from '../../../shared/resolvePracticeHaloUserId';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 
 import {
@@ -577,6 +578,7 @@ export const PatientWorkspace: React.FC<Props> = ({
   openStickerProfileForPatientId,
   onStickerProfileOpenFromParentHandled,
 }) => {
+  const practiceUserId = resolvePracticeHaloUserId({ haloUserId });
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [patientNotesFiles, setPatientNotesFiles] = useState<DriveFile[]>([]);
   const [summary, setSummary] = useState<string[]>([]);
@@ -939,13 +941,29 @@ export const PatientWorkspace: React.FC<Props> = ({
     return () => { isMounted = false; };
   }, [patient.id, patient.name, onToast]);
 
-  // Load template list from Halo when user opens Editor & Scribe (use real template IDs to avoid 404)
-  // Also load sessions when opening Editor & Scribe or Previous Sessions tab
+  // Prefetch Halo templates as soon as the workspace opens (template picker after dictation).
+  useEffect(() => {
+    getHaloTemplates(practiceUserId)
+      .then((raw) => {
+        const list = normalizeHaloTemplates(raw as Record<string, unknown>);
+        if (list.length > 0) {
+          setTemplateOptions(list);
+          setSelectedTemplatesForGenerate((prev) =>
+            prev.filter((id) => list.some((t) => t.id === id))
+          );
+        }
+      })
+      .catch(() => {
+        // Keep HALO_TEMPLATE_OPTIONS on failure
+      });
+  }, [patient.id, practiceUserId]);
+
+  // Refresh templates when opening Editor or Sessions tab
   useEffect(() => {
     if (activeTab !== 'notes' && activeTab !== 'sessions') return;
 
     if (activeTab === 'notes') {
-      getHaloTemplates()
+      getHaloTemplates(practiceUserId)
         .then((raw) => {
           const list = normalizeHaloTemplates(raw as Record<string, unknown>);
           if (list.length > 0) {
@@ -1307,6 +1325,7 @@ export const PatientWorkspace: React.FC<Props> = ({
         fileName,
         template_name: templateOptions.find((t) => t.id === tplId)?.name,
         mergeFields: note.docxMerge,
+        user_id: practiceUserId,
       });
       setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
       await loadFolderContents(currentFolderId);
@@ -1318,7 +1337,7 @@ export const PatientWorkspace: React.FC<Props> = ({
     }
     setSavingNoteIndex(null);
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions]);
+  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId]);
 
   const handleSaveAll = useCallback(async () => {
     setStatus(AppStatus.SAVING);
@@ -1337,6 +1356,7 @@ export const PatientWorkspace: React.FC<Props> = ({
           fileName,
           template_name: templateOptions.find((t) => t.id === tplId)?.name,
           mergeFields: note.docxMerge,
+          user_id: practiceUserId,
         });
         setNotes(prev => prev.map((n, j) => j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
         saved++;
@@ -1351,7 +1371,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       onToast(getErrorMessage(err), 'error');
     }
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions]);
+  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId]);
 
   const handleRegeneratePdf = useCallback(async (noteIndex: number, text: string) => {
     const note = notes[noteIndex];
@@ -1367,6 +1387,7 @@ export const PatientWorkspace: React.FC<Props> = ({
         template_name: tplName,
         patientId: patient.id,
         mergeFields: note.docxMerge,
+        user_id: practiceUserId,
       });
       setNotes((prev) =>
         prev.map((n, i) =>
@@ -1384,7 +1405,7 @@ export const PatientWorkspace: React.FC<Props> = ({
     } finally {
       setRegeneratingPdfIndex(null);
     }
-  }, [notes, onToast, templateId, templateOptions, patient.id]);
+  }, [notes, onToast, templateId, templateOptions, patient.id, practiceUserId]);
 
   const GENERATE_TIMEOUT_MS = 130_000;
 
@@ -1417,10 +1438,13 @@ export const PatientWorkspace: React.FC<Props> = ({
               const noteResult = await generateNotePreviewWithFallback({
                 template_id: id,
                 text: noteInput,
-                user_id: selectedHospital === 'louis_leipoldt' ? undefined : activeHospitalConfig.userId,
+                user_id:
+                  selectedHospital === 'louis_leipoldt'
+                    ? practiceUserId
+                    : activeHospitalConfig.userId,
                 template_name,
                 patientId: patient.id,
-                haloUserId,
+                haloUserId: practiceUserId,
                 patientProfile: haloPatientProfile,
               });
               return { noteResult };
@@ -1515,6 +1539,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       activeHospitalConfig.userId,
       consultContext,
       haloUserId,
+      practiceUserId,
       onToast,
       patient.id,
       selectedHospital,
@@ -1642,6 +1667,9 @@ export const PatientWorkspace: React.FC<Props> = ({
       : refinement.base
         ? `${refinement.base}\n\n${clean}`
         : clean;
+
+    // Already applied via onLiveStopped when batch matches stream — skip redundant state churn.
+    if (finalCombined === refinement.initial) return;
 
     setLastTranscript(finalCombined);
     setPendingTranscript((prev) => {
@@ -2287,8 +2315,12 @@ export const PatientWorkspace: React.FC<Props> = ({
       </div>
 
       {/* Content */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-halo-bg p-3 md:p-4 max-md:pb-[calc(9rem+env(safe-area-inset-bottom,0px))] [-webkit-overflow-scrolling:touch]">
-        <div className="mx-auto flex w-full max-w-[min(96rem,100%)] min-h-0 flex-1 flex-col">
+      <div
+        className={`flex min-h-0 flex-1 flex-col bg-halo-bg p-3 md:p-4 max-md:pb-[calc(9rem+env(safe-area-inset-bottom,0px))] [-webkit-overflow-scrolling:touch] ${
+          activeTab === 'notes' ? 'overflow-hidden' : 'overflow-y-auto'
+        }`}
+      >
+        <div className={`mx-auto flex w-full max-w-[min(96rem,100%)] min-h-0 flex-col ${activeTab === 'notes' ? 'min-h-0 flex-1 overflow-hidden' : 'flex-1'}`}>
           {/* AI Panel */}
           {activeTab === 'overview' && hasAiContent && showAiPanel && (
             <div className="mb-3 space-y-3">
@@ -2500,9 +2532,9 @@ export const PatientWorkspace: React.FC<Props> = ({
               </div>
             </div>
           ) : activeTab === 'notes' ? (
-            <div className="flex min-h-0 flex-1 flex-col max-md:min-h-[58dvh]">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {/* Editor workspace: fills remaining viewport height */}
-              <div className="relative flex min-h-[min(60vh,calc(100dvh-220px))] flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70 max-md:min-h-[58dvh]">
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70 md:min-h-[min(60vh,calc(100dvh-220px))] max-md:min-h-0">
                 {pendingTranscript ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/90 p-4">
                     <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{pendingTranscript}</p>
@@ -2603,7 +2635,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                     </div>
                     <div className="flex min-h-0 flex-1 flex-col bg-slate-100/50 p-2 md:p-3 max-md:p-1">
                       {editorPanelView === 'noteFields' ? (
-                        <div className={`${EDITOR_VIEW_SHELL} min-h-[240px] lg:min-h-0 max-md:min-h-0 max-md:focus-within:ring-[1.5px] max-md:focus-within:ring-teal-300/90`}>
+                        <div className={`${EDITOR_VIEW_SHELL} min-h-0 max-md:min-h-0 max-md:focus-within:ring-[1.5px] max-md:focus-within:ring-teal-300/90`}>
                           <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white max-md:min-h-0 max-md:bg-transparent">
                             {typeof consultSubTab === 'number' && notes[consultSubTab] ? (
                               <NoteEditor
@@ -2729,11 +2761,11 @@ export const PatientWorkspace: React.FC<Props> = ({
                               ) : null}
                             </div>
                           </div>
-                          <div className="flex min-h-0 flex-1 flex-col bg-white p-3">
+                          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white p-3 max-md:p-2.5">
                             <textarea
                               value={consultContext}
                               onChange={(e) => setConsultContext(e.target.value)}
-                              className="min-h-0 w-full flex-1 resize-y rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none focus:ring-0 md:min-h-[12rem]"
+                              className="min-h-[min(40vh,320px)] w-full flex-1 resize-none overflow-y-auto rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none focus:ring-0 [-webkit-overflow-scrolling:touch] touch-pan-y max-md:min-h-[48dvh] max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:px-0.5 max-md:py-0.5 max-md:focus:border-0 max-md:focus:ring-0 md:min-h-[12rem]"
                               placeholder="Paste or upload context for this consultation…"
                             />
                           </div>

@@ -5,7 +5,7 @@
  *   npm run setup:henk
  *
  * Optional env:
- *   HENK_SETUP_EMAIL=henk@halo.africa
+ *   HENK_SETUP_EMAIL=hjkrugersurgery@gmail.com
  *   HENK_SETUP_DRIVE_ROOT="Henk Kruger"
  *   HENK_SETUP_OLD_EMAIL=henk.kruger90@gmail.com   # match existing row to update
  *   HENK_SETUP_PASSWORD="..."                      # only when creating a new user (12+ chars)
@@ -18,7 +18,7 @@ import { config } from '../config';
 import { getSupabaseAdminClient, isSupabaseAdminConfigured } from '../services/supabaseAdmin';
 import { findUserByEmail, hashPassword, normalizeEmail } from '../services/userStore';
 
-const TARGET_EMAIL = normalizeEmail(process.env.HENK_SETUP_EMAIL || 'henk@halo.africa');
+const TARGET_EMAIL = normalizeEmail(process.env.HENK_SETUP_EMAIL || 'hjkrugersurgery@gmail.com');
 const DRIVE_ROOT = (process.env.HENK_SETUP_DRIVE_ROOT || 'Henk Kruger').trim();
 const OLD_EMAIL = process.env.HENK_SETUP_OLD_EMAIL
   ? normalizeEmail(process.env.HENK_SETUP_OLD_EMAIL)

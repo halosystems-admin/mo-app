@@ -1,4 +1,5 @@
 import type { ClinicalTemplateDefinition } from '../../shared/clinicalTemplates/types';
+import { getBundledTemplateDefinition } from '../../shared/clinicalTemplates/registry';
 import { buildClientClinicalNotePrompt } from '../../shared/buildClientClinicalNotePrompt';
 import { localClinicalTemplateAvailable } from '../../shared/clinicalTemplates/docxFileResolver';
 import { config } from '../config';
@@ -10,14 +11,22 @@ import {
 import {
   enrichParsedDataWithChart,
   fieldMapFromGeminiJson,
-  populateClinicalNoteEditor,
 } from '../../shared/populateClinicalNoteTemplate';
+import { fieldValuesToOrganizedMarkdown } from '../../shared/clinicalNoteOrganizedText';
 import type { HaloPatientProfile } from '../../shared/types';
 
 export function canUseMoLocalNotePipeline(_haloUserId: string): boolean {
   return (
     config.useLocalClinicalTemplates &&
     Boolean(config.geminiApiKey?.trim())
+  );
+}
+
+/** Note preview (return_type=note): server Gemini + bundled field schema — no Halo Heroku or DOCX required. */
+export function canUseLocalClinicalNotePreview(haloUserId: string, templateId: string): boolean {
+  return (
+    Boolean(config.geminiApiKey?.trim()) &&
+    Boolean(getBundledTemplateDefinition(haloUserId, templateId))
   );
 }
 
@@ -96,7 +105,7 @@ export async function generateMoClinicalNotes(params: {
   }
 
   if (Object.keys(fieldValues).length > 0) {
-    content = populateClinicalNoteEditor(templateId, fieldValues, templateDefinition);
+    content = fieldValuesToOrganizedMarkdown(templateId, fieldValues, templateDefinition);
   } else if (fields.length > 0) {
     content = fieldsToContent(fields);
   }

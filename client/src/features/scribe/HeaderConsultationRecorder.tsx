@@ -38,6 +38,9 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   const transcriptRef = useRef<string>('');
   const transcriptStateRef = useRef<LiveTranscriptState>(createLiveTranscriptState());
   const timerRef = useRef<number | null>(null);
+  /** Prevents stopLive from running twice (user Done + ws.onclose). */
+  const isStoppingRef = useRef(false);
+  const isLiveRef = useRef(false);
 
   const stopAudioVisualization = () => {};
 
@@ -89,10 +92,10 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
     return () => cleanup();
   }, [cleanup]);
 
-  const runFallbackTranscription = useCallback(async (): Promise<string> => {
-    if (!chunksRef.current.length) return '';
+  const runFallbackTranscription = useCallback(async (audioChunks: Blob[]): Promise<string> => {
+    if (!audioChunks.length) return '';
     try {
-      const blob = new Blob(chunksRef.current, {
+      const blob = new Blob(audioChunks, {
         type: recordingMimeTypeRef.current || 'audio/webm',
       });
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -127,31 +130,41 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   }, [onError]);
 
   const stopLive = useCallback(async () => {
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
+    isLiveRef.current = false;
+
     const flushed = flushLiveTranscriptState(transcriptStateRef.current);
     transcriptStateRef.current = flushed.state;
     transcriptRef.current = flushed.display;
     const streamedText = flushed.display.trim();
+    const audioChunks = [...chunksRef.current];
     cleanup();
     setIsLive(false);
 
+    // Show template picker immediately with live transcript — do not wait for batch Deepgram.
     if (streamedText) {
       onLiveStopped(streamedText);
     }
 
-    if (chunksRef.current.length > 0) {
-      const batchTranscript = await runFallbackTranscription();
-      if (batchTranscript) {
+    if (audioChunks.length > 0) {
+      void runFallbackTranscription(audioChunks).then((batchTranscript) => {
+        const batch = batchTranscript.trim();
+        if (!batch) return;
         if (!streamedText) {
-          onLiveStopped(batchTranscript);
-        } else if (batchTranscript !== streamedText) {
-          onLiveFinalized?.(batchTranscript);
+          onLiveStopped(batch);
+          return;
         }
-      }
+        if (batch !== streamedText) {
+          onLiveFinalized?.(batch);
+        }
+      });
     }
   }, [cleanup, onLiveFinalized, onLiveStopped, runFallbackTranscription]);
 
   const startLive = useCallback(async () => {
     if (isLive || connectionState === 'connecting') return;
+    isStoppingRef.current = false;
     transcriptRef.current = '';
     transcriptStateRef.current = createLiveTranscriptState();
     chunksRef.current = [];
@@ -190,6 +203,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
         };
         // 100ms timeslices: audio reaches Deepgram faster (Deepgram recommends ~20–100ms chunks for low latency).
         mediaRecorder.start(100);
+        isLiveRef.current = true;
         setIsLive(true);
         setIsPaused(false);
         startTimer();
@@ -226,7 +240,10 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
 
       ws.onclose = () => {
         setConnectionState('closed');
-        void stopLive();
+        // User-initiated stop already runs stopLive; only finalize on unexpected disconnect.
+        if (isLiveRef.current && !isStoppingRef.current) {
+          void stopLive();
+        }
       };
 
       ws.onerror = () => {

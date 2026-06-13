@@ -5,12 +5,12 @@
  *   RENAME_ACCESS_TOKEN="..."  — paste a delegated Graph token manually
  *   --use-shared-oauth           — Mo/shared OneDrive from app_oauth_tokens (Halo_Patients)
  *   --use-session                — latest HALO browser session in Supabase `session` table
- *   --use-session --session-email henk@halo.africa  — Henk's session after he signs in + connects Microsoft
+ *   --use-session --session-email hjkrugersurgery@gmail.com  — Henk's session after he signs in + connects Microsoft
  *
  * Examples:
- *   npm run rename:patient-folders -- --root "Henk Kruger" --use-session --session-email henk@halo.africa --dry-run
+ *   npm run rename:patient-folders -- --root "Henk Kruger" --use-session --session-email hjkrugersurgery@gmail.com --dry-run
  *   npm run rename:patient-folders -- --root "Halo_Patients" --use-shared-oauth --dry-run
- *   npm run rename:patient-folders -- --root "Henk Kruger" --use-session --session-email henk@halo.africa --apply
+ *   npm run rename:patient-folders -- --root "Henk Kruger" --use-session --session-email hjkrugersurgery@gmail.com --apply
  */
 import '../config';
 import { parseFolderString } from '../services/drive';

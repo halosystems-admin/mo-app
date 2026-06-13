@@ -18,7 +18,8 @@
     "test:calendar": "ts-node server/tests/calendar-normalise.test.ts",
     "test:docx-resolver": "ts-node server/tests/docxFileResolver.test.ts",
     "test:docx-audit": "ts-node server/tests/docxTemplateAudit.test.ts",
-    "test:docx-render": "ts-node server/tests/docxRenderSmoke.test.ts"
+    "test:docx-render": "ts-node server/tests/docxRenderSmoke.test.ts",
+    "test:live-transcript": "ts-node server/tests/liveTranscriptMerge.test.ts"
   },
   "engines": {
     "node": "20.x"

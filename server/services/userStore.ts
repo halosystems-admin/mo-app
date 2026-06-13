@@ -24,17 +24,12 @@ export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-const HENK_LOGIN_EMAILS = [
-  'hjkrugersurgery@gmail.com',
-  'henk@halo.africa',
-] as const;
+import { HENK_LOGIN_EMAIL } from '../../shared/resolvePracticeHaloUserId';
 
 function henkLoginAliases(email: string): string[] {
   const normalized = normalizeEmail(email);
-  if (!HENK_LOGIN_EMAILS.includes(normalized as (typeof HENK_LOGIN_EMAILS)[number])) {
-    return [normalized];
-  }
-  return [...HENK_LOGIN_EMAILS];
+  if (normalized === HENK_LOGIN_EMAIL) return [HENK_LOGIN_EMAIL];
+  return [normalized];
 }
 
 function requireSupabase() {

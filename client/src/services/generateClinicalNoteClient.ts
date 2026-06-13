@@ -8,11 +8,12 @@ import {
 import {
   enrichParsedDataWithChart,
   fieldMapFromGeminiJson,
-  populateClinicalNoteEditor,
 } from '../../../shared/populateClinicalNoteTemplate';
+import { fieldValuesToOrganizedMarkdown } from '../../../shared/clinicalNoteOrganizedText';
 import { getPatientHaloProfile } from './api';
 import { generateText, isClientGeminiConfigured } from './geminiClient';
 import type { HaloPatientProfile } from '../../../shared/types';
+import { resolvePracticeHaloUserId } from '../../../shared/resolvePracticeHaloUserId';
 
 export type GenerateClinicalNotePreviewParams = {
   template_id: string;
@@ -67,10 +68,8 @@ export async function generateClinicalNotePreview(
       ? params.template_name.trim()
       : null) || templateId;
 
-  const haloUserId = params.haloUserId?.trim() || '';
-  const templateDefinition = haloUserId
-    ? getBundledTemplateDefinition(haloUserId, templateId)
-    : undefined;
+  const haloUserId = resolvePracticeHaloUserId({ haloUserId: params.haloUserId });
+  const templateDefinition = getBundledTemplateDefinition(haloUserId, templateId);
 
   const profile =
     params.patientProfile !== undefined
@@ -105,7 +104,7 @@ export async function generateClinicalNotePreview(
   }
 
   if (Object.keys(fieldValues).length > 0) {
-    content = populateClinicalNoteEditor(templateId, fieldValues, templateDefinition);
+    content = fieldValuesToOrganizedMarkdown(templateId, fieldValues, templateDefinition);
   } else if (fields.length > 0) {
     content = fieldsToContent(fields);
   }

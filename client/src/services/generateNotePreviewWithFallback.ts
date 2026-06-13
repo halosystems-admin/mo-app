@@ -13,14 +13,18 @@ export type NotePreviewParams = {
   patientProfile?: HaloPatientProfile | null;
 };
 
-/** Client Gemini first; falls back to server Halo when key missing or client fails. */
+function noteHasStructuredFields(notes: HaloNote[]): boolean {
+  return notes.some((n) => n.fields && n.fields.length > 0);
+}
+
+/** Client Gemini first; falls back to server when client fails or returns no structured fields. */
 export async function generateNotePreviewWithFallback(
   params: NotePreviewParams
 ): Promise<{ notes: HaloNote[] }> {
   if (isClientGeminiConfigured()) {
     try {
       const { generateClinicalNotePreview } = await import('./generateClinicalNoteClient');
-      return generateClinicalNotePreview({
+      const clientResult = await generateClinicalNotePreview({
         template_id: params.template_id,
         text: params.text,
         template_name: params.template_name,
@@ -28,6 +32,10 @@ export async function generateNotePreviewWithFallback(
         haloUserId: params.haloUserId,
         patientProfile: params.patientProfile,
       });
+      if (noteHasStructuredFields(clientResult.notes)) {
+        return clientResult;
+      }
+      console.warn('[note-preview] client Gemini returned no structured fields — trying server');
     } catch (e) {
       console.warn('[note-preview] client Gemini failed, trying server:', e);
     }
@@ -38,7 +46,7 @@ export async function generateNotePreviewWithFallback(
     text: params.text,
     template_name: params.template_name,
     patientId: params.patientId,
-    user_id: params.user_id,
+    user_id: params.user_id ?? params.haloUserId ?? undefined,
   };
   return generateNotePreview(serverParams);
 }

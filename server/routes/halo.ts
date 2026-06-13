@@ -6,6 +6,7 @@ import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { config } from '../config';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { HENK_HALO_USER_ID } from '../../shared/clinicalTemplates/constants';
+import { isHenkPracticeIdentity } from '../../shared/resolvePracticeHaloUserId';
 import {
   resolveHenkReferralLetterAbsolutePath,
   resolveMoReferralLetterAbsolutePath,
@@ -19,6 +20,7 @@ import { getStorageAdapter } from '../services/storage';
 import { generateText } from '../services/gemini';
 import {
   generateMoClinicalNotes,
+  canUseLocalClinicalNotePreview,
   canUseLocalClinicalTemplateUser,
 } from '../services/moClinicalNoteGeneration';
 import { renderPracticeClinicalDocx } from '../services/practiceDocxFromTemplate';
@@ -50,10 +52,12 @@ const HENK_LOCAL_LETTER_TEMPLATE = 'Henk_motivational_letter.docx';
 function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConfig?: boolean }): string {
   if (opts?.useMobileConfig) return config.haloMobileUserId;
   if (opts?.userId?.trim()) return opts.userId.trim();
-  const driveRoot = (req.appUser?.driveRootFolderName || '').trim().toLowerCase();
   if (
-    (req.appUser?.email && isHenkOutboundEmail(req.appUser.email)) ||
-    driveRoot === config.henkDriveRootFolderName.trim().toLowerCase()
+    isHenkPracticeIdentity({
+      email: req.appUser?.email,
+      driveRootFolderName: req.appUser?.driveRootFolderName,
+      henkLoginEmail: config.henkOutboundEmail,
+    })
   ) {
     return HENK_HALO_USER_ID;
   }
@@ -61,16 +65,16 @@ function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConf
   return config.haloUserId;
 }
 
-function resolveBundledTemplateDefinition(req: Request, userId: string, templateId: string) {
-  return getLocalTemplateDefinition(userId, templateId);
+function isHenkPractice(req: Request): boolean {
+  return isHenkPracticeIdentity({
+    email: req.appUser?.email,
+    driveRootFolderName: req.appUser?.driveRootFolderName,
+    henkLoginEmail: config.henkOutboundEmail,
+  });
 }
 
-function isHenkPractice(req: Request): boolean {
-  const driveRoot = (req.appUser?.driveRootFolderName || '').trim().toLowerCase();
-  return (
-    (req.appUser?.email && isHenkOutboundEmail(req.appUser.email)) ||
-    driveRoot === config.henkDriveRootFolderName.trim().toLowerCase()
-  );
+function resolveBundledTemplateDefinition(req: Request, userId: string, templateId: string) {
+  return getLocalTemplateDefinition(userId, templateId);
 }
 
 function loadLocalLetterTemplateBuffer(req: Request, letterKind: PatientLetterKind): Buffer {
@@ -267,10 +271,10 @@ async function prefixTextWithPatientProfile(
 
 /** Halo sometimes echoes unstructured dictation — fill structured Markdown via Gemini when needed. */
 function noteNeedsMarkdownStructure(note: Pick<HaloNote, 'content' | 'fields'>): boolean {
-  if (note.fields && note.fields.length > 0) return false;
   const c = note.content?.trim() ?? '';
   if (!c) return true;
   if (/^#{1,3}\s/m.test(c)) return false;
+  if (note.fields && note.fields.length > 0) return false;
   const lines = c.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (c.length > 180 && lines.length < 5) return true;
   return false;
@@ -470,7 +474,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       template_name?: string;
     };
 
-    if (typeof text !== 'string') {
+    if (typeof text !== 'string' || !text.trim()) {
       res.status(400).json({ error: 'text is required.' });
       return;
     }
@@ -493,29 +497,53 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       userId: userId.slice(0, 8) + '…',
       templateId,
       return_type,
-      textLength: canUseLocalClinicalTemplateUser(userId, templateId) ? localSourceText.length : composedText.length,
+      textLength: canUseLocalClinicalNotePreview(userId, templateId) ? localSourceText.length : composedText.length,
+      localPreview: canUseLocalClinicalNotePreview(userId, templateId),
     });
 
     if (return_type === 'note') {
       let notes: HaloNote[];
-      if (canUseLocalClinicalTemplateUser(userId, templateId)) {
-        notes = await generateMoClinicalNotes({
-          composedText: localSourceText,
-          templateId,
-          templateDisplayName: tplLabel,
-          templateDefinition,
-          patientProfile,
-        });
+      if (canUseLocalClinicalNotePreview(userId, templateId)) {
+        try {
+          notes = await generateMoClinicalNotes({
+            composedText: localSourceText,
+            templateId,
+            templateDisplayName: tplLabel,
+            templateDefinition,
+            patientProfile,
+          });
+        } catch (localErr) {
+          console.error('[Halo] local note preview failed:', localErr);
+          const message =
+            localErr instanceof Error ? localErr.message : 'Local note generation failed.';
+          res.status(503).json({ error: message });
+          return;
+        }
       } else {
-        const result = await generateNote({
-          user_id: userId,
-          template_id: templateId,
-          text: composedText,
-          return_type,
-          template_name: templateNameOpt,
-          templateDefinition,
-        });
-        notes = result as HaloNote[];
+        try {
+          const result = await generateNote({
+            user_id: userId,
+            template_id: templateId,
+            text: composedText,
+            return_type,
+            template_name: templateNameOpt,
+            templateDefinition,
+          });
+          notes = result as HaloNote[];
+        } catch (upstreamErr) {
+          if (canUseLocalClinicalNotePreview(userId, templateId)) {
+            console.warn('[Halo] upstream generate_note failed; using local Gemini fallback:', upstreamErr);
+            notes = await generateMoClinicalNotes({
+              composedText: localSourceText,
+              templateId,
+              templateDisplayName: tplLabel,
+              templateDefinition,
+              patientProfile,
+            });
+          } else {
+            throw upstreamErr;
+          }
+        }
       }
       notes = await finalizeGeneratedNotes(notes, composedText, templateId, tplLabel, templateDefinition);
       res.json({ notes });

@@ -1,5 +1,6 @@
 import type { ClinicalTemplateDefinition } from '../../shared/clinicalTemplates/types';
 import type { HaloPatientProfile } from '../../shared/types';
+import { getBundledTemplateDefinition } from '../../shared/clinicalTemplates/registry';
 import { localClinicalTemplateAvailable } from '../../shared/clinicalTemplates/docxFileResolver';
 import { buildDocxMergeFields } from '../../shared/noteDocxMergeText';
 import { config } from '../config';
@@ -25,7 +26,14 @@ export type RenderPracticeDocxParams = {
   patientProfile?: HaloPatientProfile | null;
 };
 
+/** Mo/Henk: render from repo DOCX when bundled schema + template file exist (no Halo Heroku). */
 export function shouldTryLocalClinicalDocx(haloUserId: string, templateId: string): boolean {
+  if (
+    getBundledTemplateDefinition(haloUserId, templateId) &&
+    localClinicalTemplateAvailable(haloUserId, templateId, config.clinicalTemplateRoot)
+  ) {
+    return true;
+  }
   if (!config.useLocalClinicalTemplates) return false;
   return (
     canUseLocalClinicalNotePipeline(haloUserId) &&
@@ -48,13 +56,18 @@ async function resolveMergeFieldValues(params: RenderPracticeDocxParams): Promis
   const tplLabel =
     params.template_name?.trim() || params.templateDefinition?.name || params.templateId;
 
-  values = await extractMoTemplateFieldValues({
-    composedText: text,
-    templateId: params.templateId,
-    templateDisplayName: tplLabel,
-    templateDefinition: params.templateDefinition,
-    patientProfile: params.patientProfile,
-  });
+  try {
+    values = await extractMoTemplateFieldValues({
+      composedText: text,
+      templateId: params.templateId,
+      templateDisplayName: tplLabel,
+      templateDefinition: params.templateDefinition,
+      patientProfile: params.patientProfile,
+    });
+  } catch (err) {
+    console.warn('[docx-merge] Gemini field extraction failed:', err);
+    return mergeFields ?? {};
+  }
 
   return values;
 }
