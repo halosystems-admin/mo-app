@@ -618,6 +618,8 @@ export const PatientWorkspace: React.FC<Props> = ({
   const [templateOptions, setTemplateOptions] = useState<Array<{ id: string; name: string }>>([...HALO_TEMPLATE_OPTIONS]);
   const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>([]);
   const lastTranscriptRef = useRef<string>('');
+  /** Set when recording starts: continue loaded Notes session vs fresh consult (e.g. from Files). */
+  const recordingSessionModeRef = useRef<'new' | 'continue'>('new');
   /** Last Smart Context image to embed in cumulative PDF on “Save to record”. */
   const [pendingLongitudinalImage, setPendingLongitudinalImage] = useState<{
     base64: string;
@@ -647,6 +649,9 @@ export const PatientWorkspace: React.FC<Props> = ({
   const [sessions, setSessions] = useState<ScribeSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const activeTabRef = useRef(activeTab);
+  const activeSessionIdRef = useRef<string | null>(activeSessionId);
+  const notesCountRef = useRef(0);
 
   // Derived "current" transcript that the UI shows and copies:
   // any completed segments (lastTranscript) plus the current live segment (if recording).
@@ -657,6 +662,18 @@ export const PatientWorkspace: React.FC<Props> = ({
   useEffect(() => {
     lastTranscriptRef.current = lastTranscript;
   }, [lastTranscript]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    notesCountRef.current = notes.length;
+  }, [notes.length]);
 
   // Folder navigation state
   const [currentFolderId, setCurrentFolderId] = useState<string>(patient.id);
@@ -1646,6 +1663,37 @@ export const PatientWorkspace: React.FC<Props> = ({
     setLiveTranscriptSegment(segment);
   }, []);
 
+  const shouldContinueConsultationSession = useCallback((): boolean => {
+    return (
+      activeTabRef.current === 'notes' &&
+      (!!activeSessionIdRef.current ||
+        notesCountRef.current > 0 ||
+        !!lastTranscriptRef.current.trim())
+    );
+  }, []);
+
+  const handleLiveStarting = useCallback(() => {
+    const continuing = shouldContinueConsultationSession();
+    recordingSessionModeRef.current = continuing ? 'continue' : 'new';
+
+    if (!continuing) {
+      setLastTranscript('');
+      setLiveTranscriptSegment('');
+      setPendingTranscript(null);
+      setActiveSessionId(null);
+      setNotes([]);
+      setSelectedTemplatesForGenerate([]);
+      setShowAddNoteModal(false);
+      lastTranscriptRef.current = '';
+      activeSessionIdRef.current = null;
+      notesCountRef.current = 0;
+    }
+
+    setActiveTab('notes');
+    setEditorPanelView('transcription');
+    setIsLiveStreaming(true);
+  }, [shouldContinueConsultationSession]);
+
   const proceedToTemplatePickerFromTranscript = useCallback(
     (source: string) => {
       const combined = source.trim();
@@ -1698,24 +1746,21 @@ export const PatientWorkspace: React.FC<Props> = ({
         return;
       }
 
+      const continuing = recordingSessionModeRef.current === 'continue';
       const base = lastTranscriptRef.current.trim();
-      const isResume = notes.length > 0 || !!activeSessionId;
 
       let combined: string;
-      let resumeHeader = '';
-      if (isResume && base) {
+      if (continuing && base) {
         const timestamp = new Date().toLocaleString();
-        resumeHeader = `\n\n[Consultation resumed ${timestamp}]\n\n`;
+        const resumeHeader = `\n\n[Consultation resumed ${timestamp}]\n\n`;
         combined = `${base}${resumeHeader}${clean}`;
-      } else if (base) {
-        combined = `${base}\n\n${clean}`;
       } else {
         combined = clean;
       }
 
       setLastTranscript(combined);
 
-      if (isResume) {
+      if (continuing) {
         setPendingTranscript(null);
         setActiveTab('notes');
         setEditorPanelView('noteFields');
@@ -1727,7 +1772,7 @@ export const PatientWorkspace: React.FC<Props> = ({
         setEditorPanelView('noteFields');
       }
     },
-    [activeSessionId, generateNotesFromTranscript, notes.length]
+    [generateNotesFromTranscript]
   );
 
   const toggleTemplateForGenerate = useCallback((id: string) => {
@@ -2329,6 +2374,7 @@ export const PatientWorkspace: React.FC<Props> = ({
             <>
               <div className="flex flex-row flex-wrap items-center justify-end gap-2">
                 <HeaderConsultationRecorder
+                  onLiveStarting={handleLiveStarting}
                   onLiveTranscriptUpdate={handleLiveTranscriptUpdate}
                   onLiveStopping={handleLiveStopping}
                   onLiveStopped={handleLiveStopped}

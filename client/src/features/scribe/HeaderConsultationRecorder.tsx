@@ -15,6 +15,8 @@ import {
 import { setLastRecordingTranscriptionRetry } from './consultationRecordingRetry';
 
 export interface HeaderConsultationRecorderProps {
+  /** Fired before mic/WS connect — parent can reset or keep prior transcript for this recording. */
+  onLiveStarting?: () => void;
   onLiveTranscriptUpdate: (transcript: string) => void;
   onLiveStopping?: () => void;
   onLiveStopped: (transcript: string) => void;
@@ -74,6 +76,7 @@ function waitForTranscriptDrain(ws: WebSocket, timeoutMs: number): Promise<void>
 }
 
 export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProps> = ({
+  onLiveStarting,
   onLiveTranscriptUpdate,
   onLiveStopping,
   onLiveStopped,
@@ -314,6 +317,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   const startLive = useCallback(async () => {
     const ui = getConsultationRecorderUiState();
     if (ui.isLive || ui.isBusy || ui.isFinalizing || isStoppingRef.current) return;
+    onLiveStarting?.();
     isStoppingRef.current = false;
     transcriptRef.current = '';
     transcriptStateRef.current = createLiveTranscriptState();
@@ -390,7 +394,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
         err instanceof Error ? err.message : 'Could not access microphone. Please check your browser permissions.'
       );
     }
-  }, [onError, processTranscriptMessage, stopLive]);
+  }, [onError, onLiveStarting, processTranscriptMessage, stopLive]);
 
   const startLiveRef = useRef(startLive);
   const stopLiveRef = useRef(stopLive);
