@@ -5,6 +5,8 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import http from 'http';
 import { config } from './config';
+import { MO_TEMPLATES_DIR_NAME, HENK_TEMPLATES_DIR_NAME } from '../shared/clinicalTemplates/docxFileResolver';
+import fs from 'fs';
 import authRoutes from './routes/auth';
 import userAuthRoutes from './routes/userAuth';
 import adminRoutes from './routes/admin';
@@ -137,6 +139,12 @@ attachTranscribeWebSocket(server);
 
 server.listen(config.port, () => {
   console.log(`Halo server running on port ${config.port} (${config.isProduction ? 'production' : 'development'})`);
+  const templateRoot = config.clinicalTemplateRoot;
+  const moOk = fs.existsSync(path.join(templateRoot, MO_TEMPLATES_DIR_NAME));
+  const henkOk = fs.existsSync(path.join(templateRoot, HENK_TEMPLATES_DIR_NAME));
+  console.log(
+    `[config] clinical templates root=${templateRoot} mo=${moOk ? 'ok' : 'MISSING'} henk=${henkOk ? 'ok' : 'MISSING'}`
+  );
   if (!config.isProduction) {
     const k = config.geminiApiKey;
     console.log(

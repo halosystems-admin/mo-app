@@ -1,5 +1,6 @@
 import type { ClinicalTemplateDefinition } from '../../shared/clinicalTemplates/types';
 import { getBundledTemplateDefinition } from '../../shared/clinicalTemplates/registry';
+import { resolvePracticeHaloUserId } from '../../shared/resolvePracticeHaloUserId';
 import { buildClientClinicalNotePrompt } from '../../shared/buildClientClinicalNotePrompt';
 import { localClinicalTemplateAvailable } from '../../shared/clinicalTemplates/docxFileResolver';
 import { config } from '../config';
@@ -24,9 +25,10 @@ export function canUseMoLocalNotePipeline(_haloUserId: string): boolean {
 
 /** Note preview (return_type=note): server Gemini + bundled field schema — no Halo Heroku or DOCX required. */
 export function canUseLocalClinicalNotePreview(haloUserId: string, templateId: string): boolean {
+  const bundledUserId = resolvePracticeHaloUserId({ haloUserId });
   return (
     Boolean(config.geminiApiKey?.trim()) &&
-    Boolean(getBundledTemplateDefinition(haloUserId, templateId))
+    Boolean(getBundledTemplateDefinition(bundledUserId, templateId))
   );
 }
 

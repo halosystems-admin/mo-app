@@ -571,6 +571,9 @@ interface Props {
   templateId?: string;
   calendarPrepEvent?: CalendarEvent | null;
   haloUserId?: string | null;
+  /** Signed-in user email — used with drive root to route Henk vs Mo templates. */
+  userEmail?: string | null;
+  driveRootFolderName?: string | null;
   /** App sets this to the current patient id (e.g. ward sheet name) to open Sticker & billing once. */
   openStickerProfileForPatientId?: string | null;
   onStickerProfileOpenFromParentHandled?: () => void;
@@ -584,10 +587,16 @@ export const PatientWorkspace: React.FC<Props> = ({
   templateId: propTemplateId,
   calendarPrepEvent,
   haloUserId = null,
+  userEmail = null,
+  driveRootFolderName = null,
   openStickerProfileForPatientId,
   onStickerProfileOpenFromParentHandled,
 }) => {
-  const practiceUserId = resolvePracticeHaloUserId({ haloUserId });
+  const practiceUserId = resolvePracticeHaloUserId({
+    haloUserId,
+    email: userEmail,
+    driveRootFolderName,
+  });
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [patientNotesFiles, setPatientNotesFiles] = useState<DriveFile[]>([]);
   const [summary, setSummary] = useState<string[]>([]);

@@ -3,6 +3,7 @@ import type { HaloPatientProfile } from '../../shared/types';
 import { getBundledTemplateDefinition } from '../../shared/clinicalTemplates/registry';
 import { localClinicalTemplateAvailable } from '../../shared/clinicalTemplates/docxFileResolver';
 import { buildDocxMergeFields } from '../../shared/noteDocxMergeText';
+import { resolvePracticeHaloUserId } from '../../shared/resolvePracticeHaloUserId';
 import { config } from '../config';
 import { generateNote, type GenerateNoteParams } from './haloApi';
 import {
@@ -10,7 +11,7 @@ import {
   loadClinicalTemplateBuffer,
   renderClinicalNoteDocx,
 } from './clinicalNoteDocx';
-import { canUseLocalClinicalNotePipeline, extractMoTemplateFieldValues } from './moClinicalNoteGeneration';
+import { extractMoTemplateFieldValues } from './moClinicalNoteGeneration';
 
 export type RenderPracticeDocxParams = {
   haloUserId: string;
@@ -24,21 +25,40 @@ export type RenderPracticeDocxParams = {
   /** LLM/chart field map from client. */
   mergeFields?: Record<string, string>;
   patientProfile?: HaloPatientProfile | null;
+  /** Practice identity hints — used to pick Mo vs Henk bundled templates. */
+  practiceEmail?: string | null;
+  practiceDriveRoot?: string | null;
 };
 
-/** Mo/Henk: render from repo DOCX when bundled schema + template file exist (no Halo Heroku). */
+function resolveBundledUserId(params: RenderPracticeDocxParams): string {
+  return resolvePracticeHaloUserId({
+    haloUserId: params.haloUserId,
+    email: params.practiceEmail,
+    driveRootFolderName: params.practiceDriveRoot,
+    henkLoginEmail: config.henkOutboundEmail,
+  });
+}
+
+/** Mo/Henk: prefer repo DOCX when bundled schema + template file exist; Halo is fallback. */
 export function shouldTryLocalClinicalDocx(haloUserId: string, templateId: string): boolean {
-  if (
-    getBundledTemplateDefinition(haloUserId, templateId) &&
-    localClinicalTemplateAvailable(haloUserId, templateId, config.clinicalTemplateRoot)
-  ) {
-    return true;
-  }
-  if (!config.useLocalClinicalTemplates) return false;
+  const bundledUserId = resolvePracticeHaloUserId({ haloUserId });
   return (
-    canUseLocalClinicalNotePipeline(haloUserId) &&
-    localClinicalTemplateAvailable(haloUserId, templateId, config.clinicalTemplateRoot)
+    Boolean(getBundledTemplateDefinition(bundledUserId, templateId)) &&
+    localClinicalTemplateAvailable(bundledUserId, templateId, config.clinicalTemplateRoot)
   );
+}
+
+function isBundledClinicalTemplate(haloUserId: string, templateId: string): boolean {
+  const bundledUserId = resolvePracticeHaloUserId({ haloUserId });
+  return Boolean(getBundledTemplateDefinition(bundledUserId, templateId));
+}
+
+function primaryProseFieldKey(templateDefinition?: ClinicalTemplateDefinition): string | null {
+  if (!templateDefinition?.fields.length) return null;
+  const preferred = templateDefinition.fields.find((f) =>
+    /operation_note|findings|diagnosis|presenting_complaint|indication|management|note/i.test(f.key)
+  );
+  return preferred?.key ?? templateDefinition.fields[templateDefinition.fields.length - 1]?.key ?? null;
 }
 
 async function resolveMergeFieldValues(params: RenderPracticeDocxParams): Promise<Record<string, string>> {
@@ -71,10 +91,7 @@ async function resolveMergeFieldValues(params: RenderPracticeDocxParams): Promis
 
   if (Object.values(values).filter((v) => v.trim()).length > 0) return values;
 
-  // Last resort: keep narrative in the primary prose field so DOCX still saves.
-  const proseKey =
-    templateDefinition?.fields.find((f) => /operation_note|findings|note|management|presenting/i.test(f.key))
-      ?.key ?? templateDefinition?.fields[templateDefinition.fields.length - 1]?.key;
+  const proseKey = primaryProseFieldKey(templateDefinition);
   if (proseKey && text.trim()) {
     return { [proseKey]: text.trim() };
   }
@@ -82,43 +99,102 @@ async function resolveMergeFieldValues(params: RenderPracticeDocxParams): Promis
   return values;
 }
 
-/**
- * Render clinical note DOCX from repo templates (Mo/Henk) with Halo fallback.
- */
-export async function renderPracticeClinicalDocx(
-  params: RenderPracticeDocxParams
-): Promise<{ buffer: Buffer; source: 'local' | 'halo' }> {
-  const { haloUserId, templateId, templateDefinition } = params;
+function renderLocalDocxBuffer(
+  templateBuf: Buffer,
+  fieldValues: Record<string, string>,
+  templateDefinition?: ClinicalTemplateDefinition
+): Buffer {
+  const placeholders = buildPlaceholderMap(fieldValues, templateDefinition);
+  return renderClinicalNoteDocx(templateBuf, placeholders);
+}
 
-  if (shouldTryLocalClinicalDocx(haloUserId, templateId)) {
-    try {
-      const templateBuf = loadClinicalTemplateBuffer(haloUserId, templateId);
-      if (!templateBuf) throw new Error('Clinical template file not found');
-
-      const fieldValues = await resolveMergeFieldValues(params);
-      const placeholders = buildPlaceholderMap(fieldValues, templateDefinition);
-      const nonEmpty = Object.values(placeholders).filter((v) => v.trim()).length;
-      console.log(
-        `[docx-merge] user=${haloUserId.slice(0, 8)}… template=${templateId} nonEmpty=${nonEmpty} keys=${Object.keys(placeholders).join(',')}`
-      );
-
-      const buffer = renderClinicalNoteDocx(templateBuf, placeholders);
-      console.log('[docx] rendered locally:', haloUserId.slice(0, 8), templateId);
-      return { buffer, source: 'local' };
-    } catch (err) {
-      console.warn('[docx] Local render failed, falling back to Halo:', err);
-    }
-  }
-
+async function renderHaloDocxFallback(
+  params: RenderPracticeDocxParams,
+  templateDefinition?: ClinicalTemplateDefinition
+): Promise<Buffer> {
   const haloParams: GenerateNoteParams = {
-    user_id: haloUserId,
-    template_id: templateId,
+    user_id: params.haloUserId,
+    template_id: params.templateId,
     text: params.haloText ?? params.text,
     return_type: 'docx',
     template_name: params.template_name,
     templateDefinition,
   };
-  const buffer = (await generateNote(haloParams)) as Buffer;
+  return (await generateNote(haloParams)) as Buffer;
+}
+
+/**
+ * Render clinical note DOCX: local repo templates first (Mo/Henk), Halo API as fallback.
+ */
+export async function renderPracticeClinicalDocx(
+  params: RenderPracticeDocxParams
+): Promise<{ buffer: Buffer; source: 'local' | 'halo' }> {
+  const bundledUserId = resolveBundledUserId(params);
+  const templateId = params.templateId;
+  const templateDefinition =
+    params.templateDefinition ?? getBundledTemplateDefinition(bundledUserId, templateId);
+  const isBundled = isBundledClinicalTemplate(bundledUserId, templateId);
+
+  if (isBundled) {
+    const templateBuf = loadClinicalTemplateBuffer(bundledUserId, templateId);
+
+    if (templateBuf) {
+      const strategies: Array<() => Promise<Record<string, string>>> = [
+        () => resolveMergeFieldValues({ ...params, templateDefinition }),
+        async () => {
+          const proseKey = primaryProseFieldKey(templateDefinition);
+          if (!proseKey || !params.text.trim()) return {};
+          return { [proseKey]: params.text.trim() };
+        },
+      ];
+
+      let lastErr: unknown;
+      for (const strategy of strategies) {
+        try {
+          const fieldValues = await strategy();
+          const nonEmpty = Object.values(fieldValues).filter((v) => v.trim()).length;
+          if (nonEmpty === 0 && params.text.trim()) {
+            const proseKey = primaryProseFieldKey(templateDefinition);
+            if (proseKey) fieldValues[proseKey] = params.text.trim();
+          }
+          const buffer = renderLocalDocxBuffer(templateBuf, fieldValues, templateDefinition);
+          console.log('[docx] rendered locally:', bundledUserId.slice(0, 8), templateId);
+          return { buffer, source: 'local' };
+        } catch (err) {
+          lastErr = err;
+          console.warn('[docx] Local render attempt failed:', err);
+        }
+      }
+
+      console.warn(
+        '[docx] Local render exhausted, falling back to Halo:',
+        lastErr instanceof Error ? lastErr.message : lastErr
+      );
+    } else {
+      console.warn(
+        '[docx] Template file missing locally, falling back to Halo:',
+        templateId,
+        'root:',
+        config.clinicalTemplateRoot
+      );
+    }
+
+    try {
+      const buffer = await renderHaloDocxFallback(params, templateDefinition);
+      console.log('[docx] rendered via Halo fallback:', params.haloUserId.slice(0, 8), templateId);
+      return { buffer, source: 'halo' };
+    } catch (haloErr) {
+      if (!templateBuf) {
+        const haloMsg = haloErr instanceof Error ? haloErr.message : 'Halo request failed';
+        throw new Error(
+          `Clinical template file missing on server (${templateId}). Template root: ${config.clinicalTemplateRoot}. Halo fallback also failed: ${haloMsg}`
+        );
+      }
+      throw haloErr;
+    }
+  }
+
+  const buffer = await renderHaloDocxFallback(params, templateDefinition);
   return { buffer, source: 'halo' };
 }
 

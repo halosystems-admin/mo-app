@@ -18,8 +18,9 @@ export function isHenkPracticeIdentity(params: {
 }
 
 /**
- * Resolve bundled-template Halo user id for Mo/Henk local note generation.
- * Matches server `resolveHaloUserId` defaults so client and server use the same templates.
+ * Resolve bundled-template Halo user id for Mo/Henk local pipelines.
+ * Identity-based only — ensures repo DOCX templates always match the practice,
+ * not an arbitrary halo_user_id stored in the database.
  */
 export function resolvePracticeHaloUserId(params: {
   haloUserId?: string | null;
@@ -28,8 +29,8 @@ export function resolvePracticeHaloUserId(params: {
   henkLoginEmail?: string;
 }): string {
   const explicit = params.haloUserId?.trim();
-  if (explicit) return explicit;
   if (
+    explicit === HENK_HALO_USER_ID ||
     isHenkPracticeIdentity({
       email: params.email,
       driveRootFolderName: params.driveRootFolderName,

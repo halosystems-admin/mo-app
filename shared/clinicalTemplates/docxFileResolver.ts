@@ -154,3 +154,26 @@ export function localClinicalTemplateAvailable(
     henkLocalClinicalTemplateAvailable(haloUserId, templateId, repoRoot)
   );
 }
+
+/** Find repo root containing Mo templates/ or Henk templates/ (works in dev + dist/ production). */
+export function resolveClinicalTemplateRoot(explicitRoot?: string): string {
+  const trimmed = explicitRoot?.trim();
+  if (trimmed) return trimmed;
+
+  const candidates = [
+    process.cwd(),
+    path.resolve(__dirname, '../..'),
+    path.resolve(__dirname, '../../..'),
+  ];
+
+  for (const candidate of candidates) {
+    if (
+      fs.existsSync(path.join(candidate, MO_TEMPLATES_DIR_NAME)) ||
+      fs.existsSync(path.join(candidate, HENK_TEMPLATES_DIR_NAME))
+    ) {
+      return candidate;
+    }
+  }
+
+  return process.cwd();
+}

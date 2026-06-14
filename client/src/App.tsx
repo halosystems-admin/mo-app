@@ -804,6 +804,8 @@ export const App = () => {
             templateId={userSettings?.templateId || DEFAULT_HALO_TEMPLATE_ID}
             calendarPrepEvent={null}
             haloUserId={effectiveHaloUserId}
+            userEmail={currentUser?.email ?? null}
+            driveRootFolderName={currentUser?.driveRootFolderName ?? null}
             openStickerProfileForPatientId={
               openStickerForPatientId === activePatient.id ? openStickerForPatientId : null
             }

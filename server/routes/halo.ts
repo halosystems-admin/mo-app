@@ -6,7 +6,7 @@ import { resolveWorkspace } from '../middleware/resolveWorkspace';
 import { config } from '../config';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { HENK_HALO_USER_ID } from '../../shared/clinicalTemplates/constants';
-import { isHenkPracticeIdentity } from '../../shared/resolvePracticeHaloUserId';
+import { isHenkPracticeIdentity, resolvePracticeHaloUserId } from '../../shared/resolvePracticeHaloUserId';
 import {
   resolveHenkReferralLetterAbsolutePath,
   resolveMoReferralLetterAbsolutePath,
@@ -51,18 +51,12 @@ const HENK_LOCAL_LETTER_TEMPLATE = 'Henk_motivational_letter.docx';
 
 function resolveHaloUserId(req: Request, opts?: { userId?: string; useMobileConfig?: boolean }): string {
   if (opts?.useMobileConfig) return config.haloMobileUserId;
-  if (opts?.userId?.trim()) return opts.userId.trim();
-  if (
-    isHenkPracticeIdentity({
-      email: req.appUser?.email,
-      driveRootFolderName: req.appUser?.driveRootFolderName,
-      henkLoginEmail: config.henkOutboundEmail,
-    })
-  ) {
-    return HENK_HALO_USER_ID;
-  }
-  if (req.appUser?.haloUserId?.trim()) return req.appUser.haloUserId.trim();
-  return config.haloUserId;
+  return resolvePracticeHaloUserId({
+    haloUserId: opts?.userId ?? req.appUser?.haloUserId,
+    email: req.appUser?.email,
+    driveRootFolderName: req.appUser?.driveRootFolderName,
+    henkLoginEmail: config.henkOutboundEmail,
+  });
 }
 
 function isHenkPractice(req: Request): boolean {
@@ -565,6 +559,8 @@ router.post('/generate-note', async (req: Request, res: Response) => {
             )
           : undefined,
       patientProfile,
+      practiceEmail: req.appUser?.email,
+      practiceDriveRoot: req.appUser?.driveRootFolderName,
     });
 
     const baseName = fileName && fileName.trim() ? fileName.replace(/\.docx$/i, '') : `Clinical_Note_${new Date().toISOString().split('T')[0]}`;
@@ -671,6 +667,8 @@ router.post('/generate-preview-pdf', async (req: Request, res: Response) => {
             )
           : undefined,
       patientProfile,
+      practiceEmail: req.appUser?.email,
+      practiceDriveRoot: req.appUser?.driveRootFolderName,
     });
     let pdfBuffer: Buffer;
     if (req.session.provider === 'microsoft') {

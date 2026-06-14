@@ -20,7 +20,9 @@
     "test:docx-audit": "ts-node server/tests/docxTemplateAudit.test.ts",
     "test:docx-render": "ts-node server/tests/docxRenderSmoke.test.ts",
     "test:live-transcript": "ts-node server/tests/liveTranscriptMerge.test.ts",
-    "test:markdown-docx-parse": "ts-node server/tests/markdownDocxFieldParse.test.ts"
+    "test:markdown-docx-parse": "ts-node server/tests/markdownDocxFieldParse.test.ts",
+    "test:local-docx-save": "ts-node server/tests/localDocxSavePath.test.ts",
+    "test:henk-routing": "ts-node server/tests/henkTemplateRouting.test.ts"
   },
   "engines": {
     "node": "20.x"
