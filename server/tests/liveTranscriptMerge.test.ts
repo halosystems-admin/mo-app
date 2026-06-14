@@ -3,6 +3,7 @@ import {
   applyLiveTranscriptChunk,
   createLiveTranscriptState,
   flushLiveTranscriptState,
+  pickBestTranscript,
 } from '../../shared/liveTranscriptMerge';
 
 function run() {
@@ -63,6 +64,34 @@ function run() {
     'renal abscesses that have been drained as well as a diverting ileostomy'
   );
 
+  // Deepgram revision with same opening words (surgical dictation duplication case).
+  state = createLiveTranscriptState();
+  r = applyLiveTranscriptChunk(state, 'Nemopyridipine in grade through a', true, false);
+  state = r.state;
+  r = applyLiveTranscriptChunk(state, 'Nemopyridipine in through a open Hasson port', true, false);
+  state = r.state;
+  assert.strictEqual(r.display, 'Nemopyridipine in through a open Hasson port');
+
+  state = createLiveTranscriptState();
+  r = applyLiveTranscriptChunk(
+    state,
+    'Laparoscopic cholecystectomy performed with intra',
+    true,
+    false
+  );
+  state = r.state;
+  r = applyLiveTranscriptChunk(
+    state,
+    'Laparoscopic cholecystectomy performed with intraoperative cholangiogram',
+    true,
+    true
+  );
+  state = r.state;
+  assert.strictEqual(
+    r.display,
+    'Laparoscopic cholecystectomy performed with intraoperative cholangiogram'
+  );
+
   // Flush on stop captures in-progress utterance.
   state = createLiveTranscriptState();
   r = applyLiveTranscriptChunk(state, 'First sentence', true, true);
@@ -72,6 +101,11 @@ function run() {
   assert.strictEqual(
     flushed.display,
     'First sentence Second sentence in progress'
+  );
+
+  assert.strictEqual(
+    pickBestTranscript(['short live', 'much longer batch transcript from full recording']),
+    'much longer batch transcript from full recording'
   );
 
   console.log('liveTranscriptMerge.test.ts: all assertions passed');

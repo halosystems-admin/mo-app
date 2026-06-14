@@ -19,7 +19,8 @@
     "test:docx-resolver": "ts-node server/tests/docxFileResolver.test.ts",
     "test:docx-audit": "ts-node server/tests/docxTemplateAudit.test.ts",
     "test:docx-render": "ts-node server/tests/docxRenderSmoke.test.ts",
-    "test:live-transcript": "ts-node server/tests/liveTranscriptMerge.test.ts"
+    "test:live-transcript": "ts-node server/tests/liveTranscriptMerge.test.ts",
+    "test:markdown-docx-parse": "ts-node server/tests/markdownDocxFieldParse.test.ts"
   },
   "engines": {
     "node": "20.x"

@@ -5,6 +5,12 @@
 
 import type { WebSocket } from 'ws';
 import { isDeepgramLiveAvailable, createDeepgramLiveConnection } from '../services/deepgramLive';
+import {
+  applyLiveTranscriptChunk,
+  createLiveTranscriptState,
+  flushLiveTranscriptState,
+  type LiveTranscriptState,
+} from '../../shared/liveTranscriptMerge';
 
 const WS_PATH = '/ws/transcribe';
 
@@ -23,7 +29,7 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
       return;
     }
 
-    let fullTranscript = '';
+    let transcriptState: LiveTranscriptState = createLiveTranscriptState();
     let audioBytes = 0;
     let chunkCount = 0;
 
@@ -36,12 +42,19 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
       },
       onTranscript: (result) => {
         if (result?.transcript) {
-          const chunk = result.transcript.trim();
-          if (result.isFinal) {
-            fullTranscript = `${fullTranscript}${fullTranscript ? ' ' : ''}${chunk}`.trim();
-          }
+          const merged = applyLiveTranscriptChunk(
+            transcriptState,
+            result.transcript,
+            result.isFinal,
+            result.speechFinal
+          );
+          transcriptState = merged.state;
           if (process.env.NODE_ENV !== 'production') {
-            console.log('[ws/transcribe] transcript chunk:', { textPreview: chunk.slice(0, 80), isFinal: result.isFinal });
+            console.log('[ws/transcribe] transcript chunk:', {
+              textPreview: result.transcript.trim().slice(0, 80),
+              isFinal: result.isFinal,
+              displayLength: merged.display.length,
+            });
           }
         }
         if (clientWs.readyState === 1) {
@@ -56,6 +69,8 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
         }
       },
       onClose: () => {
+        const flushed = flushLiveTranscriptState(transcriptState);
+        const fullTranscript = flushed.display.trim();
         console.log(
           '[ws/transcribe] Deepgram stream closed',
           fullTranscript
@@ -63,6 +78,7 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
             : { message: 'no transcript', audioBytes, chunkCount }
         );
         if (clientWs.readyState === 1) {
+          clientWs.send(JSON.stringify({ type: 'done', transcript: fullTranscript }));
           clientWs.send(JSON.stringify({ type: 'close' }));
         }
       },

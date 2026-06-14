@@ -14,7 +14,11 @@ export type NotePreviewParams = {
 };
 
 function noteHasStructuredFields(notes: HaloNote[]): boolean {
-  return notes.some((n) => n.fields && n.fields.length > 0);
+  return notes.some((n) => {
+    if (n.fields && n.fields.length > 0) return true;
+    if (n.docxMerge && Object.values(n.docxMerge).some((v) => String(v ?? '').trim())) return true;
+    return Boolean(n.content?.trim());
+  });
 }
 
 /** Client Gemini first; falls back to server when client fails or returns no structured fields. */

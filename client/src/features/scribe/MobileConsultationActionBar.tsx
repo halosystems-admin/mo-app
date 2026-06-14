@@ -20,7 +20,7 @@ export const MobileConsultationActionBar: React.FC<Props> = ({
 }) => {
   if (!visible) return null;
 
-  const { isLive, isPaused, isBusy, displayTime } = recorder;
+  const { isLive, isPaused, isBusy, isFinalizing, displayTime } = recorder;
 
   return (
     <div
@@ -32,14 +32,14 @@ export const MobileConsultationActionBar: React.FC<Props> = ({
       <button
         type="button"
         onClick={onType}
-        disabled={isBusy || isLive}
+        disabled={isBusy || isLive || isFinalizing}
         className="halo-touch-min flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 disabled:opacity-50"
       >
         <Keyboard size={18} strokeWidth={2} aria-hidden />
         Type
       </button>
 
-      {isLive ? (
+      {isLive && !isFinalizing ? (
         <button
           type="button"
           onClick={onPause}
@@ -57,13 +57,18 @@ export const MobileConsultationActionBar: React.FC<Props> = ({
       <button
         type="button"
         onClick={onDictate}
-        disabled={isBusy}
-        className={`halo-touch-min flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold text-white shadow-md active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 disabled:opacity-50 ${
-          isLive ? (isPaused ? 'bg-amber-500' : 'bg-rose-500') : 'bg-teal-600'
+        disabled={isBusy || isFinalizing}
+        className={`halo-touch-min flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold text-white shadow-md active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/35 disabled:cursor-wait disabled:opacity-60 ${
+          isFinalizing ? 'bg-amber-500' : isLive ? (isPaused ? 'bg-amber-500' : 'bg-rose-500') : 'bg-teal-600'
         }`}
-        aria-label={isLive ? 'Stop dictation' : 'Dictate'}
+        aria-label={isFinalizing ? 'Finalizing transcript' : isLive ? 'Stop dictation' : 'Dictate'}
       >
-        {isBusy ? (
+        {isFinalizing ? (
+          <>
+            <Loader className="size-5 animate-spin" aria-hidden />
+            <span className="text-sm font-bold">Finalizing…</span>
+          </>
+        ) : isBusy && !isLive ? (
           <Loader className="size-5 animate-spin" aria-hidden />
         ) : isLive ? (
           <>

@@ -1,31 +1,88 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Mic, Pause, Play } from 'lucide-react';
+import { Loader2, Mic, Pause, Play } from 'lucide-react';
 import { getTranscribeWebSocketUrl, transcribeAudio } from '../../services/api';
-import { setConsultationRecorderUiState } from './consultationRecorderStore';
+import {
+  getConsultationRecorderUiState,
+  setConsultationRecorderUiState,
+} from './consultationRecorderStore';
 import {
   applyLiveTranscriptChunk,
   createLiveTranscriptState,
   flushLiveTranscriptState,
+  pickBestTranscript,
   type LiveTranscriptState,
 } from '../../../../shared/liveTranscriptMerge';
+import { setLastRecordingTranscriptionRetry } from './consultationRecordingRetry';
 
 export interface HeaderConsultationRecorderProps {
   onLiveTranscriptUpdate: (transcript: string) => void;
+  onLiveStopping?: () => void;
   onLiveStopped: (transcript: string) => void;
-  onLiveFinalized?: (transcript: string) => void;
+  onTranscriptRefining?: (refining: boolean) => void;
   onError?: (message: string) => void;
 }
 
 type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed';
 
+const WS_DRAIN_TIMEOUT_MS = 8000;
+const WS_DRAIN_TAIL_MS = 300;
+
+function waitForTranscriptDrain(ws: WebSocket, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CLOSING) {
+      resolve();
+      return;
+    }
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(hardTimeout);
+      if (tailTimeout !== undefined) window.clearTimeout(tailTimeout);
+      ws.removeEventListener('message', onMessage);
+      ws.removeEventListener('close', onClose);
+      resolve();
+    };
+
+    const hardTimeout = window.setTimeout(finish, timeoutMs);
+    let tailTimeout: number | undefined;
+
+    const onClose = () => finish();
+
+    const onMessage = (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(event.data as string) as { type?: string };
+        if (msg.type === 'done' || msg.type === 'close') {
+          if (tailTimeout !== undefined) window.clearTimeout(tailTimeout);
+          tailTimeout = window.setTimeout(finish, WS_DRAIN_TAIL_MS);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    ws.addEventListener('message', onMessage);
+    ws.addEventListener('close', onClose);
+
+    try {
+      ws.send('end');
+    } catch {
+      finish();
+    }
+  });
+}
+
 export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProps> = ({
   onLiveTranscriptUpdate,
+  onLiveStopping,
   onLiveStopped,
-  onLiveFinalized,
+  onTranscriptRefining,
   onError,
 }) => {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [isLive, setIsLive] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const isPausedRef = useRef(false);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -37,6 +94,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   const recordingMimeTypeRef = useRef<string>('audio/webm');
   const transcriptRef = useRef<string>('');
   const transcriptStateRef = useRef<LiveTranscriptState>(createLiveTranscriptState());
+  const serverTranscriptRef = useRef<string>('');
   const timerRef = useRef<number | null>(null);
   /** Prevents stopLive from running twice (user Done + ws.onclose). */
   const isStoppingRef = useRef(false);
@@ -63,111 +121,205 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
     }, 500);
   };
 
-  const cleanup = useCallback(() => {
+  const processTranscriptMessage = useCallback(
+    (msg: {
+      type?: string;
+      transcript?: string;
+      message?: string;
+      isFinal?: boolean;
+      speechFinal?: boolean;
+    }) => {
+      if (msg.type === 'done' && typeof msg.transcript === 'string' && msg.transcript.trim()) {
+        serverTranscriptRef.current = msg.transcript.trim();
+        return;
+      }
+
+      if (msg.type === 'transcript' && typeof msg.transcript === 'string' && msg.transcript.trim()) {
+        const merged = applyLiveTranscriptChunk(
+          transcriptStateRef.current,
+          msg.transcript,
+          msg.isFinal === true,
+          msg.speechFinal === true
+        );
+        transcriptStateRef.current = merged.state;
+        transcriptRef.current = merged.display;
+        if (merged.display) onLiveTranscriptUpdate(merged.display);
+      }
+
+      if (msg.type === 'error') {
+        console.error('[HeaderConsultationRecorder] WebSocket error message from server:', msg.message);
+        onError?.(msg.message || 'Live transcription error');
+      }
+    },
+    [onError, onLiveTranscriptUpdate]
+  );
+
+  const stopMedia = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    stopAudioVisualization();
+    stopTimer();
+  }, []);
+
+  const closeWebSocket = useCallback(() => {
     if (wsRef.current) {
       try {
-        if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send('end');
         wsRef.current.close();
       } catch {
         // ignore
       }
       wsRef.current = null;
     }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    stopAudioVisualization();
-    stopTimer();
+  }, []);
+
+  const cleanup = useCallback(() => {
+    closeWebSocket();
+    stopMedia();
     setConnectionState('idle');
     setIsPaused(false);
     setElapsedMs(0);
-  }, []);
+  }, [closeWebSocket, stopMedia]);
 
   useEffect(() => {
     return () => cleanup();
   }, [cleanup]);
 
-  const runFallbackTranscription = useCallback(async (audioChunks: Blob[]): Promise<string> => {
-    if (!audioChunks.length) return '';
-    try {
-      const blob = new Blob(audioChunks, {
-        type: recordingMimeTypeRef.current || 'audio/webm',
-      });
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          try {
-            const result = reader.result as string;
-            const encoded = result.split(',')[1] || '';
-            resolve(encoded);
-          } catch (err) {
-            reject(err);
-          }
-        };
-        reader.onerror = () => reject(reader.error || new Error('Failed to read recording.'));
-        reader.readAsDataURL(blob);
-      });
+  const runFallbackTranscription = useCallback(
+    async (audioChunks: Blob[]): Promise<string> => {
+      if (!audioChunks.length) return '';
+      try {
+        const blob = new Blob(audioChunks, {
+          type: recordingMimeTypeRef.current || 'audio/webm',
+        });
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            try {
+              const result = reader.result as string;
+              const encoded = result.split(',')[1] || '';
+              resolve(encoded);
+            } catch (err) {
+              reject(err);
+            }
+          };
+          reader.onerror = () => reject(reader.error || new Error('Failed to read recording.'));
+          reader.readAsDataURL(blob);
+        });
 
-      if (!base64) return '';
+        if (!base64) return '';
 
-      const transcript = await transcribeAudio(
-        base64,
-        recordingMimeTypeRef.current || 'audio/webm'
-      );
-      return transcript?.trim() || '';
-    } catch (err) {
-      console.error('[HeaderConsultationRecorder] Fallback transcription failed:', err);
-      onError?.(
-        'Live transcription was unavailable and the backup transcription also failed. Please try again.'
-      );
-      return '';
-    }
-  }, [onError]);
+        const transcript = await transcribeAudio(
+          base64,
+          recordingMimeTypeRef.current || 'audio/webm'
+        );
+        return transcript?.trim() || '';
+      } catch (err) {
+        console.error('[HeaderConsultationRecorder] Fallback transcription failed:', err);
+        onError?.(
+          'Live transcription was unavailable and the backup transcription also failed. Please try again.'
+        );
+        return '';
+      }
+    },
+    [onError]
+  );
 
   const stopLive = useCallback(async () => {
     if (isStoppingRef.current) return;
     isStoppingRef.current = true;
     isLiveRef.current = false;
 
-    const flushed = flushLiveTranscriptState(transcriptStateRef.current);
-    transcriptStateRef.current = flushed.state;
-    transcriptRef.current = flushed.display;
-    const streamedText = flushed.display.trim();
-    const audioChunks = [...chunksRef.current];
-    cleanup();
     setIsLive(false);
+    setIsPaused(false);
+    setIsFinalizing(true);
+    onLiveStopping?.();
+    onTranscriptRefining?.(true);
 
-    // Show template picker immediately with live transcript — do not wait for batch Deepgram.
-    if (streamedText) {
-      onLiveStopped(streamedText);
-    }
+    try {
+      const recorder = mediaRecorderRef.current;
+      const ws = wsRef.current;
 
-    if (audioChunks.length > 0) {
-      void runFallbackTranscription(audioChunks).then((batchTranscript) => {
-        const batch = batchTranscript.trim();
-        if (!batch) return;
-        if (!streamedText) {
-          onLiveStopped(batch);
-          return;
+      if (recorder && recorder.state === 'recording') {
+        try {
+          recorder.requestData();
+        } catch {
+          // ignore
         }
-        if (batch !== streamedText) {
-          onLiveFinalized?.(batch);
+      }
+
+      await new Promise<void>((resolve) => {
+        if (recorder && recorder.state !== 'inactive') {
+          const prevOnStop = recorder.onstop;
+          recorder.onstop = (ev) => {
+            prevOnStop?.call(recorder, ev);
+            resolve();
+          };
+          recorder.stop();
+        } else {
+          resolve();
         }
       });
+
+      if (ws?.readyState === WebSocket.OPEN) {
+        await waitForTranscriptDrain(ws, WS_DRAIN_TIMEOUT_MS);
+      }
+
+      const flushed = flushLiveTranscriptState(transcriptStateRef.current);
+      transcriptStateRef.current = flushed.state;
+      transcriptRef.current = flushed.display;
+      const streamedText = flushed.display.trim();
+      const serverText = serverTranscriptRef.current.trim();
+      const audioChunks = [...chunksRef.current];
+
+      stopMedia();
+      closeWebSocket();
+      setConnectionState('idle');
+
+      let batchText = '';
+      if (audioChunks.length > 0) {
+        setLastRecordingTranscriptionRetry(() => runFallbackTranscription([...audioChunks]));
+        batchText = (await runFallbackTranscription(audioChunks)).trim();
+      } else {
+        setLastRecordingTranscriptionRetry(null);
+      }
+
+      const finalText = pickBestTranscript([streamedText, serverText, batchText]);
+
+      if (finalText) {
+        onLiveStopped(finalText);
+      } else if (audioChunks.length > 0) {
+        onError?.('No speech was detected in the recording. Please try again.');
+      }
+    } finally {
+      setIsFinalizing(false);
+      isStoppingRef.current = false;
+      onTranscriptRefining?.(false);
     }
-  }, [cleanup, onLiveFinalized, onLiveStopped, runFallbackTranscription]);
+  }, [
+    closeWebSocket,
+    onError,
+    onLiveStopped,
+    onLiveStopping,
+    onTranscriptRefining,
+    runFallbackTranscription,
+    stopMedia,
+  ]);
 
   const startLive = useCallback(async () => {
-    if (isLive || connectionState === 'connecting') return;
+    const ui = getConsultationRecorderUiState();
+    if (ui.isLive || ui.isBusy || ui.isFinalizing || isStoppingRef.current) return;
     isStoppingRef.current = false;
     transcriptRef.current = '';
     transcriptStateRef.current = createLiveTranscriptState();
+    serverTranscriptRef.current = '';
     chunksRef.current = [];
+    setLastRecordingTranscriptionRetry(null);
     setElapsedMs(0);
     setConnectionState('connecting');
 
@@ -195,13 +347,11 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
         mediaRecorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
             chunksRef.current.push(e.data);
-            // Use ref to avoid stale closure issues; this makes pause actually stop transcription.
             if (ws.readyState === WebSocket.OPEN && !isPausedRef.current) {
               ws.send(e.data);
             }
           }
         };
-        // 100ms timeslices: audio reaches Deepgram faster (Deepgram recommends ~20–100ms chunks for low latency).
         mediaRecorder.start(100);
         isLiveRef.current = true;
         setIsLive(true);
@@ -218,21 +368,7 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
             isFinal?: boolean;
             speechFinal?: boolean;
           };
-          if (msg.type === 'transcript' && typeof msg.transcript === 'string' && msg.transcript.trim()) {
-            const merged = applyLiveTranscriptChunk(
-              transcriptStateRef.current,
-              msg.transcript,
-              msg.isFinal === true,
-              msg.speechFinal === true
-            );
-            transcriptStateRef.current = merged.state;
-            transcriptRef.current = merged.display;
-            if (merged.display) onLiveTranscriptUpdate(merged.display);
-          }
-          if (msg.type === 'error') {
-            console.error('[HeaderConsultationRecorder] WebSocket error message from server:', msg.message);
-            onError?.(msg.message || 'Live transcription error');
-          }
+          processTranscriptMessage(msg);
         } catch {
           // ignore non-JSON
         }
@@ -240,7 +376,6 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
 
       ws.onclose = () => {
         setConnectionState('closed');
-        // User-initiated stop already runs stopLive; only finalize on unexpected disconnect.
         if (isLiveRef.current && !isStoppingRef.current) {
           void stopLive();
         }
@@ -255,25 +390,33 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
         err instanceof Error ? err.message : 'Could not access microphone. Please check your browser permissions.'
       );
     }
-  }, [connectionState, isLive, onError, stopLive]);
+  }, [onError, processTranscriptMessage, stopLive]);
+
+  const startLiveRef = useRef(startLive);
+  const stopLiveRef = useRef(stopLive);
+  useEffect(() => {
+    startLiveRef.current = startLive;
+    stopLiveRef.current = stopLive;
+  }, [startLive, stopLive]);
 
   useEffect(() => {
     const onToggle = () => {
-      if (isLive) {
-        void stopLive();
+      const ui = getConsultationRecorderUiState();
+      if (ui.isBusy || ui.isFinalizing) return;
+      if (ui.isLive) {
+        void stopLiveRef.current();
       } else {
-        void startLive();
+        void startLiveRef.current();
       }
     };
     window.addEventListener('halo:toggle-consultation-dictation', onToggle as EventListener);
     return () => {
       window.removeEventListener('halo:toggle-consultation-dictation', onToggle as EventListener);
     };
-  }, [isLive, startLive, stopLive]);
+  }, []);
 
   const togglePause = () => {
     if (!isLive || connectionState !== 'open') return;
-    // Pause should stop chunk generation + prevent further transcription updates.
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state === 'recording') {
       recorder.pause();
@@ -288,15 +431,12 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
       return;
     }
 
-    // Fallback: if recorder state is unexpected, just flip UI state.
     setIsPaused((prev) => !prev);
   };
 
   useEffect(() => {
     isPausedRef.current = isPaused;
 
-    // Keep WS sending gated via ref even with stale closures.
-    // If MediaRecorder is present (browser support permitting), ensure its state matches UI.
     const recorder = mediaRecorderRef.current;
     if (!recorder) return;
     if (isPaused && recorder.state === 'recording') {
@@ -308,7 +448,8 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
     }
   }, [isPaused]);
 
-  const isBusy = connectionState === 'connecting';
+  const isConnecting = connectionState === 'connecting';
+  const isBusy = isConnecting || isFinalizing;
   const seconds = Math.floor(elapsedMs / 1000);
   const minutes = Math.floor(seconds / 60);
   const displayTime = `${minutes.toString().padStart(2, '0')}:${(seconds % 60)
@@ -319,10 +460,20 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
     setConsultationRecorderUiState({
       isLive,
       isPaused,
-      isBusy: connectionState === 'connecting',
+      isBusy,
+      isFinalizing,
       displayTime,
     });
-  }, [isLive, isPaused, connectionState, displayTime]);
+  }, [isLive, isPaused, isBusy, isFinalizing, displayTime]);
+
+  const handleRecordClick = () => {
+    if (isBusy || isFinalizing) return;
+    if (isLive) {
+      void stopLive();
+    } else {
+      void startLive();
+    }
+  };
 
   useEffect(() => {
     const onTogglePause = () => {
@@ -335,54 +486,78 @@ export const HeaderConsultationRecorder: React.FC<HeaderConsultationRecorderProp
   }, [togglePause]);
 
   return (
-    <div className="consultation-recorder-pill flex items-center gap-1.5">
+    <div className="consultation-recorder-pill relative z-20 flex items-center gap-1.5">
       <div className="flex items-center gap-1.5">
-        {isLive && (
+        {isLive && !isFinalizing ? (
           <button
             type="button"
             onClick={togglePause}
-            className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-red-100/80 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-red-50/80 transition"
+            className="halo-touch-min hidden min-h-[44px] items-center gap-1.5 rounded-xl border border-red-100/80 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-red-50/80 transition md:inline-flex"
           >
             {isPaused ? (
               <>
-                <Play className="w-3.5 h-3.5" /> Resume
+                <Play className="w-4 h-4" /> Resume
               </>
             ) : (
               <>
-                <Pause className="w-3.5 h-3.5" /> Pause
+                <Pause className="w-4 h-4" /> Pause
               </>
             )}
           </button>
-        )}
+        ) : null}
         <button
           type="button"
-          onClick={isLive ? () => void stopLive() : () => void startLive()}
+          onClick={handleRecordClick}
           disabled={isBusy}
-          title={isLive ? 'Stop recording (Done)' : 'Start recording'}
-          className={`inline-flex items-center gap-2 rounded-[10px] px-3 py-1.5 text-xs font-semibold shadow-[var(--shadow-halo-soft)] transition-all ${
-            isLive
-              ? 'bg-rose-500/95 hover:bg-rose-500 text-white'
-              : 'bg-halo-primary hover:bg-halo-primary-hover text-white'
-          } ${isBusy ? 'opacity-70 cursor-not-allowed' : ''}`}
+          title={
+            isFinalizing
+              ? 'Finalizing transcript…'
+              : isLive
+                ? 'Stop recording (Done)'
+                : isConnecting
+                  ? 'Connecting microphone…'
+                  : 'Start recording'
+          }
+          aria-label={
+            isFinalizing
+              ? 'Finalizing transcript'
+              : isLive
+                ? 'Stop recording'
+                : 'Start recording'
+          }
+          className={`halo-touch-min relative inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold shadow-[var(--shadow-halo-soft)] transition-all select-none ${
+            isFinalizing
+              ? 'cursor-wait bg-amber-500 text-white'
+              : isLive
+                ? 'bg-rose-500 text-white hover:bg-rose-600 active:scale-[0.98]'
+                : 'bg-halo-primary text-white hover:bg-halo-primary-hover active:scale-[0.98]'
+          } ${isBusy ? 'cursor-wait opacity-80' : ''}`}
         >
-          {isLive ? (
-            <span
-              className="h-2 w-2 shrink-0 rounded-full bg-white shadow-sm animate-pulse"
-              aria-hidden
-            />
+          {isFinalizing ? (
+            <>
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              <span>Finalizing…</span>
+            </>
+          ) : isConnecting ? (
+            <>
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              <span className="hidden sm:inline">Connecting…</span>
+            </>
+          ) : isLive ? (
+            <>
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full bg-white shadow-sm animate-pulse"
+                aria-hidden
+              />
+              <span className="tabular-nums">{displayTime}</span>
+              <span>Done</span>
+            </>
           ) : (
-            <Mic className="h-4 w-4 shrink-0 text-white" />
+            <>
+              <Mic className="h-4 w-4 shrink-0" aria-hidden />
+              <span>Record</span>
+            </>
           )}
-          <span className="tabular-nums text-left">
-            {isBusy ? '…' : isLive ? (
-              <>
-                {displayTime}
-                <span className="hidden sm:inline font-medium opacity-95"> · Done</span>
-              </>
-            ) : (
-              'Record'
-            )}
-          </span>
         </button>
       </div>
     </div>

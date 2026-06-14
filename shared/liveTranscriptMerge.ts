@@ -11,6 +11,16 @@ function joinParts(parts: string[]): string {
   return parts.filter((p) => p.trim()).join(' ').trim();
 }
 
+function countCommonPrefixWords(a: string, b: string): number {
+  const aw = a.trim().split(/\s+/).filter(Boolean);
+  const bw = b.trim().split(/\s+/).filter(Boolean);
+  let n = 0;
+  while (n < aw.length && n < bw.length && aw[n]!.toLowerCase() === bw[n]!.toLowerCase()) {
+    n += 1;
+  }
+  return n;
+}
+
 /** Append or supersede a finalized segment within the current utterance. */
 export function appendUtteranceSegment(segments: string[], chunk: string): string[] {
   const c = chunk.trim();
@@ -23,6 +33,12 @@ export function appendUtteranceSegment(segments: string[], chunk: string): strin
   if (joined.startsWith(c)) return segments;
   // Deepgram sometimes revises the whole utterance without sharing a prefix.
   if (joined.endsWith(c)) return segments;
+
+  // Revised utterance that restarts with the same opening phrase (avoids "X … X …" duplication).
+  const prefixWords = countCommonPrefixWords(joined, c);
+  if (prefixWords >= 2 || (prefixWords >= 1 && joined.split(/\s+/).length <= 4)) {
+    return [c];
+  }
 
   const maxOverlap = Math.min(
     joined.split(/\s+/).length,
@@ -107,4 +123,11 @@ export function flushLiveTranscriptState(state: LiveTranscriptState): {
     state: { committed, utteranceSegments: [], openSegment: '' },
     display: committed,
   };
+}
+
+/** Prefer the longest non-empty candidate (batch HTTP usually wins on long consults). */
+export function pickBestTranscript(candidates: string[]): string {
+  const parts = candidates.map((c) => c.trim()).filter(Boolean);
+  if (!parts.length) return '';
+  return parts.reduce((best, cur) => (cur.length > best.length ? cur : best));
 }

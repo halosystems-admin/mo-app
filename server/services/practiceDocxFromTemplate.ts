@@ -66,7 +66,17 @@ async function resolveMergeFieldValues(params: RenderPracticeDocxParams): Promis
     });
   } catch (err) {
     console.warn('[docx-merge] Gemini field extraction failed:', err);
-    return mergeFields ?? {};
+    values = mergeFields ?? {};
+  }
+
+  if (Object.values(values).filter((v) => v.trim()).length > 0) return values;
+
+  // Last resort: keep narrative in the primary prose field so DOCX still saves.
+  const proseKey =
+    templateDefinition?.fields.find((f) => /operation_note|findings|note|management|presenting/i.test(f.key))
+      ?.key ?? templateDefinition?.fields[templateDefinition.fields.length - 1]?.key;
+  if (proseKey && text.trim()) {
+    return { [proseKey]: text.trim() };
   }
 
   return values;

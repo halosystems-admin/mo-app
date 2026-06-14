@@ -229,3 +229,8 @@ export function noteFieldsToOrganizedMarkdown(
   );
   return fieldValuesToOrganizedMarkdown(templateId, fieldValues, templateDefinition);
 }
+
+/** Section layout used by fieldValuesToOrganizedMarkdown (for save-time markdown reverse-parse). */
+export function templateSectionSpecsFor(templateId: string): TemplateSectionSpec[] | undefined {
+  return TEMPLATE_SECTIONS[templateId];
+}

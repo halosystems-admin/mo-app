@@ -460,7 +460,7 @@ router.post('/templates', async (req: Request, res: Response) => {
 // If return_type === 'docx' and patientId is set, uploads DOCX to the chosen patient folder target and returns { success, fileId, name, file }.
 router.post('/generate-note', async (req: Request, res: Response) => {
   try {
-    const { user_id, template_id, text, return_type, patientId, fileName, useMobileConfig, template_name, mergeFields, saveTarget } = req.body as {
+    const { user_id, template_id, text, return_type, patientId, fileName, useMobileConfig, template_name, mergeFields, saveTarget, downloadOnly } = req.body as {
       user_id?: string;
       template_id?: string;
       text: string;
@@ -470,6 +470,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
       useMobileConfig?: boolean;
       mergeFields?: Record<string, string>;
       saveTarget?: 'patient_notes' | 'root';
+      downloadOnly?: boolean;
       /** Display name for template (e.g. Admission) — forwarded into composed Halo prompt for Markdown sections. */
       template_name?: string;
     };
@@ -565,6 +566,19 @@ router.post('/generate-note', async (req: Request, res: Response) => {
           : undefined,
       patientProfile,
     });
+
+    const baseName = fileName && fileName.trim() ? fileName.replace(/\.docx$/i, '') : `Clinical_Note_${new Date().toISOString().split('T')[0]}`;
+    const finalFileName = baseName.endsWith('.docx') ? baseName : `${baseName}.docx`;
+
+    if (downloadOnly === true) {
+      res.json({
+        downloadOnly: true,
+        docxBase64: buffer.toString('base64'),
+        fileName: finalFileName,
+      });
+      return;
+    }
+
     if (!patientId || !req.session.accessToken) {
       res.status(400).json({ error: 'patientId is required to save DOCX to Drive.' });
       return;
@@ -582,9 +596,6 @@ router.post('/generate-note', async (req: Request, res: Response) => {
             patientFolderId: patientId,
             microsoftStorageMode,
           });
-    const baseName = fileName && fileName.trim() ? fileName.replace(/\.docx$/i, '') : `Clinical_Note_${new Date().toISOString().split('T')[0]}`;
-    const finalFileName = baseName.endsWith('.docx') ? baseName : `${baseName}.docx`;
-
     const base64Data = buffer.toString('base64');
     let uploaded: { id: string; name: string } | null = null;
     let lastUploadErr: unknown = null;

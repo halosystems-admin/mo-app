@@ -4,6 +4,7 @@ export type ConsultationRecorderUiState = {
   isLive: boolean;
   isPaused: boolean;
   isBusy: boolean;
+  isFinalizing: boolean;
   displayTime: string;
 };
 
@@ -11,6 +12,7 @@ const DEFAULT_STATE: ConsultationRecorderUiState = {
   isLive: false,
   isPaused: false,
   isBusy: false,
+  isFinalizing: false,
   displayTime: '00:00',
 };
 
@@ -33,6 +35,7 @@ export function setConsultationRecorderUiState(
     next.isLive === state.isLive &&
     next.isPaused === state.isPaused &&
     next.isBusy === state.isBusy &&
+    next.isFinalizing === state.isFinalizing &&
     next.displayTime === state.displayTime
   ) {
     return;

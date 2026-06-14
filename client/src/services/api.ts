@@ -768,6 +768,31 @@ export const saveNoteAsDocx = (params: {
     }),
   });
 
+/** Render DOCX without uploading — used when Drive save fails (download fallback). */
+export const downloadNoteAsDocx = (params: {
+  patientId: string;
+  template_id: string;
+  text: string;
+  fileName?: string;
+  user_id?: string;
+  template_name?: string;
+  mergeFields?: Record<string, string>;
+}) =>
+  request<{ downloadOnly: true; docxBase64: string; fileName: string }>('/api/halo/generate-note', {
+    method: 'POST',
+    body: JSON.stringify({
+      template_id: params.template_id,
+      text: params.text,
+      return_type: 'docx',
+      patientId: params.patientId,
+      fileName: params.fileName,
+      user_id: params.user_id,
+      mergeFields: params.mergeFields,
+      downloadOnly: true,
+      ...(params.template_name ? { template_name: params.template_name } : {}),
+    }),
+  });
+
 export type PatientLetterKind = 'motivation' | 'referral';
 
 /** Fill motivational_template.docx (OneDrive root) and upload to Patient Notes. */

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   Patient,
   DriveFile,
@@ -34,6 +34,7 @@ import {
   askHalo,
   generateNotePreviewPdf,
   saveNoteAsDocx,
+  downloadNoteAsDocx,
   generatePrepNote,
   getHaloTemplates,
   describeFile,
@@ -56,6 +57,10 @@ import {
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
 import { HeaderConsultationRecorder } from '../features/scribe/HeaderConsultationRecorder';
+import {
+  hasLastRecordingTranscriptionRetry,
+  retryLastRecordingTranscription,
+} from '../features/scribe/consultationRecordingRetry';
 import { MobileDictateFab } from '../features/scribe/MobileDictateFab';
 import { generateNotePreviewWithFallback } from '../services/generateNotePreviewWithFallback';
 import { FileViewer } from '../components/FileViewer';
@@ -63,14 +68,18 @@ import { FileBrowser } from '../components/FileBrowser';
 import { NoteEditor } from '../components/NoteEditor';
 import { PatientChat, type ChatSlashOption } from '../components/PatientChat';
 import { getErrorMessage } from '../utils/formatting';
+import { downloadDocxFromBase64 } from '../utils/downloadDocx';
 import { CLINICAL_BTN_PRIMARY } from '../features/clinical/shared/tableScrollClasses';
 import { formatPatientDisplayName } from '../features/clinical/shared/clinicalDisplay';
+
+const SAVE_RETRY_ATTEMPTS = 2;
+const SAVE_RETRY_DELAY_MS = 800;
 
 const MAX_MAIN_COMPLAINT_LEN = 80;
 
 /** Shared shell for Note fields / Transcription / Smart context (visual parity). */
 const EDITOR_VIEW_SHELL =
-  'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60';
+  'flex h-0 min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60';
 const EDITOR_VIEW_HEADER =
   'flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2.5 max-md:flex-col max-md:items-stretch';
 const EDITOR_VIEW_TITLE = 'text-[11px] font-semibold uppercase tracking-wide text-slate-500';
@@ -592,13 +601,14 @@ export const PatientWorkspace: React.FC<Props> = ({
   /** Live transcript for the current in-progress recording segment (not yet merged into lastTranscript). */
   const [liveTranscriptSegment, setLiveTranscriptSegment] = useState<string>('');
   const [isLiveStreaming, setIsLiveStreaming] = useState(false);
+  const [isTranscriptRefining, setIsTranscriptRefining] = useState(false);
   const transcriptInputRef = useRef<HTMLTextAreaElement>(null);
+  const liveTranscriptScrollRef = useRef<HTMLDivElement>(null);
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [consultSubTab, setConsultSubTab] = useState<'transcript' | 'context' | number>('transcript');
   const [templateOptions, setTemplateOptions] = useState<Array<{ id: string; name: string }>>([...HALO_TEMPLATE_OPTIONS]);
   const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>([]);
   const lastTranscriptRef = useRef<string>('');
-  const transcriptRefinementRef = useRef<{ base: string; resumeHeader: string; initial: string } | null>(null);
   /** Last Smart Context image to embed in cumulative PDF on “Save to record”. */
   const [pendingLongitudinalImage, setPendingLongitudinalImage] = useState<{
     base64: string;
@@ -622,6 +632,8 @@ export const PatientWorkspace: React.FC<Props> = ({
   const [customAiLoading, setCustomAiLoading] = useState(false);
   const [consultContext, setConsultContext] = useState('');
   const [didCopyTranscript, setDidCopyTranscript] = useState(false);
+  const [retryTranscriptBusy, setRetryTranscriptBusy] = useState(false);
+  const [canRetryTranscript, setCanRetryTranscript] = useState(false);
   const [noteGenerationStep, setNoteGenerationStep] = useState(0);
   const [sessions, setSessions] = useState<ScribeSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -809,14 +821,13 @@ export const PatientWorkspace: React.FC<Props> = ({
     if (activeTab !== 'notes') setEditorPanelView('noteFields');
   }, [activeTab]);
 
-  useLayoutEffect(() => {
-    const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
-    if (!isMobile || editorPanelView !== 'transcription' || isLiveStreaming) return;
-    const el = transcriptInputRef.current;
+  // Auto-scroll live/finalizing transcript panel.
+  useEffect(() => {
+    if ((!isLiveStreaming && !isTranscriptRefining) || editorPanelView !== 'transcription') return;
+    const el = liveTranscriptScrollRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.max(el.scrollHeight, 320)}px`;
-  }, [editorPanelView, isLiveStreaming, lastTranscript]);
+    el.scrollTop = el.scrollHeight;
+  }, [currentTranscript, isLiveStreaming, isTranscriptRefining, editorPanelView]);
 
   // Load folder contents (with loading indicator)
   const loadFolderContents = useCallback(async (folderId: string) => {
@@ -1309,6 +1320,31 @@ export const PatientWorkspace: React.FC<Props> = ({
     [patient.id, patient.name, templateId, templateOptions]
   );
 
+  const saveNoteWithRetryAndFallback = useCallback(
+    async (params: Parameters<typeof saveNoteAsDocx>[0]): Promise<'drive' | 'download'> => {
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < SAVE_RETRY_ATTEMPTS; attempt++) {
+        try {
+          await saveNoteAsDocx(params);
+          return 'drive';
+        } catch (err) {
+          lastErr = err;
+          if (attempt < SAVE_RETRY_ATTEMPTS - 1) {
+            await new Promise((r) => setTimeout(r, SAVE_RETRY_DELAY_MS));
+          }
+        }
+      }
+      try {
+        const dl = await downloadNoteAsDocx(params);
+        downloadDocxFromBase64(dl.docxBase64, dl.fileName);
+        return 'download';
+      } catch {
+        throw lastErr;
+      }
+    },
+    []
+  );
+
   const handleSaveAsDocx = useCallback(async (noteIndex: number) => {
     const note = notes[noteIndex];
     const text = note ? getNoteText(note) : '';
@@ -1318,7 +1354,7 @@ export const PatientWorkspace: React.FC<Props> = ({
     try {
       const tplId = note.template_id || templateId;
       const fileName = buildNoteFileName(tplId, note.title || 'Note');
-      await saveNoteAsDocx({
+      const saveParams = {
         patientId: patient.id,
         template_id: tplId,
         text,
@@ -1326,22 +1362,32 @@ export const PatientWorkspace: React.FC<Props> = ({
         template_name: templateOptions.find((t) => t.id === tplId)?.name,
         mergeFields: note.docxMerge,
         user_id: practiceUserId,
-      });
-      setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
-      await loadFolderContents(currentFolderId);
-      void refreshPatientNotesFiles();
-      onDataChange();
-      onToast('Note saved as DOCX to Patient Notes folder.', 'success');
+        saveTarget: 'patient_notes' as const,
+      };
+      const outcome = await saveNoteWithRetryAndFallback(saveParams);
+      if (outcome === 'drive') {
+        setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
+        await loadFolderContents(currentFolderId);
+        void refreshPatientNotesFiles();
+        onDataChange();
+        onToast('Note saved as DOCX to Patient Notes folder.', 'success');
+      } else {
+        onToast(
+          'Could not save to Patient Notes — DOCX downloaded to your device. Upload it to the patient folder manually.',
+          'info'
+        );
+      }
     } catch (err) {
-      onToast(getErrorMessage(err), 'error');
+      onToast(`${getErrorMessage(err)} Your note is still in the editor — tap Save as DOCX to try again.`, 'error');
     }
     setSavingNoteIndex(null);
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId]);
+  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId, saveNoteWithRetryAndFallback]);
 
   const handleSaveAll = useCallback(async () => {
     setStatus(AppStatus.SAVING);
-    let saved = 0;
+    let savedToDrive = 0;
+    let downloaded = 0;
     try {
       for (let i = 0; i < notes.length; i++) {
         const note = notes[i];
@@ -1349,7 +1395,7 @@ export const PatientWorkspace: React.FC<Props> = ({
         if (!text.trim()) continue;
         const tplId = note.template_id || templateId;
         const fileName = buildNoteFileName(tplId, note.title || `Note ${i + 1}`);
-        await saveNoteAsDocx({
+        const outcome = await saveNoteWithRetryAndFallback({
           patientId: patient.id,
           template_id: tplId,
           text,
@@ -1357,21 +1403,38 @@ export const PatientWorkspace: React.FC<Props> = ({
           template_name: templateOptions.find((t) => t.id === tplId)?.name,
           mergeFields: note.docxMerge,
           user_id: practiceUserId,
+          saveTarget: 'patient_notes',
         });
-        setNotes(prev => prev.map((n, j) => j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
-        saved++;
+        if (outcome === 'drive') {
+          setNotes(prev => prev.map((n, j) => j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
+          savedToDrive++;
+        } else {
+          downloaded++;
+        }
       }
-      if (saved > 0) {
+      if (savedToDrive > 0) {
         await loadFolderContents(currentFolderId);
         void refreshPatientNotesFiles();
         onDataChange();
-        onToast(`Saved ${saved} note(s) as DOCX.`, 'success');
+      }
+      if (savedToDrive > 0 && downloaded === 0) {
+        onToast(`Saved ${savedToDrive} note(s) as DOCX.`, 'success');
+      } else if (savedToDrive > 0 && downloaded > 0) {
+        onToast(
+          `Saved ${savedToDrive} note(s) to Patient Notes. ${downloaded} downloaded to your device — upload manually.`,
+          'info'
+        );
+      } else if (downloaded > 0) {
+        onToast(
+          'Could not save to Patient Notes — DOCX files downloaded to your device. Upload them manually.',
+          'info'
+        );
       }
     } catch (err) {
-      onToast(getErrorMessage(err), 'error');
+      onToast(`${getErrorMessage(err)} Unsaved notes remain in the editor.`, 'error');
     }
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId]);
+  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId, saveNoteWithRetryAndFallback]);
 
   const handleRegeneratePdf = useCallback(async (noteIndex: number, text: string) => {
     const note = notes[noteIndex];
@@ -1612,6 +1675,10 @@ export const PatientWorkspace: React.FC<Props> = ({
     };
   }, [handleContinueTypedTranscript]);
 
+  const handleLiveStopping = useCallback(() => {
+    setIsLiveStreaming(false);
+  }, []);
+
   const handleLiveStopped = useCallback(
     (transcript: string) => {
       setIsLiveStreaming(false);
@@ -1622,7 +1689,7 @@ export const PatientWorkspace: React.FC<Props> = ({
         return;
       }
 
-      const base = lastTranscript.trim();
+      const base = lastTranscriptRef.current.trim();
       const isResume = notes.length > 0 || !!activeSessionId;
 
       let combined: string;
@@ -1637,7 +1704,6 @@ export const PatientWorkspace: React.FC<Props> = ({
         combined = clean;
       }
 
-      transcriptRefinementRef.current = { base, resumeHeader, initial: combined };
       setLastTranscript(combined);
 
       if (isResume) {
@@ -1652,32 +1718,8 @@ export const PatientWorkspace: React.FC<Props> = ({
         setEditorPanelView('noteFields');
       }
     },
-    [activeSessionId, generateNotesFromTranscript, lastTranscript, notes.length]
+    [activeSessionId, generateNotesFromTranscript, notes.length]
   );
-
-  const handleLiveFinalized = useCallback((transcript: string) => {
-    const clean = transcript.trim();
-    if (!clean) return;
-
-    const refinement = transcriptRefinementRef.current;
-    if (!refinement) return;
-
-    const finalCombined = refinement.resumeHeader
-      ? `${refinement.base}${refinement.resumeHeader}${clean}`
-      : refinement.base
-        ? `${refinement.base}\n\n${clean}`
-        : clean;
-
-    // Already applied via onLiveStopped when batch matches stream — skip redundant state churn.
-    if (finalCombined === refinement.initial) return;
-
-    setLastTranscript(finalCombined);
-    setPendingTranscript((prev) => {
-      if (!prev) return prev;
-      return prev === refinement.initial ? finalCombined : prev;
-    });
-    transcriptRefinementRef.current = { ...refinement, initial: finalCombined };
-  }, []);
 
   const toggleTemplateForGenerate = useCallback((id: string) => {
     setSelectedTemplatesForGenerate((prev) =>
@@ -2137,6 +2179,29 @@ export const PatientWorkspace: React.FC<Props> = ({
     }
   }, [currentTranscript, onToast]);
 
+  const handleRetryTranscription = useCallback(async () => {
+    if (!hasLastRecordingTranscriptionRetry() || isLiveStreaming || retryTranscriptBusy) return;
+    setRetryTranscriptBusy(true);
+    try {
+      const batch = await retryLastRecordingTranscription();
+      if (!batch) {
+        onToast('No recording available to re-transcribe. Record again first.', 'info');
+        return;
+      }
+      setLastTranscript(batch);
+      onToast('Transcript updated from full recording.', 'success');
+    } catch (err) {
+      onToast(getErrorMessage(err), 'error');
+    } finally {
+      setRetryTranscriptBusy(false);
+    }
+  }, [isLiveStreaming, onToast, retryTranscriptBusy]);
+
+  useEffect(() => {
+    if (editorPanelView !== 'transcription') return;
+    setCanRetryTranscript(hasLastRecordingTranscriptionRetry());
+  }, [editorPanelView, lastTranscript, isLiveStreaming]);
+
   const handleLoadSession = useCallback(
     (session: ScribeSession | null) => {
       // When selecting "Start new session" or clearing, reset to a blank editor state.
@@ -2215,9 +2280,9 @@ export const PatientWorkspace: React.FC<Props> = ({
   }, [isGeneratingNotes]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-halo-bg relative w-full">
+    <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-halo-bg">
       {/* Header — mobile: single compact row (back + actions); desktop: unchanged title left / actions right */}
-      <div className="border-b border-halo-border px-3 md:px-6 py-2.5 flex flex-row flex-wrap items-center gap-x-2 gap-y-2 bg-halo-card shadow-[var(--shadow-halo-soft)] z-10 md:flex-nowrap md:items-center md:justify-between md:gap-4">
+      <div className="shrink-0 border-b border-halo-border px-3 md:px-6 py-2.5 flex flex-row flex-wrap items-center gap-x-2 gap-y-2 bg-halo-card shadow-[var(--shadow-halo-soft)] z-10 md:flex-nowrap md:items-center md:justify-between md:gap-4">
         {/* Mobile: shrink-wrap group (back + actions sit tight); Desktop: title takes remaining space */}
         <div className="flex min-w-0 shrink-0 items-center gap-2 md:min-w-0 md:flex-1">
           <button
@@ -2256,8 +2321,9 @@ export const PatientWorkspace: React.FC<Props> = ({
               <div className="flex flex-row flex-wrap items-center justify-end gap-2">
                 <HeaderConsultationRecorder
                   onLiveTranscriptUpdate={handleLiveTranscriptUpdate}
+                  onLiveStopping={handleLiveStopping}
                   onLiveStopped={handleLiveStopped}
-                  onLiveFinalized={handleLiveFinalized}
+                  onTranscriptRefining={setIsTranscriptRefining}
                   onError={(msg: string) => onToast(msg, 'error')}
                 />
                 <button
@@ -2320,7 +2386,7 @@ export const PatientWorkspace: React.FC<Props> = ({
           activeTab === 'notes' ? 'overflow-hidden' : 'overflow-y-auto'
         }`}
       >
-        <div className={`mx-auto flex w-full max-w-[min(96rem,100%)] min-h-0 flex-col ${activeTab === 'notes' ? 'min-h-0 flex-1 overflow-hidden' : 'flex-1'}`}>
+        <div className={`mx-auto flex w-full max-w-[min(96rem,100%)] min-h-0 flex-col ${activeTab === 'notes' ? 'h-0 flex-1 overflow-hidden' : 'flex-1'}`}>
           {/* AI Panel */}
           {activeTab === 'overview' && hasAiContent && showAiPanel && (
             <div className="mb-3 space-y-3">
@@ -2355,7 +2421,7 @@ export const PatientWorkspace: React.FC<Props> = ({
 
           {/* CTA to generate insights (only when not yet generated) */}
           {/* Tabs */}
-          <div className="mb-4 mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-slate-200/70 max-md:mb-2 max-md:mt-1 max-md:flex-col max-md:items-stretch max-md:border-b-0">
+          <div className="mb-4 mt-2 shrink-0 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-slate-200/70 max-md:mb-2 max-md:mt-1 max-md:flex-col max-md:items-stretch max-md:border-b-0">
             <div className="flex min-w-0 items-center gap-2 overflow-x-auto md:gap-4 max-md:grid max-md:grid-cols-4 max-md:gap-1.5 max-md:overflow-visible max-md:rounded-2xl max-md:border max-md:border-slate-200/80 max-md:bg-white max-md:p-1">
               <button onClick={() => setActiveTab('overview')} className={`halo-touch-min border-b-2 py-2 text-sm font-bold uppercase tracking-wide whitespace-nowrap transition-colors max-md:min-w-0 max-md:rounded-full max-md:border max-md:border-b max-md:px-1.5 max-md:py-2 max-md:text-[11px] ${activeTab === 'overview' ? 'border-halo-primary text-halo-text max-md:border-teal-300 max-md:bg-teal-50 max-md:ring-1 max-md:ring-teal-200/80' : 'border-transparent text-halo-muted hover:text-halo-text-secondary max-md:border-slate-200/80 max-md:bg-white'}`}>Files</button>
               <button
@@ -2532,18 +2598,18 @@ export const PatientWorkspace: React.FC<Props> = ({
               </div>
             </div>
           ) : activeTab === 'notes' ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex h-0 min-h-0 flex-1 flex-col overflow-hidden">
               {/* Editor workspace: fills remaining viewport height */}
-              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70 md:min-h-[min(60vh,calc(100dvh-220px))] max-md:min-h-0">
+              <div className="relative flex h-0 min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70">
                 {pendingTranscript ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/90 p-4">
                     <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{pendingTranscript}</p>
                   </div>
                 ) : (
-                  <>
-                    <div className="flex w-full min-w-0 flex-col gap-2 border-b border-slate-200 bg-slate-50/80 px-3 py-2.5 max-md:gap-1.5 max-md:px-2 max-md:py-2">
-                      {notes.length > 0 ? (
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <div className="flex h-0 min-h-0 flex-1 flex-col overflow-hidden">
+                    <div className="flex w-full min-w-0 shrink-0 flex-col gap-2 border-b border-slate-200 bg-slate-50/80 px-3 py-2.5 max-md:gap-1.5 max-md:px-2 max-md:py-2">
+                      {notes.length > 0 && editorPanelView === 'noteFields' ? (
+                        <div className="flex min-w-0 flex-wrap items-center gap-2 max-md:gap-1.5">
                           <span className="text-sm font-bold uppercase tracking-wide text-slate-400">Notes</span>
                           <div className="h-4 w-px bg-slate-200" aria-hidden />
                           <div className="flex min-w-0 max-w-full items-center gap-2 overflow-x-auto pb-1">
@@ -2633,7 +2699,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                         </button>
                       </div>
                     </div>
-                    <div className="flex min-h-0 flex-1 flex-col bg-slate-100/50 p-2 md:p-3 max-md:p-1">
+                    <div className="flex h-0 min-h-0 flex-1 flex-col overflow-hidden bg-slate-100/50 p-2 md:p-3 max-md:p-1">
                       {editorPanelView === 'noteFields' ? (
                         <div className={`${EDITOR_VIEW_SHELL} min-h-0 max-md:min-h-0 max-md:focus-within:ring-[1.5px] max-md:focus-within:ring-teal-300/90`}>
                           <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white max-md:min-h-0 max-md:bg-transparent">
@@ -2663,21 +2729,41 @@ export const PatientWorkspace: React.FC<Props> = ({
                           </div>
                         </div>
                       ) : editorPanelView === 'transcription' ? (
-                        <div className={`${EDITOR_VIEW_SHELL} max-md:focus-within:ring-[1.5px] max-md:focus-within:ring-teal-300/90`}>
-                          <div className={EDITOR_VIEW_HEADER}>
+                        <div
+                          className={`${EDITOR_VIEW_SHELL} max-md:focus-within:ring-[1.5px] max-md:focus-within:ring-teal-300/90`}
+                        >
+                          <div className={`${EDITOR_VIEW_HEADER} shrink-0 max-md:py-2`}>
                             <div className="flex items-center gap-2">
                               <span className={EDITOR_VIEW_TITLE}>Transcription</span>
                               {isLiveStreaming ? (
                                 <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-teal-800 max-md:px-2 max-md:py-1 max-md:text-sm">
                                   Live
                                 </span>
+                              ) : isTranscriptRefining ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800 max-md:px-2 max-md:py-1 max-md:text-sm">
+                                  <Loader2 className="size-3 animate-spin" aria-hidden />
+                                  Finalizing
+                                </span>
                               ) : null}
                             </div>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 max-md:flex-wrap">
+                              {canRetryTranscript ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRetryTranscription()}
+                                  disabled={isLiveStreaming || isTranscriptRefining || isGeneratingNotes || retryTranscriptBusy}
+                                  className="halo-touch-min inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-teal-800 ring-1 ring-teal-200/80 shadow-sm hover:bg-teal-50 disabled:opacity-40 max-md:px-3 max-md:py-2 max-md:text-sm"
+                                >
+                                  {retryTranscriptBusy ? (
+                                    <Loader2 className="size-3 animate-spin" aria-hidden />
+                                  ) : null}
+                                  {retryTranscriptBusy ? 'Retrying…' : 'Retry transcript'}
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={handleContinueTypedTranscript}
-                                disabled={isLiveStreaming || isGeneratingNotes || !lastTranscript.trim()}
+                                disabled={isLiveStreaming || isTranscriptRefining || isGeneratingNotes || !lastTranscript.trim()}
                                 className="halo-touch-min inline-flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-sm hover:bg-teal-700 disabled:opacity-40 max-md:px-3 max-md:py-2 max-md:text-sm"
                               >
                                 Continue
@@ -2692,12 +2778,20 @@ export const PatientWorkspace: React.FC<Props> = ({
                               </button>
                             </div>
                           </div>
-                          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-white p-3 [-webkit-overflow-scrolling:touch] max-md:p-2.5">
-                            {isLiveStreaming ? (
-                              <div className="min-h-0 flex-1 overflow-auto text-sm leading-relaxed text-slate-700 whitespace-pre-wrap [-webkit-overflow-scrolling:touch] max-md:rounded-lg max-md:bg-transparent max-md:px-0.5">
+                          <div className="editor-transcript-scroll-host bg-white">
+                            {isLiveStreaming || isTranscriptRefining ? (
+                              <div
+                                ref={liveTranscriptScrollRef}
+                                className="editor-transcript-scroll editor-transcript-live p-3 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap max-md:p-2.5 max-md:text-[15px] max-md:leading-6"
+                              >
                                 {isGeneratingNotes ? (
                                   <span className="inline-flex items-center gap-2 text-slate-500">
                                     <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden />
+                                  </span>
+                                ) : isTranscriptRefining && !currentTranscript.trim() ? (
+                                  <span className="inline-flex items-center gap-2 text-slate-500">
+                                    <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden />
+                                    Finalizing transcript from full recording…
                                   </span>
                                 ) : (
                                   currentTranscript
@@ -2709,8 +2803,8 @@ export const PatientWorkspace: React.FC<Props> = ({
                                 value={lastTranscript}
                                 onChange={(e) => setLastTranscript(e.target.value)}
                                 disabled={isGeneratingNotes}
-                                className="min-h-[min(40vh,320px)] w-full flex-1 resize-y overflow-y-auto rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none focus:ring-0 [-webkit-overflow-scrolling:touch] max-md:min-h-[48dvh] max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:px-0.5 max-md:py-0 max-md:focus:border-0 max-md:focus:ring-0"
                                 placeholder="Type your consultation text here, then tap Continue for templates…"
+                                className="editor-transcript-scroll border-0 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none focus:ring-0 max-md:bg-transparent max-md:px-2.5 max-md:py-2 max-md:text-[15px] max-md:leading-6 max-md:focus:border-0 max-md:focus:ring-0 md:rounded-none md:border-0 md:bg-white md:px-4 md:py-3"
                               />
                             )}
                           </div>
@@ -2772,7 +2866,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                         </div>
                       )}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
 

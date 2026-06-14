@@ -70,6 +70,49 @@ body {
   max-height: none;
 }
 
+/** Transcription tab — single scroll surface (desktop + mobile). */
+.editor-transcript-scroll-host {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (min-width: 769px) {
+  .editor-transcript-scroll-host {
+    min-height: 14rem;
+  }
+}
+
+.editor-transcript-scroll {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  resize: none;
+}
+
+@media (min-width: 769px) {
+  .editor-transcript-scroll {
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
+}
+
+textarea.editor-transcript-scroll {
+  touch-action: pan-y;
+}
+
+.editor-transcript-scroll.editor-transcript-live {
+  touch-action: pan-y;
+}
+
 @media (max-width: 768px) {
   /* Mobile-only: defeat browser back-swipe overscroll chaining. */
   html,
