@@ -225,6 +225,15 @@ textarea.editor-transcript-scroll {
     padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
     scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
   }
+
+  .pdf-preview-scroll {
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+
+  .pdf-preview-frame {
+    overscroll-behavior: contain;
+  }
 }
 
 /* ─── Mobile: eliminate 300ms tap delay & ghost highlight ────── */
