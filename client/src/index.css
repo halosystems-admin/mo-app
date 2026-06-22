@@ -204,6 +204,27 @@ textarea.editor-transcript-scroll {
   [role='tab'] {
     font-size: max(14px, 0.875rem);
   }
+
+  .note-fields-scrollArea {
+    padding-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px)) !important;
+    scroll-padding-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .note-fields-scrollArea > :last-child {
+    margin-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  textarea.note-fields-editor-input {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .editor-transcript-scroll {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
+    scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 /* ─── Mobile: eliminate 300ms tap delay & ghost highlight ────── */

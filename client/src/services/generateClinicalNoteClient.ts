@@ -10,6 +10,7 @@ import {
   fieldMapFromGeminiJson,
 } from '../../../shared/populateClinicalNoteTemplate';
 import { fieldValuesToOrganizedMarkdown } from '../../../shared/clinicalNoteOrganizedText';
+import { mergeFieldMaps, parsePopulatedEditorToFieldMap } from '../../../shared/parsePopulatedEditorToFieldMap';
 import { getPatientHaloProfile } from './api';
 import { generateText, isClientGeminiConfigured } from './geminiClient';
 import type { HaloPatientProfile } from '../../../shared/types';
@@ -43,6 +44,10 @@ function fieldValuesToNoteFields(
 
 function fieldsToContent(fields: NoteField[]): string {
   return fields.map((f) => (f.label ? `${f.label}:\n${f.body || ''}` : f.body)).filter(Boolean).join('\n\n');
+}
+
+function hasNonEmptyFieldValue(fieldValues: Record<string, string>): boolean {
+  return Object.values(fieldValues).some((value) => String(value ?? '').trim().length > 0);
 }
 
 async function loadPatientProfile(patientId: string | undefined) {
@@ -98,12 +103,24 @@ export async function generateClinicalNotePreview(
       profile,
       templateDefinition
     );
+    fieldValues = mergeFieldMaps(
+      fieldValues,
+      parsePopulatedEditorToFieldMap(composedText, templateDefinition)
+    );
     fields = fieldValuesToNoteFields(fieldValues, templateDefinition);
   } catch (e) {
     console.warn('[client-gemini] field extraction failed:', e);
+    fieldValues = enrichParsedDataWithChart(
+      parsePopulatedEditorToFieldMap(composedText, templateDefinition),
+      profile,
+      templateDefinition
+    );
+    fields = fieldValuesToNoteFields(fieldValues, templateDefinition);
   }
 
-  if (Object.keys(fieldValues).length > 0) {
+  const hasMergeValues = hasNonEmptyFieldValue(fieldValues);
+
+  if (hasMergeValues) {
     content = fieldValuesToOrganizedMarkdown(templateId, fieldValues, templateDefinition);
   } else if (fields.length > 0) {
     content = fieldsToContent(fields);
@@ -124,7 +141,7 @@ export async function generateClinicalNotePreview(
       lastSavedAt: now,
       dirty: false,
       raw,
-      ...(Object.keys(fieldValues).length > 0 ? { docxMerge: fieldValues } : {}),
+      ...(hasMergeValues ? { docxMerge: fieldValues } : {}),
       ...(fields.length > 0 ? { fields } : {}),
     },
   ];

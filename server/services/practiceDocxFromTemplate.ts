@@ -12,6 +12,7 @@ import {
   renderClinicalNoteDocx,
 } from './clinicalNoteDocx';
 import { extractMoTemplateFieldValues } from './moClinicalNoteGeneration';
+import { enrichParsedDataWithChart } from '../../shared/populateClinicalNoteTemplate';
 
 export type RenderPracticeDocxParams = {
   haloUserId: string;
@@ -65,6 +66,7 @@ async function resolveMergeFieldValues(params: RenderPracticeDocxParams): Promis
   const { text, mergeFields, templateDefinition } = params;
 
   let values = buildDocxMergeFields(text, mergeFields, templateDefinition);
+  values = enrichParsedDataWithChart(values, params.patientProfile, templateDefinition);
 
   const nonEmpty = Object.values(values).filter((v) => v.trim()).length;
   if (nonEmpty > 0) return values;

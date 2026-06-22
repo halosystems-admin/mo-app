@@ -19,7 +19,6 @@ export const HALO_TEMPLATE_OPTIONS: ReadonlyArray<{ id: string; name: string }> 
   { id: 'outpt_consult', name: 'Outpatient Consult' },
   { id: 'script', name: 'Script' },
   { id: 'sick_note', name: 'Sick Note' },
-  { id: 'ward_dictation', name: 'Ward Dictation' },
 ];
 
 /** ─── Tygerberg ───────────────────────────────────────────── */
