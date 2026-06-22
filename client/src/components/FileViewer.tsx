@@ -141,20 +141,10 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const blobUrlRef = useRef<string | null>(null);
 
   const effectiveMime = useMemo(() => refineMimeType(mimeType, fileName), [mimeType, fileName]);
   const viewerType = getViewerType(effectiveMime, fileName);
-
-  useEffect(() => {
-    const mq = window.matchMedia?.('(max-width: 768px)');
-    if (!mq) return;
-    const apply = () => setIsMobileViewport(Boolean(mq.matches));
-    apply();
-    mq.addEventListener?.('change', apply);
-    return () => mq.removeEventListener?.('change', apply);
-  }, []);
 
   useEffect(() => {
     if (viewerType === 'unsupported') {
@@ -202,9 +192,6 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
             }
             return true;
           };
-
-          // Mobile Safari handles embedded PDF blobs poorly. Use responsive HTML first on phones.
-          if (isMobileViewport && await loadHtmlPreview()) return;
 
           const previewUrl = `${API_BASE}/api/drive/files/${fileId}/preview-docx-pdf`;
           const res = await fetch(previewUrl, { credentials: 'include' });
@@ -295,7 +282,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         blobUrlRef.current = null;
       }
     };
-  }, [fileId, viewerType, effectiveMime, isMobileViewport]);
+  }, [fileId, viewerType, effectiveMime]);
 
   // Close on Escape key
   useEffect(() => {
@@ -363,7 +350,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       return (
         <div className="file-preview-scroll h-full overflow-auto bg-slate-100 [-webkit-overflow-scrolling:touch] touch-pan-y">
           <iframe
-            src={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH&zoom=page-width`}
+            src={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=1&view=Fit&zoom=page-fit`}
             title={fileName}
             className="file-preview-frame block h-full min-h-[72vh] w-full rounded-b-xl border-0 bg-white max-md:min-h-[calc(100dvh-9.75rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]"
             scrolling="yes"
