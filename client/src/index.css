@@ -234,6 +234,19 @@ textarea.editor-transcript-scroll {
   .pdf-preview-frame {
     overscroll-behavior: contain;
   }
+
+  .file-preview-scroll {
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+
+  .file-preview-frame {
+    overscroll-behavior: contain;
+  }
+
+  .docx-preview {
+    overflow-wrap: anywhere;
+  }
 }
 
 /* ─── Mobile: eliminate 300ms tap delay & ghost highlight ────── */
