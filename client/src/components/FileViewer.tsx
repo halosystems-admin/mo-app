@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import DOMPurify from 'dompurify';
 import { X, ExternalLink, Loader2, FileText, AlertCircle } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { refineMimeType } from '../../../shared/mimeFromFilename';
 
 interface FileViewerProps {
@@ -15,6 +17,8 @@ interface FileViewerProps {
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 /** Renders markdown like a document (headings, lists, emphasis) — not monospace “source” view. */
 const markdownDocumentComponents: Components = {
@@ -135,16 +139,132 @@ function getViewerType(mimeType: string, fileName: string): 'pdf' | 'image' | 't
   return 'unsupported';
 }
 
+const MobilePdfPageFitPreview: React.FC<{ data: ArrayBuffer; title: string }> = ({ data, title }) => {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState(true);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const [renderVersion, setRenderVersion] = useState(0);
+
+  useEffect(() => {
+    let timeout: number | undefined;
+    const handleResize = () => {
+      window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => setRenderVersion((value) => value + 1), 250);
+    };
+    window.addEventListener('orientationchange', handleResize);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener('orientationchange', handleResize);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let pdf: pdfjsLib.PDFDocumentProxy | null = null;
+
+    const render = async () => {
+      const host = hostRef.current;
+      if (!host) return;
+
+      setBusy(true);
+      setRenderError(null);
+      host.replaceChildren();
+
+      try {
+        await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+        const pageWidth = Math.max(260, Math.floor(host.clientWidth - 16));
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+        pdf = await pdfjsLib.getDocument({ data: data.slice(0) }).promise;
+
+        for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
+          if (cancelled) return;
+
+          const page = await pdf.getPage(pageNo);
+          const baseViewport = page.getViewport({ scale: 1 });
+          const cssScale = pageWidth / baseViewport.width;
+          const viewport = page.getViewport({ scale: cssScale * dpr });
+          const cssHeight = Math.round(baseViewport.height * cssScale);
+
+          const pageWrap = document.createElement('div');
+          pageWrap.className = 'mobile-pdf-page mx-auto mb-3 overflow-hidden rounded-md bg-white shadow-sm';
+          pageWrap.style.width = `${pageWidth}px`;
+          pageWrap.style.maxWidth = '100%';
+
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.floor(viewport.width);
+          canvas.height = Math.floor(viewport.height);
+          canvas.style.width = '100%';
+          canvas.style.height = `${cssHeight}px`;
+          canvas.setAttribute('aria-label', `${title} page ${pageNo}`);
+
+          pageWrap.appendChild(canvas);
+          host.appendChild(pageWrap);
+
+          const context = canvas.getContext('2d');
+          if (!context) throw new Error('Could not create PDF preview.');
+
+          await page.render({ canvas, canvasContext: context, viewport }).promise;
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setRenderError(err instanceof Error ? err.message : 'Could not render document preview.');
+        }
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    };
+
+    void render();
+
+    return () => {
+      cancelled = true;
+      hostRef.current?.replaceChildren();
+      void pdf?.destroy();
+    };
+  }, [data, renderVersion, title]);
+
+  return (
+    <div className="file-preview-scroll h-full overflow-y-auto overflow-x-hidden bg-slate-100 px-2 py-3 [-webkit-overflow-scrolling:touch] touch-pan-y">
+      {busy ? (
+        <div className="flex items-center justify-center gap-2 py-3 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin text-teal-600" aria-hidden />
+          Loading page-fit preview...
+        </div>
+      ) : null}
+      {renderError ? (
+        <div className="mx-auto max-w-sm rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {renderError}
+        </div>
+      ) : null}
+      <div ref={hostRef} className="mx-auto w-full max-w-full pb-8" />
+    </div>
+  );
+};
+
 export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeType, fileUrl, onClose }) => {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const blobUrlRef = useRef<string | null>(null);
 
   const effectiveMime = useMemo(() => refineMimeType(mimeType, fileName), [mimeType, fileName]);
   const viewerType = getViewerType(effectiveMime, fileName);
+
+  useEffect(() => {
+    const mq = window.matchMedia?.('(max-width: 768px)');
+    if (!mq) return;
+    const apply = () => setIsMobileViewport(Boolean(mq.matches));
+    apply();
+    mq.addEventListener?.('change', apply);
+    return () => mq.removeEventListener?.('change', apply);
+  }, []);
 
   useEffect(() => {
     if (viewerType === 'unsupported') {
@@ -164,6 +284,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       setLoading(true);
       setError(null);
       setBlobUrl(null);
+      setPdfData(null);
       setTextContent(null);
       setDocxHtml(null);
 
@@ -224,6 +345,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
             const url = URL.createObjectURL(blob);
             blobUrlRef.current = url;
             setBlobUrl(url);
+            setPdfData(buf.slice(0));
           }
           return;
         }
@@ -262,6 +384,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
             const url = URL.createObjectURL(blob);
             blobUrlRef.current = url;
             setBlobUrl(url);
+            if (viewerType === 'pdf') setPdfData(buf.slice(0));
           }
         }
       } catch (err) {
@@ -344,6 +467,10 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
           <img src={blobUrl} alt={fileName} className="max-w-full max-h-full object-contain rounded-lg shadow-sm" />
         </div>
       );
+    }
+
+    if ((viewerType === 'pdf' || viewerType === 'docx') && pdfData && isMobileViewport) {
+      return <MobilePdfPageFitPreview data={pdfData} title={fileName} />;
     }
 
     if ((viewerType === 'pdf' || viewerType === 'docx') && blobUrl) {
