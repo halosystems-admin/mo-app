@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { generateText, generateTextStream, analyzeImage, transcribeAudio, safeJsonParse } from '../services/gemini';
 import { isDeepgramAvailable, transcribeWithDeepgram } from '../services/deepgram';
+import { estimateAudioMinutesFromBytes, trackTranscriptionProcessed } from '../telemetry';
 import { getStorageAdapter } from '../services/storage';
 import type { MicrosoftStorageMode } from '../services/storage/types';
 import {
@@ -468,6 +469,9 @@ router.post('/transcribe', async (req: Request, res: Response) => {
         audioMime
       );
       console.log('[ai/transcribe] Gemini transcript length', transcript?.length || 0);
+      if (transcript?.trim()) {
+        trackTranscriptionProcessed(estimateAudioMinutesFromBytes(audioBuffer.length));
+      }
       res.json({ transcript: transcript || '', rawTranscript: transcript || '' });
       return;
     }
@@ -485,6 +489,8 @@ router.post('/transcribe', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'No speech detected in audio.' });
       return;
     }
+
+    trackTranscriptionProcessed(estimateAudioMinutesFromBytes(audioBuffer.length));
 
     console.log('[ai/transcribe] Deepgram transcript length', transcript.length);
     res.json({ transcript, rawTranscript: transcript });

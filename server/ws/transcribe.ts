@@ -11,6 +11,7 @@ import {
   flushLiveTranscriptState,
   type LiveTranscriptState,
 } from '../../shared/liveTranscriptMerge';
+import { estimateAudioMinutesFromBytes, trackDeepgramLiveCall, trackTranscriptionProcessed } from '../telemetry';
 
 const WS_PATH = '/ws/transcribe';
 
@@ -32,6 +33,21 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
     let transcriptState: LiveTranscriptState = createLiveTranscriptState();
     let audioBytes = 0;
     let chunkCount = 0;
+    let tracked = false;
+
+    const emitTranscriptionTelemetry = (reason: string) => {
+      if (tracked || audioBytes <= 0) return;
+      tracked = true;
+      const audioMinutes = estimateAudioMinutesFromBytes(audioBytes);
+      console.log('[ws/transcribe] telemetry transcription.processed', {
+        reason,
+        audioBytes,
+        chunkCount,
+        audioMinutes,
+      });
+      trackDeepgramLiveCall({ audioMinutes, success: true });
+      trackTranscriptionProcessed(audioMinutes);
+    };
 
     const dg = createDeepgramLiveConnection({
       onOpen: () => {
@@ -77,6 +93,9 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
             ? { finalLength: fullTranscript.length, audioBytes, chunkCount }
             : { message: 'no transcript', audioBytes, chunkCount }
         );
+        if (audioBytes > 0) {
+          emitTranscriptionTelemetry('deepgram_close');
+        }
         if (clientWs.readyState === 1) {
           clientWs.send(JSON.stringify({ type: 'done', transcript: fullTranscript }));
           clientWs.send(JSON.stringify({ type: 'close' }));
@@ -88,6 +107,10 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
             ? String((err as { message: unknown }).message)
             : 'Deepgram error';
         console.error('[ws/transcribe] Deepgram error:', message);
+        if (audioBytes > 0) {
+          const audioMinutes = estimateAudioMinutesFromBytes(audioBytes);
+          trackDeepgramLiveCall({ audioMinutes, success: false, errorMessage: message });
+        }
         if (clientWs.readyState === 1) {
           clientWs.send(JSON.stringify({ type: 'error', message }));
         }
@@ -117,6 +140,7 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
 
       if (isEndSignal) {
         console.log('[ws/transcribe] received client end signal');
+        emitTranscriptionTelemetry('client_end_signal');
         dg.requestClose();
         return;
       }
@@ -128,6 +152,7 @@ export function attachTranscribeWebSocket(server: import('http').Server): void {
     });
 
     const onClose = () => {
+      emitTranscriptionTelemetry('client_socket_close');
       dg.requestClose();
       dg.disconnect();
     };

@@ -1,0 +1,42 @@
+{
+  "name": "@halo/telemetry-discovery-js",
+  "version": "0.1.0",
+  "description": "Drop-in HALO telemetry SDK for Node apps — auto-capture HTTP, providers, DB, queues, and activity events.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "halo-telemetry-verify": "./bin/verify.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test src",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "halo",
+    "telemetry",
+    "observability",
+    "cost",
+    "instrumentation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/halomedical/telemetry-endpoint.git",
+    "directory": "packages/telemetry-discovery-js"
+  },
+  "license": "UNLICENSED",
+  "publishConfig": {
+    "access": "restricted",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { requireUser } from '../middleware/requireUser';
 import { acceptInvite, findUserByEmail, normalizeEmail, updateLastLogin, verifyPassword } from '../services/userStore';
 import { resolveDriveRootFolderName } from '../utils/resolveDriveRoot';
+import { trackAppSessionEnded } from '../telemetry';
 
 const router = Router();
 
@@ -36,6 +37,7 @@ router.post('/login', async (req: Request, res: Response) => {
       return;
     }
     req.session.userId = user.id;
+    req.session.appSessionStartedAt = Date.now();
     await updateLastLogin(user.id);
     res.json({
       user: {
@@ -55,6 +57,10 @@ router.post('/login', async (req: Request, res: Response) => {
 });
 
 router.post('/logout', (req: Request, res: Response) => {
+  const startedAt = req.session.appSessionStartedAt;
+  if (typeof startedAt === 'number') {
+    trackAppSessionEnded(Date.now() - startedAt, 'unknown');
+  }
   req.session.destroy(() => {
     res.json({ success: true });
   });
@@ -131,6 +137,7 @@ router.post('/accept-invite', async (req: Request, res: Response) => {
   try {
     const result = await acceptInvite({ rawToken: token, password, firstName, lastName });
     req.session.userId = result.userId;
+    req.session.appSessionStartedAt = Date.now();
     res.json({
       success: true,
       user: {
