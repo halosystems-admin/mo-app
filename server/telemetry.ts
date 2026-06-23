@@ -244,13 +244,52 @@ export function trackPatientScanned(
   void flushTelemetry('trackPatientScanned');
 }
 
-export function trackAppSessionEnded(durationMs: number, provider: 'google' | 'microsoft' | 'unknown'): void {
+export function ensureAppSessionStarted(session: { appSessionStartedAt?: number }): void {
+  if (typeof session.appSessionStartedAt !== 'number') {
+    session.appSessionStartedAt = Date.now();
+  }
+}
+
+export type AppSessionProvider = 'google' | 'microsoft' | 'email' | 'unknown';
+
+export function resolveAppSessionProvider(session: {
+  authProvider?: string;
+  provider?: string;
+  userId?: string;
+}): AppSessionProvider {
+  if (session.authProvider === 'email') return 'email';
+  if (session.provider === 'google' || session.provider === 'microsoft') return session.provider;
+  if (session.userId) return 'email';
+  return 'unknown';
+}
+
+export function trackAppSessionEnded(durationMs: number, provider: AppSessionProvider): void {
   if (!Number.isFinite(durationMs) || durationMs < 0) return;
-  telemetryInstance?.track({
+  if (!telemetryInstance) {
+    console.warn('[telemetry] trackAppSessionEnded skipped — telemetry not initialized');
+    return;
+  }
+  console.log('[telemetry] trackAppSessionEnded', {
+    durationMs: Math.round(durationMs),
+    provider,
+  });
+  const accepted = telemetryInstance.track({
     type: 'app.session_ended',
     session_duration_ms: Math.round(durationMs),
-    provider
+    provider,
   });
+  if (!accepted) {
+    console.warn('[telemetry] trackAppSessionEnded dropped by SDK (queue full or sampling)');
+  }
+  void flushTelemetry('trackAppSessionEnded');
+}
+
+export function endAppSessionTelemetry(
+  session: { appSessionStartedAt?: number; authProvider?: string; provider?: string; userId?: string }
+): void {
+  const startedAt = session.appSessionStartedAt;
+  if (typeof startedAt !== 'number') return;
+  trackAppSessionEnded(Date.now() - startedAt, resolveAppSessionProvider(session));
 }
 
 /** Rough duration estimate when provider metadata is unavailable (e.g. live WebSocket audio). */
