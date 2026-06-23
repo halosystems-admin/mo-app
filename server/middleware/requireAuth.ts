@@ -14,6 +14,7 @@ declare module 'express-session' {
     oauthState?: string;
     oauthPurpose?: 'shared_onedrive_bootstrap';
     microsoftStorageMode?: 'onedrive' | 'sharepoint';
+    appSessionStartedAt?: number;
   }
 }
 

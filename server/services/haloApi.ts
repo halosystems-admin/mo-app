@@ -6,6 +6,7 @@
 import type { ClinicalTemplateDefinition } from '../../shared/clinicalTemplates/types';
 import { config } from '../config';
 import { haloGenerateNoteInputEnvelope } from '../utils/prompts';
+import { trackNoteGenerated } from '../telemetry';
 
 const BASE = config.haloApiBaseUrl;
 
@@ -295,11 +296,13 @@ export async function generateNote(params: GenerateNoteParams): Promise<HaloNote
 
   if (return_type === 'docx') {
     const buffer = Buffer.from(await res.arrayBuffer());
+    trackNoteGenerated();
     return buffer;
   }
 
   const data = (await res.json()) as unknown;
   const notes = normalizeNotesResponse(data, params.template_id);
+  trackNoteGenerated();
   // Always pin raw = the original HALO API response so the client can render
   // actual clinical fields (not the normalized wrapper keys).
   return notes.map((n) => ({ ...n, raw: data }));
