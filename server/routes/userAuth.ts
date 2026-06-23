@@ -167,4 +167,3 @@ router.post('/accept-invite', async (req: Request, res: Response) => {
 });
 
 export default router;
-
