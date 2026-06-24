@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { requireUser } from '../middleware/requireUser';
 import { acceptInvite, findUserByEmail, normalizeEmail, updateLastLogin, verifyPassword } from '../services/userStore';
 import { resolveDriveRootFolderName } from '../utils/resolveDriveRoot';
+import { endAppSessionTelemetry, ensureAppSessionStarted } from '../telemetry';
 
 const router = Router();
 
@@ -36,17 +37,26 @@ router.post('/login', async (req: Request, res: Response) => {
       return;
     }
     req.session.userId = user.id;
+    req.session.authProvider = 'email';
+    req.session.appSessionStartedAt = Date.now();
     await updateLastLogin(user.id);
-    res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        haloUserId: user.halo_user_id,
-        driveRootFolderName: resolveDriveRootFolderName(user.email, user.drive_root_folder_name),
-      },
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        console.error('[user-auth/login] session save error:', saveErr);
+        res.status(500).json({ error: 'Sign-in succeeded but session could not be saved.' });
+        return;
+      }
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          role: user.role,
+          haloUserId: user.halo_user_id,
+          driveRootFolderName: resolveDriveRootFolderName(user.email, user.drive_root_folder_name),
+        },
+      });
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Login failed.';
@@ -55,6 +65,7 @@ router.post('/login', async (req: Request, res: Response) => {
 });
 
 router.post('/logout', (req: Request, res: Response) => {
+  endAppSessionTelemetry(req.session);
   req.session.destroy(() => {
     res.json({ success: true });
   });
@@ -65,6 +76,7 @@ router.get('/me', async (req: Request, res: Response) => {
     res.json({ signedIn: false });
     return;
   }
+  ensureAppSessionStarted(req.session);
   await requireUser(req, res, () => {
     const u = req.appUser!;
     res.json({
@@ -131,13 +143,22 @@ router.post('/accept-invite', async (req: Request, res: Response) => {
   try {
     const result = await acceptInvite({ rawToken: token, password, firstName, lastName });
     req.session.userId = result.userId;
-    res.json({
-      success: true,
-      user: {
-        id: result.userId,
-        email: result.email,
-        role: result.role,
-      },
+    req.session.authProvider = 'email';
+    req.session.appSessionStartedAt = Date.now();
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        console.error('[user-auth/accept-invite] session save error:', saveErr);
+        res.status(500).json({ error: 'Account created but session could not be saved.' });
+        return;
+      }
+      res.json({
+        success: true,
+        user: {
+          id: result.userId,
+          email: result.email,
+          role: result.role,
+        },
+      });
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Invite acceptance failed.';
@@ -146,4 +167,3 @@ router.post('/accept-invite', async (req: Request, res: Response) => {
 });
 
 export default router;
-

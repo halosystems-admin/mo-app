@@ -176,4 +176,12 @@ export const config = {
   moTemplatesDir: (process.env.MO_TEMPLATES_DIR || 'Mo templates').trim(),
   /** Set true to enable Mo local templates (docx must have intact merge tags). Default off until templates fixed. */
   useLocalClinicalTemplates: process.env.USE_LOCAL_CLINICAL_TEMPLATES === 'true',
+
+  // HALO cost telemetry (optional — disabled when HALO_TELEMETRY_TOKEN is unset)
+  telemetryUrl: process.env.HALO_TELEMETRY_URL || 'https://telemetry.halomedical.ai',
+  telemetryToken: process.env.HALO_TELEMETRY_TOKEN || '',
+  telemetryAppName: process.env.HALO_TELEMETRY_APP_NAME || 'mo-app',
+  telemetryCaptureInbound: process.env.HALO_TELEMETRY_CAPTURE_INBOUND !== 'false',
+  telemetryGeminiOnly: process.env.HALO_TELEMETRY_GEMINI_ONLY !== 'false',
+  telemetryCaptureMicrosoft: process.env.HALO_TELEMETRY_CAPTURE_MICROSOFT === 'true',
 } as const;

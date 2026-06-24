@@ -322,6 +322,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     openPdfPreview();
   };
   const previewBusy = regeneratingPdfIndex === activeIndex;
+  const pdfPreviewUrl = pdfUrl
+    ? `${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH&zoom=page-width`
+    : null;
 
   useEffect(() => {
     setShowPdfPreviewOverlay(false);
@@ -511,12 +514,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 bg-slate-100">
-              {pdfUrl ? (
+            <div className="pdf-preview-scroll min-h-0 flex-1 overflow-auto bg-slate-100 [-webkit-overflow-scrolling:touch] touch-pan-y">
+              {pdfPreviewUrl ? (
                 <iframe
-                  src={pdfUrl}
+                  src={pdfPreviewUrl}
                   title="PDF Preview"
-                  className="h-full w-full border-0 bg-white"
+                  className="pdf-preview-frame block h-full min-h-[72vh] w-full border-0 bg-white max-md:min-h-[calc(100dvh-10.75rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]"
+                  scrolling="yes"
                 />
               ) : (
                 <div className="flex h-full min-h-[320px] items-center justify-center">
@@ -532,11 +536,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               )}
             </div>
 
-            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 bg-white px-4 py-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] max-md:px-3">
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 bg-white px-4 py-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] max-md:px-3 max-md:py-2">
+              {pdfUrl ? (
+                <a
+                  href={pdfPreviewUrl ?? pdfUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="halo-touch-min rounded-full bg-white px-3 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 shadow-sm hover:bg-slate-50 max-md:px-3 max-md:text-xs"
+                >
+                  Open PDF
+                </a>
+              ) : null}
               <button
                 type="button"
                 onClick={closePdfPreview}
-                className="halo-touch-min rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-200"
+                className="halo-touch-min rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-200 max-md:px-3 max-md:text-xs"
               >
                 Back to note fields
               </button>
@@ -544,7 +558,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 type="button"
                 onClick={() => onSaveAsDocx(activeIndex)}
                 disabled={busy || !displayContent.trim()}
-                className="halo-touch-min rounded-full bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
+                className="halo-touch-min rounded-full bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50 max-md:px-3 max-md:text-xs"
               >
                 Save as DOCX
               </button>

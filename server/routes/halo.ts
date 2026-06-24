@@ -38,6 +38,7 @@ import {
 import { isOutboundMailReadyForUser, isSmtpConfigured, sendOutboundMail } from '../services/email';
 import { prepareTextForHaloDocx } from '../utils/noteTextForDocx';
 import { isHenkOutboundEmail } from '../services/userOutboundMail';
+import { trackMessageSent, trackTemplateUsed } from '../telemetry';
 
 const router = Router();
 router.use(requireAuth);
@@ -487,6 +488,7 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     const templateNameOpt =
       typeof template_name === 'string' && template_name.trim() ? template_name.trim() : undefined;
     const patientProfile = await loadPatientProfile(req, patientId);
+    trackTemplateUsed(templateId, 'halo.generate-note');
 
     console.log('[Halo] generate-note request:', {
       userId: userId.slice(0, 8) + '…',
@@ -715,6 +717,7 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
 
     const userId = config.haloMobileUserId;
     const templateId = config.haloMobileTemplateId;
+    trackTemplateUsed(templateId, 'halo.confirm-and-send');
     const templateDefinition = getLocalTemplateDefinition(userId, templateId);
     const result = await generateNote({
       user_id: userId,
@@ -762,6 +765,7 @@ router.post('/confirm-and-send', async (req: Request, res: Response) => {
           attachments: [{ filename: finalFileName, content: buffer }],
         });
         emailSent = true;
+        trackMessageSent(true);
       } catch (emailErr) {
         console.error('Halo confirm-and-send email error:', emailErr);
         // Drive save already succeeded; respond with success and emailSent: false

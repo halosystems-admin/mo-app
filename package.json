@@ -6,7 +6,7 @@
   "scripts": {
     "dev:server": "nodemon --exec ts-node server/index.ts",
     "dev:client": "cd client && npm run dev",
-    "dev": "echo \"Client dev server: http://localhost:5173\" && concurrently \"npm run dev:server\" \"wait-on http://localhost:3001/api/health && npm run dev:client\"",
+    "dev": "echo \"Client dev server: http://localhost:5173 (API port from .env PORT)\" && concurrently \"npm run dev:server\" \"node scripts/wait-for-health.mjs && npm run dev:client\"",
     "build": "cd client && npm run build && cd .. && tsc",
     "build:server": "tsc",
     "build:client": "cd client && npm run build",
@@ -22,7 +22,8 @@
     "test:live-transcript": "ts-node server/tests/liveTranscriptMerge.test.ts",
     "test:markdown-docx-parse": "ts-node server/tests/markdownDocxFieldParse.test.ts",
     "test:local-docx-save": "ts-node server/tests/localDocxSavePath.test.ts",
-    "test:henk-routing": "ts-node server/tests/henkTemplateRouting.test.ts"
+    "test:henk-routing": "ts-node server/tests/henkTemplateRouting.test.ts",
+    "verify:telemetry": "node -r dotenv/config node_modules/@halo/telemetry-discovery-js/bin/verify.mjs"
   },
   "engines": {
     "node": "20.x"
@@ -33,6 +34,7 @@
   "type": "commonjs",
   "dependencies": {
     "@deepgram/sdk": "^4.11.3",
+    "@halo/telemetry-discovery-js": "file:vendor/telemetry-discovery-js",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.103.0",
     "bcryptjs": "^3.0.2",

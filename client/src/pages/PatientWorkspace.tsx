@@ -14,6 +14,7 @@ import type {
 import { DEFAULT_HALO_TEMPLATE_ID, HALO_TEMPLATE_OPTIONS, HOSPITALS, type HospitalKey } from '../../../shared/haloTemplates';
 import { resolvePracticeHaloUserId } from '../../../shared/resolvePracticeHaloUserId';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
+import { getBundledTemplateDefinition } from '../../../shared/clinicalTemplates/registry';
 
 import {
   fetchFiles,
@@ -74,6 +75,7 @@ import { formatPatientDisplayName } from '../features/clinical/shared/clinicalDi
 
 const SAVE_RETRY_ATTEMPTS = 2;
 const SAVE_RETRY_DELAY_MS = 800;
+const HIDDEN_TEMPLATE_IDS = new Set(['ward_dictation']);
 
 const MAX_MAIN_COMPLAINT_LEN = 80;
 
@@ -525,6 +527,83 @@ function getNoteText(note: HaloNote): string {
   return '';
 }
 
+function normalizeFieldLabel(label: string): string {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[:*#]/g, '')
+    .replace(/[_\s]+/g, ' ');
+}
+
+function mergeFieldsFromNoteFields(note: HaloNote, templateId: string, haloUserId: string): Record<string, string> {
+  if (!note.fields?.length) return {};
+  const def = getBundledTemplateDefinition(haloUserId, templateId);
+  const out: Record<string, string> = {};
+
+  for (const field of note.fields) {
+    const body = String(field.body ?? '').trim();
+    if (!body) continue;
+
+    const label = normalizeFieldLabel(field.label || '');
+    const matched = def?.fields.find((templateField) => {
+      const keyLabel = normalizeFieldLabel(templateField.key.replace(/_/g, ' '));
+      return label === keyLabel;
+    });
+
+    out[matched?.key ?? label.replace(/\s+/g, '_')] = body;
+  }
+
+  return out;
+}
+
+function buildEffectiveDocxMerge(note: HaloNote, templateId: string, haloUserId: string): Record<string, string> | undefined {
+  const fromFields = mergeFieldsFromNoteFields(note, templateId, haloUserId);
+  const merged = {
+    ...Object.fromEntries(
+      Object.entries(note.docxMerge ?? {}).filter(([, value]) => String(value ?? '').trim())
+    ),
+    ...fromFields,
+  };
+  return Object.values(merged).some((value) => String(value ?? '').trim()) ? merged : undefined;
+}
+
+function patientFallbackFields(
+  templateId: string,
+  haloUserId: string,
+  profile: HaloPatientProfile | null
+): Record<string, string> {
+  const def = getBundledTemplateDefinition(haloUserId, templateId);
+  const allowed = new Set(def?.fields.map((f) => f.key) ?? []);
+  const out: Record<string, string> = {};
+  if (!profile) return out;
+
+  const maybeSet = (key: string, value?: string) => {
+    const clean = value?.trim();
+    if (clean && allowed.has(key)) out[key] = clean;
+  };
+
+  maybeSet('patient_name', formatPatientDisplayName(profile.fullName || ''));
+  maybeSet('dob', profile.dob);
+  maybeSet('id', profile.idNumber);
+  maybeSet('medical_aid', profile.medicalAidName);
+  maybeSet('medical_aid_no', profile.medicalAidMemberNumber);
+  maybeSet('contact', profile.medicalAidPhone);
+
+  return out;
+}
+
+function mergeDocxFieldsWithPatient(
+  note: HaloNote,
+  templateId: string,
+  haloUserId: string,
+  profile: HaloPatientProfile | null
+): Record<string, string> | undefined {
+  const fromPatient = patientFallbackFields(templateId, haloUserId, profile);
+  const fromNote = buildEffectiveDocxMerge(note, templateId, haloUserId) ?? {};
+  const merged = { ...fromPatient, ...fromNote };
+  return Object.values(merged).some((value) => String(value ?? '').trim()) ? merged : undefined;
+}
+
 function buildNoteGenerationInput(transcript: string, consultContext: string): string {
   const cleanTranscript = transcript.trim();
   const cleanContext = consultContext.trim();
@@ -553,14 +632,16 @@ function normalizeHaloTemplates(raw: Record<string, unknown>): Array<{ id: strin
         const name = (t.name ?? t.title ?? id ?? '') as string;
         return id && name ? { id: String(id), name: String(name) } : null;
       })
-      .filter((t): t is { id: string; name: string } => t != null);
+      .filter((t): t is { id: string; name: string } => t != null && !HIDDEN_TEMPLATE_IDS.has(t.id));
   }
   // Object: { "templateId": { name: "..." } } (e.g. Firebase users/{id}/templates)
-  return Object.entries(arr as Record<string, unknown>).map(([id, val]) => {
-    const o = val && typeof val === 'object' ? (val as Record<string, unknown>) : {};
-    const name = (o.name ?? o.title ?? id) as string;
-    return { id, name: String(name || id) };
-  });
+  return Object.entries(arr as Record<string, unknown>)
+    .filter(([id]) => !HIDDEN_TEMPLATE_IDS.has(id))
+    .map(([id, val]) => {
+      const o = val && typeof val === 'object' ? (val as Record<string, unknown>) : {};
+      const name = (o.name ?? o.title ?? id) as string;
+      return { id, name: String(name || id) };
+    });
 }
 
 interface Props {
@@ -707,6 +788,14 @@ export const PatientWorkspace: React.FC<Props> = ({
   const [stickerProfileModalOpen, setStickerProfileModalOpen] = useState(false);
   const [stickerProfileDraft, setStickerProfileDraft] = useState<HaloPatientProfile | null>(null);
   const [stickerProfileSaving, setStickerProfileSaving] = useState(false);
+  const effectiveHaloPatientProfile: HaloPatientProfile = {
+    version: 1,
+    ...(haloPatientProfile ?? {}),
+    fullName: haloPatientProfile?.fullName?.trim() || patient.name?.trim() || '',
+    dob: haloPatientProfile?.dob?.trim() || patient.dob?.trim() || '',
+    sex: haloPatientProfile?.sex || patient.sex,
+    updatedAt: haloPatientProfile?.updatedAt || new Date().toISOString(),
+  };
   const availableReferenceTemplates =
     selectedHospital === 'louis_leipoldt'
       ? templateOptions
@@ -1380,13 +1469,14 @@ export const PatientWorkspace: React.FC<Props> = ({
     try {
       const tplId = note.template_id || templateId;
       const fileName = buildNoteFileName(tplId, note.title || 'Note');
+      const mergeFields = mergeDocxFieldsWithPatient(note, tplId, practiceUserId, effectiveHaloPatientProfile);
       const saveParams = {
         patientId: patient.id,
         template_id: tplId,
         text,
         fileName,
         template_name: templateOptions.find((t) => t.id === tplId)?.name,
-        mergeFields: note.docxMerge,
+        mergeFields,
         user_id: practiceUserId,
         saveTarget: 'patient_notes' as const,
       };
@@ -1408,7 +1498,7 @@ export const PatientWorkspace: React.FC<Props> = ({
     }
     setSavingNoteIndex(null);
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId, saveNoteWithRetryAndFallback]);
+  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId, effectiveHaloPatientProfile, saveNoteWithRetryAndFallback]);
 
   const handleSaveAll = useCallback(async () => {
     setStatus(AppStatus.SAVING);
@@ -1421,13 +1511,14 @@ export const PatientWorkspace: React.FC<Props> = ({
         if (!text.trim()) continue;
         const tplId = note.template_id || templateId;
         const fileName = buildNoteFileName(tplId, note.title || `Note ${i + 1}`);
+        const mergeFields = mergeDocxFieldsWithPatient(note, tplId, practiceUserId, effectiveHaloPatientProfile);
         const outcome = await saveNoteWithRetryAndFallback({
           patientId: patient.id,
           template_id: tplId,
           text,
           fileName,
           template_name: templateOptions.find((t) => t.id === tplId)?.name,
-          mergeFields: note.docxMerge,
+          mergeFields,
           user_id: practiceUserId,
           saveTarget: 'patient_notes',
         });
@@ -1460,7 +1551,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       onToast(`${getErrorMessage(err)} Unsaved notes remain in the editor.`, 'error');
     }
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId, saveNoteWithRetryAndFallback]);
+  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast, buildNoteFileName, templateOptions, practiceUserId, effectiveHaloPatientProfile, saveNoteWithRetryAndFallback]);
 
   const handleRegeneratePdf = useCallback(async (noteIndex: number, text: string) => {
     const note = notes[noteIndex];
@@ -1468,6 +1559,7 @@ export const PatientWorkspace: React.FC<Props> = ({
     if (!note || !payloadText) return;
     const tplId = note.template_id || templateId;
     const tplName = templateOptions.find((t) => t.id === tplId)?.name;
+    const mergeFields = mergeDocxFieldsWithPatient(note, tplId, practiceUserId, effectiveHaloPatientProfile);
     setRegeneratingPdfIndex(noteIndex);
     try {
       const { pdfBase64 } = await generateNotePreviewPdf({
@@ -1475,7 +1567,7 @@ export const PatientWorkspace: React.FC<Props> = ({
         text: payloadText,
         template_name: tplName,
         patientId: patient.id,
-        mergeFields: note.docxMerge,
+        mergeFields,
         user_id: practiceUserId,
       });
       setNotes((prev) =>
@@ -1494,7 +1586,7 @@ export const PatientWorkspace: React.FC<Props> = ({
     } finally {
       setRegeneratingPdfIndex(null);
     }
-  }, [notes, onToast, templateId, templateOptions, patient.id, practiceUserId]);
+  }, [notes, onToast, templateId, templateOptions, patient.id, practiceUserId, effectiveHaloPatientProfile]);
 
   const GENERATE_TIMEOUT_MS = 130_000;
 
@@ -1534,7 +1626,7 @@ export const PatientWorkspace: React.FC<Props> = ({
                 template_name,
                 patientId: patient.id,
                 haloUserId: practiceUserId,
-                patientProfile: haloPatientProfile,
+                patientProfile: effectiveHaloPatientProfile,
               });
               return { noteResult };
             })
@@ -1599,11 +1691,11 @@ export const PatientWorkspace: React.FC<Props> = ({
             ...(n.fields && n.fields.length > 0 ? { fields: n.fields } : {}),
           })),
           ...(mainComplaint ? { mainComplaint } : {}),
-          ...(haloPatientProfile?.email?.trim()
-            ? { patientEmail: haloPatientProfile.email.trim() }
+          ...(effectiveHaloPatientProfile.email?.trim()
+            ? { patientEmail: effectiveHaloPatientProfile.email.trim() }
             : {}),
-          ...(haloPatientProfile?.medicalAidPhone?.trim()
-            ? { patientPhone: haloPatientProfile.medicalAidPhone.trim() }
+          ...(effectiveHaloPatientProfile.medicalAidPhone?.trim()
+            ? { patientPhone: effectiveHaloPatientProfile.medicalAidPhone.trim() }
             : {}),
         };
         void savePatientSession(patient.id, payload)
@@ -1631,6 +1723,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       practiceUserId,
       onToast,
       patient.id,
+      effectiveHaloPatientProfile,
       selectedHospital,
       selectedTemplatesForGenerate,
       templateOptions,
@@ -2437,9 +2530,9 @@ export const PatientWorkspace: React.FC<Props> = ({
 
       {/* Content */}
       <div
-        className={`flex min-h-0 flex-1 flex-col bg-halo-bg p-3 md:p-4 max-md:pb-[calc(9rem+env(safe-area-inset-bottom,0px))] [-webkit-overflow-scrolling:touch] ${
+        className={`flex min-h-0 flex-1 flex-col bg-halo-bg p-3 md:p-4 [-webkit-overflow-scrolling:touch] ${
           activeTab === 'notes' ? 'overflow-hidden' : 'overflow-y-auto'
-        }`}
+        } ${activeTab === 'notes' ? 'max-md:pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))]' : 'max-md:pb-[calc(9rem+env(safe-area-inset-bottom,0px))]'}`}
       >
         <div className={`mx-auto flex w-full max-w-[min(96rem,100%)] min-h-0 flex-col ${activeTab === 'notes' ? 'h-0 flex-1 overflow-hidden' : 'flex-1'}`}>
           {/* AI Panel */}

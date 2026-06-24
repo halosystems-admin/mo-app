@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { getSupabaseAdminClient, isSupabaseAdminConfigured } from '../services/supabaseAdmin';
 import { resolveDriveRootFolderName } from '../utils/resolveDriveRoot';
+import { ensureAppSessionStarted } from '../telemetry';
 
 export type AppUserRole = 'admin' | 'user';
 
@@ -23,6 +24,8 @@ declare global {
 declare module 'express-session' {
   interface SessionData {
     userId?: string;
+    appSessionStartedAt?: number;
+    authProvider?: 'email' | 'google' | 'microsoft';
   }
 }
 
@@ -87,6 +90,8 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
     driveRootFolderName,
     isActive: data.is_active,
   };
+
+  ensureAppSessionStarted(req.session);
 
   next();
 }

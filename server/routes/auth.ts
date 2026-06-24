@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { config } from '../config';
 import { storeSharedMicrosoftTokens } from '../services/sharedOauth';
+import { endAppSessionTelemetry } from '../telemetry';
 
 const router = Router();
 
@@ -205,6 +206,8 @@ router.get('/callback', async (req: Request, res: Response) => {
       });
       const user = (await userInfoRes.json()) as { email?: string };
       req.session.userEmail = user.email;
+      req.session.authProvider = 'google';
+      req.session.appSessionStartedAt = Date.now();
 
       console.log(`User signed in: ${user.email}`);
 
@@ -259,6 +262,8 @@ router.get('/callback', async (req: Request, res: Response) => {
       });
       const user = (await userInfoRes.json()) as { mail?: string; userPrincipalName?: string };
       req.session.userEmail = user.mail || user.userPrincipalName;
+      req.session.authProvider = 'microsoft';
+      req.session.appSessionStartedAt = Date.now();
 
       console.log(`User signed in (Microsoft): ${req.session.userEmail}`);
 
@@ -295,6 +300,7 @@ router.get('/me', (req: Request, res: Response) => {
 });
 
 router.post('/logout', (req: Request, res: Response) => {
+  endAppSessionTelemetry(req.session);
   req.session.destroy(() => {
     res.json({ success: true });
   });
