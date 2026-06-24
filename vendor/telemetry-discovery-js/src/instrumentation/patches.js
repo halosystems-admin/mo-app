@@ -21,16 +21,22 @@ import { extractHttpUsageFields, tryReadJsonResponseBody } from "./extract-http-
 import { wrapProviderMethod } from "./observe.js";
 
 function telemetryRequestContext() {
-  const contextSource = globalThis?.__telemetryRequestContext;
-  if (typeof contextSource === "function") {
-    try {
-      const context = contextSource();
-      return context && typeof context === "object" ? context : {};
-    } catch {
+  const getter = globalThis.__haloTelemetryRequestContext;
+  if (typeof getter !== "function") {
+    return {};
+  }
+  try {
+    const context = getter();
+    if (!context || typeof context !== "object") {
       return {};
     }
+    return {
+      request_method: typeof context.method === "string" ? context.method : undefined,
+      request_route: typeof context.route === "string" ? context.route : undefined
+    };
+  } catch {
+    return {};
   }
-  return contextSource && typeof contextSource === "object" ? contextSource : {};
 }
 
 export function patchGlobalFetch(state) {
