@@ -4,7 +4,7 @@ import { resolvePracticeHaloUserId } from '../../shared/resolvePracticeHaloUserI
 import { buildClientClinicalNotePrompt } from '../../shared/buildClientClinicalNotePrompt';
 import { localClinicalTemplateAvailable } from '../../shared/clinicalTemplates/docxFileResolver';
 import { config } from '../config';
-import { generateText } from './gemini';
+import { generateTextJson } from './gemini';
 import type { HaloNote, NoteField } from './haloApi';
 import {
   fallbackOrganisedNoteMarkdown,
@@ -98,7 +98,7 @@ export async function generateMoClinicalNotes(params: {
   let fields: NoteField[] = [];
 
   try {
-    const jsonText = await generateText(
+    const jsonText = await generateTextJson(
       fieldExtractionPrompt(composedText, templateId, tplLabel, templateDefinition)
     );
     fieldValues = enrichParsedDataWithChart(
@@ -158,7 +158,7 @@ export async function extractMoTemplateFieldValues(params: {
   templateDefinition?: ClinicalTemplateDefinition;
   patientProfile?: HaloPatientProfile | null;
 }): Promise<Record<string, string>> {
-  const jsonText = await generateText(
+  const jsonText = await generateTextJson(
     fieldExtractionPrompt(
       params.composedText,
       params.templateId,

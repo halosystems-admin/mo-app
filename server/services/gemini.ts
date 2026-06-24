@@ -15,7 +15,8 @@ function getGenAI(): GoogleGenerativeAI {
 
 /**
  * Retry wrapper for Gemini API calls with exponential backoff.
- * Retries on 429 (rate limit) and 503 (service unavailable).
+ * Retries on 429 (per-minute rate limit) and 503 (service unavailable).
+ * Does NOT retry permanent daily quota exhaustion (RESOURCE_EXHAUSTED without retry-after).
  */
 export async function withRetry<T>(fn: () => Promise<T>, maxRetries = MAX_RETRIES, delay = BASE_RETRY_DELAY_MS): Promise<T> {
   let lastError: Error | undefined;
@@ -25,8 +26,11 @@ export async function withRetry<T>(fn: () => Promise<T>, maxRetries = MAX_RETRIE
     } catch (error: unknown) {
       const err = error instanceof Error ? error : new Error(String(error));
       lastError = err;
-      const isRetryable = err.message?.includes('429') || err.message?.includes('503');
-      if (isRetryable && i < maxRetries) {
+      const msg = err.message ?? '';
+      const isRateLimit = msg.includes('429') || msg.includes('503');
+      // RESOURCE_EXHAUSTED with "quota" indicates daily/monthly cap — retrying won't help.
+      const isPermanentQuota = /RESOURCE_EXHAUSTED|quota.*exceeded|exceeded.*quota/i.test(msg) && !/retry/i.test(msg);
+      if (isRateLimit && !isPermanentQuota && i < maxRetries) {
         await new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
         continue;
       }
@@ -71,6 +75,9 @@ function wrapGeminiError(err: unknown, context: string): Error {
       `${context}: Gemini rejected the call (${msg}). Set GEMINI_API_KEY in the server .env at the project root (not Vite), save, and restart the Node server.`
     );
   }
+  if (/RESOURCE_EXHAUSTED|quota.*exceeded|exceeded.*quota/i.test(msg)) {
+    return new Error('Halo API daily quota exhausted — try again tomorrow or contact support.');
+  }
   return err instanceof Error ? err : new Error(String(err));
 }
 
@@ -103,6 +110,32 @@ export async function generateText(prompt: string): Promise<string> {
     return extractTextFromResult(result);
   } catch (e) {
     throw wrapGeminiError(e, 'generateText');
+  }
+}
+
+/**
+ * Generate text from Gemini with API-enforced JSON output (responseMimeType: application/json).
+ * Use this instead of generateText whenever the response must be valid JSON.
+ */
+export async function generateTextJson(prompt: string): Promise<string> {
+  if (!config.geminiApiKey) {
+    throw new Error('GEMINI_API_KEY is empty after trim — check .env and restart the server.');
+  }
+  try {
+    const genAI = getGenAI();
+    const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
+    const result = await withRetry(() =>
+      model.generateContent(
+        {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json' },
+        },
+        geminiRequestOptions
+      )
+    );
+    return extractTextFromResult(result);
+  } catch (e) {
+    throw wrapGeminiError(e, 'generateTextJson');
   }
 }
 
