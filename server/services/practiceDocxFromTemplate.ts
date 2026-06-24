@@ -105,6 +105,13 @@ function renderLocalDocxBuffer(
   templateDefinition?: ClinicalTemplateDefinition
 ): Buffer {
   const placeholders = buildPlaceholderMap(fieldValues, templateDefinition);
+  const total = Object.keys(placeholders).length;
+  const nonEmpty = Object.values(placeholders).filter((v) => v.trim()).length;
+  if (nonEmpty === 0) {
+    console.warn('[docx] all placeholder values are empty — DOCX will render blank fields');
+  } else {
+    console.log(`[docx] ${nonEmpty}/${total} fields populated`);
+  }
   return renderClinicalNoteDocx(templateBuf, placeholders);
 }
 

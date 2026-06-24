@@ -3,14 +3,35 @@ import type { HaloPatientProfile } from './types';
 import { formatPatientDisplayName } from './clinicalNotePrompts';
 import { getClinicalNoteEditorTemplate, buildEditorTemplateFromDefinition } from './clinicalNoteEditorTemplates';
 
-/** Strip markdown code fences and parse Gemini JSON object. */
+/** Strip markdown code fences and parse Gemini JSON object. Falls back to extracting the first {...} block. */
 export function parseGeminiJsonResponse(text: string): Record<string, unknown> {
   const cleaned = text.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
-  const parsed = JSON.parse(cleaned) as unknown;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Gemini response is not a JSON object.');
+
+  const tryParse = (s: string): Record<string, unknown> | null => {
+    try {
+      const parsed = JSON.parse(s) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // fall through
+    }
+    return null;
+  };
+
+  const direct = tryParse(cleaned);
+  if (direct) return direct;
+
+  // Gemini occasionally prefixes prose before the JSON object — extract the first {...} block.
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) {
+    const extracted = tryParse(match[0]);
+    if (extracted) return extracted;
   }
-  return parsed as Record<string, unknown>;
+
+  throw new Error(
+    `Gemini returned non-JSON (${cleaned.length} chars): ${cleaned.slice(0, 200)}`
+  );
 }
 
 export function sanitizeFieldString(value: unknown): string {
