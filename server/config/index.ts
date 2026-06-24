@@ -181,7 +181,7 @@ export const config = {
   telemetryUrl: process.env.HALO_TELEMETRY_URL || 'https://telemetry.halomedical.ai',
   telemetryToken: process.env.HALO_TELEMETRY_TOKEN || '',
   telemetryAppName: process.env.HALO_TELEMETRY_APP_NAME || 'mo-app',
-  telemetryCaptureInbound: process.env.HALO_TELEMETRY_CAPTURE_INBOUND === 'true',
+  telemetryCaptureInbound: process.env.HALO_TELEMETRY_CAPTURE_INBOUND !== 'false',
   telemetryGeminiOnly: process.env.HALO_TELEMETRY_GEMINI_ONLY !== 'false',
   telemetryCaptureMicrosoft: process.env.HALO_TELEMETRY_CAPTURE_MICROSOFT === 'true',
 } as const;

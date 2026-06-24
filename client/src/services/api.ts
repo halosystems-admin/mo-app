@@ -22,8 +22,8 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
  *
  * - In production: set VITE_API_URL to the backend origin (e.g. https://app.halo.africa)
  *   and we derive wss://.../ws/transcribe from that.
- * - In local dev (no VITE_API_URL): REST calls use Vite's /api proxy, but WebSocket
- *   needs to go directly to the Node server on port 3001.
+ * - In local dev (no VITE_API_URL): use same-origin /ws through the Vite WS proxy,
+ *   so backend PORT can vary (3000/3001/3002/etc.) without client changes.
  */
 export function getTranscribeWebSocketUrl(): string {
   // If an explicit API base is configured, derive WS URL from it
@@ -37,15 +37,12 @@ export function getTranscribeWebSocketUrl(): string {
   // Same-origin (e.g. Heroku: one HTTPS server for static + API + WebSocket)
   if (typeof window !== 'undefined') {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Local Vite: REST uses /api proxy; WebSocket must hit the Node server on 3001
-    if (window.location.hostname === 'localhost' && window.location.port === '5173') {
-      return `${wsProtocol}//localhost:3001/ws/transcribe`;
-    }
+    // Local Vite: use same-origin /ws so proxy forwards to env PORT.
     return `${wsProtocol}//${window.location.host}/ws/transcribe`;
   }
 
   // SSR / safety fallback
-  return 'ws://localhost:3001/ws/transcribe';
+  return 'ws://localhost:5173/ws/transcribe';
 }
 
 // --- Structured Error ---

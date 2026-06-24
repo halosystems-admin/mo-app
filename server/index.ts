@@ -6,6 +6,7 @@ import path from 'path';
 import http from 'http';
 import { config } from './config';
 import { initTelemetry, isTelemetryEnabled, shutdownTelemetry } from './telemetry';
+import { installTelemetryRequestContextGetter, telemetryRequestContextMiddleware } from './telemetryRequestContext';
 import { MO_TEMPLATES_DIR_NAME, HENK_TEMPLATES_DIR_NAME } from '../shared/clinicalTemplates/docxFileResolver';
 import fs from 'fs';
 import authRoutes from './routes/auth';
@@ -23,9 +24,11 @@ import workspaceRoutes from './routes/workspaces';
 // import { startScheduler } from './jobs/scheduler';
 
 async function startServer(): Promise<void> {
+  installTelemetryRequestContextGetter();
   const telemetry = await initTelemetry();
 
   const app = express();
+  app.use(telemetryRequestContextMiddleware());
 
   // Heroku terminates TLS; X-Forwarded-Proto / Host must be trusted so req.secure, cookies, and rate limits behave.
   // Use full trust on the platform router (see https://expressjs.com/en/guide/behind-proxies.html).

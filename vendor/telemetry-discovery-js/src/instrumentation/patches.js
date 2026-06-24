@@ -20,6 +20,19 @@ import {
 import { extractHttpUsageFields, tryReadJsonResponseBody } from "./extract-http-usage.js";
 import { wrapProviderMethod } from "./observe.js";
 
+function telemetryRequestContext() {
+  const contextSource = globalThis?.__telemetryRequestContext;
+  if (typeof contextSource === "function") {
+    try {
+      const context = contextSource();
+      return context && typeof context === "object" ? context : {};
+    } catch {
+      return {};
+    }
+  }
+  return contextSource && typeof contextSource === "object" ? contextSource : {};
+}
+
 export function patchGlobalFetch(state) {
   if (typeof globalThis.fetch !== "function") {
     return;
@@ -55,6 +68,7 @@ export function patchGlobalFetch(state) {
           duration_ms: Date.now() - start,
           status_code: response.status,
           success: response.ok,
+          ...telemetryRequestContext(),
           ...usageFields
         },
         { forceKeep: !response.ok }
@@ -72,6 +86,7 @@ export function patchGlobalFetch(state) {
           operation: serviceHint.operation,
           duration_ms: Date.now() - start,
           success: false,
+          ...telemetryRequestContext(),
           error_message: stringError(error)
         },
         { forceKeep: true }
@@ -121,7 +136,8 @@ function patchNodeRequestMethod(state, moduleRef, layer) {
         operation: serviceHint.operation,
         status_code: res.statusCode,
         duration_ms: Date.now() - start,
-        success: (res.statusCode ?? 500) < 400
+        success: (res.statusCode ?? 500) < 400,
+        ...telemetryRequestContext()
       });
     });
 
@@ -134,6 +150,7 @@ function patchNodeRequestMethod(state, moduleRef, layer) {
         operation: serviceHint.operation,
         duration_ms: Date.now() - start,
         success: false,
+        ...telemetryRequestContext(),
         error_message: stringError(error)
       });
     });
@@ -183,6 +200,7 @@ export function patchAxios(state) {
           status_code: response?.status ?? null,
           duration_ms: Date.now() - startedAt,
           success: (response?.status ?? 500) < 400,
+          ...telemetryRequestContext(),
           ...usageFields
         });
       }
@@ -207,6 +225,7 @@ export function patchAxios(state) {
             status_code: error?.response?.status ?? null,
             duration_ms: Date.now() - startedAt,
             success: false,
+            ...telemetryRequestContext(),
             error_message: stringError(error)
           },
           { forceKeep: true }
@@ -617,6 +636,7 @@ function patchBull(state) {
           job_name: jobName,
           duration_ms: Date.now() - startedAt,
           success: false,
+          ...telemetryRequestContext(),
           error_message: stringError(error)
         },
         { forceKeep: true }
@@ -1251,6 +1271,7 @@ function patchAwsCognitoIdentityProvider(state) {
           operation: commandName,
           duration_ms: Date.now() - start,
           success: false,
+          ...telemetryRequestContext(),
           error_message: stringError(error)
         },
         { forceKeep: true }
@@ -1381,6 +1402,7 @@ function patchAwsSdkV3DynamoDocument(state) {
           operation,
           duration_ms: Date.now() - start,
           success: false,
+          ...telemetryRequestContext(),
           error_message: stringError(error)
         },
         { forceKeep: true }
